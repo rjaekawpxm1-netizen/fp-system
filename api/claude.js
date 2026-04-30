@@ -4,6 +4,18 @@ export default async function handler(req, res) {
   }
 
   try {
+    let body = req.body;
+    
+    if (typeof body === 'string') {
+      body = JSON.parse(body);
+    }
+
+    const payload = {
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 4000,
+      messages: body.messages,
+    };
+
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -11,7 +23,7 @@ export default async function handler(req, res) {
         'x-api-key': process.env.REACT_APP_ANTHROPIC_API_KEY,
         'anthropic-version': '2023-06-01',
       },
-      body: JSON.stringify(req.body),
+      body: JSON.stringify(payload),
     });
 
     const data = await response.json();
