@@ -3,11 +3,8 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const apiKey = process.env.REACT_APP_ANTHROPIC_API_KEY;
-  
-  // API Key 확인용 (앞 10자리만)
-  const keyPreview = apiKey ? apiKey.substring(0, 15) + '...' : 'NOT FOUND';
-  
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+
   try {
     let body = req.body;
     if (typeof body === 'string') {
@@ -31,16 +28,8 @@ export default async function handler(req, res) {
     });
 
     const data = await response.json();
-    
-    if (!response.ok) {
-      return res.status(response.status).json({ 
-        error: data, 
-        keyPreview: keyPreview 
-      });
-    }
-    
-    return res.status(200).json(data);
+    return res.status(response.status).json(data);
   } catch (err) {
-    return res.status(500).json({ error: err.message, keyPreview: keyPreview });
+    return res.status(500).json({ error: err.message });
   }
 }
