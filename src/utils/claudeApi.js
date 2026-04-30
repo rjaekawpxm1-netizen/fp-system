@@ -6,30 +6,25 @@ import {
   getSystemInfoPrompt,
 } from './systemPrompt';
 
-const API_URL = '/api/claude';
-const API_KEY = process.env.REACT_APP_ANTHROPIC_API_KEY;
-
-const callClaude = async (userPrompt) => {
-  const body = {
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 4000,
-    messages: [{ role: 'user', content: String(userPrompt) }],
-  };
-
-  const response = await fetch(API_URL, {
+const callClaude = async (content) => {
+  const response = await fetch('/api/claude', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': String(API_KEY),
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      messages: [
+        {
+          role: 'user',
+          content: content,
+        },
+      ],
+    }),
   });
 
   if (!response.ok) {
     const err = await response.json();
-    throw new Error(err?.error?.message || 'API 호출 실패');
+    throw new Error(JSON.stringify(err));
   }
 
   const data = await response.json();
