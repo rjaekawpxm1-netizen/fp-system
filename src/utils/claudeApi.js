@@ -32,11 +32,13 @@ const callClaude = async (content) => {
     .map((c) => (c.type === 'text' ? c.text : ''))
     .join('');
 
-  const clean = text
-    .replace(/```json/g, '')
-    .replace(/```/g, '')
-    .trim();
+  // JSON 추출 시도
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error('JSON 형식을 찾을 수 없습니다: ' + text.substring(0, 100));
+  }
 
+  const clean = jsonMatch[0];
   return JSON.parse(clean);
 };
 
