@@ -6,7 +6,9 @@ import {
   getSystemInfoPrompt,
 } from './systemPrompt';
 
-const API_URL = 'https://api.anthropic.com/v1/messages';
+const API_URL = process.env.NODE_ENV === 'production' 
+  ? 'https://api.anthropic.com/v1/messages'
+  : '/api/claude';
 const API_KEY = process.env.REACT_APP_ANTHROPIC_API_KEY;
 
 const callClaude = async (userPrompt) => {
