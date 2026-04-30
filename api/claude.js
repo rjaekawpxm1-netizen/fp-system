@@ -27,7 +27,7 @@ export default async function handler(req) {
       messages: body.messages,
     };
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const anthropicResponse = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -37,10 +37,10 @@ export default async function handler(req) {
       body: JSON.stringify(payload),
     });
 
-    const data = await response.json();
+    const responseText = await anthropicResponse.text();
 
-    return new Response(JSON.stringify(data), {
-      status: response.status,
+    return new Response(responseText, {
+      status: anthropicResponse.status,
       headers: {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
