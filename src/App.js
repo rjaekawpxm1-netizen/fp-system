@@ -89,6 +89,22 @@ const App = () => {
     }, 500);
   }, []);
 
+  // 프로젝트 복사 (D. 프로젝트 복사)
+  const handleCopyProject = async (project, newName) => {
+    const copied = {
+      ...project,
+      id: Date.now().toString(),
+      name: newName,
+      createdAt: new Date().toISOString(),
+    };
+    try {
+      const created = await dbCreateProject(copied);
+      setProjects((prev) => [created, ...prev]);
+    } catch (err) {
+      alert('복사 실패: ' + err.message);
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', flexDirection: 'column', gap: 16, fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif' }}>
@@ -121,6 +137,7 @@ const App = () => {
                 projects={projects}
                 onCreateProject={handleCreateProject}
                 onDeleteProject={handleDeleteProject}
+                onCopyProject={handleCopyProject}
               />
             }
           />

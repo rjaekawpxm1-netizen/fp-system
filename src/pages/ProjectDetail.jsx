@@ -229,12 +229,27 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
 
   const handleGenerateFunctions = async () => {
     if (!keyword.trim()) return alert('키워드를 입력하세요.');
+
+    // E. AI 재생성 경고
+    if (functions.length > 0) {
+      const ok = window.confirm(`기존 기능 목록 ${functions.length}개가 있습니다.\nAI 재생성 시 기존 데이터가 덮어쓰기 됩니다.\n계속하시겠습니까?`);
+      if (!ok) return;
+    }
+
+    // C. 여러 키워드 일괄 생성 지원
+    const keywords = keyword.split(/[,，\s]+/).map(k => k.trim()).filter(k => k);
+
     setLoading(true);
-    setLoadingMsg('AI가 기능 목록 생성 중...');
+    setLoadingMsg(`AI가 기능 목록 생성 중... (키워드 ${keywords.length}개)`);
     try {
       saveProject({ systemName, systemOverview, mainFunctions, relatedOrgs });
-      const result = await generateFunctions(systemInfo, keyword);
-      const withId = result.map((f, i) => ({ ...f, id: Date.now() + i }));
+      let allFunctions = [];
+      for (let i = 0; i < keywords.length; i++) {
+        setLoadingMsg(`AI가 기능 목록 생성 중... (${i + 1}/${keywords.length}: ${keywords[i]})`);
+        const result = await generateFunctions(systemInfo, keywords[i]);
+        allFunctions = [...allFunctions, ...result];
+      }
+      const withId = allFunctions.map((f, i) => ({ ...f, id: Date.now() + i }));
       setFunctions(withId);
       setTab('functions');
       saveProject({ functions: withId, systemName, systemOverview, mainFunctions, relatedOrgs });
@@ -248,6 +263,12 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
 
   const handleGenerateFP = async () => {
     if (functions.length === 0) return alert('기능 목록을 먼저 생성하세요.');
+
+    // E. AI 재생성 경고
+    if (fpList.length > 0) {
+      const ok = window.confirm(`기존 FP 산정표 ${fpList.length}개가 있습니다.\nAI 재산정 시 기존 데이터가 덮어쓰기 됩니다.\n계속하시겠습니까?`);
+      if (!ok) return;
+    }
     setLoading(true);
     setLoadingMsg('AI가 FP 산정 중...');
     try {
@@ -334,6 +355,97 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
 
   const stdSummary = calcTotalFP(fpList, 'standard');
   const simpleSummary = calcTotalFP(fpList, 'simple');
+
+  // B. 전체 Excel 일괄 출력
+  const exportAllExcel = () => {
+    const wb = XLSX.utils.book_new();
+
+    // 시트1: 기능목록
+    if (functions.length > 0) {
+      const funcRows = functions.map(f => ({ 'LV1': f.lv1, 'LV2': f.lv2, 'LV3': f.lv3, '기능정의': f.definition }));
+      const ws1 = XLSX.utils.json_to_sheet(funcRows);
+      ws1['!cols'] = [{ wch: 20 }, { wch: 20 }, { wch: 25 }, { wch: 50 }];
+      XLSX.utils.book_append_sheet(wb, ws1, '기능목록');
+    }
+
+    // 시트2: FP산정표
+    if (fpList.length > 0) {
+      const fpRows = fpList.map((f) => {
+        const stdWeight = getWeight(f.fpType, f.ftr, f.det);
+        const avgWeight = getAvgWeight(f.fpType);
+        const complexity = getComplexity(f.fpType, f.ftr, f.det);
+        return {
+          'LV1': f.lv1, 'LV2': f.lv2, 'LV3': f.lv3,
+          '단위프로세스 설명': f.definition,
+          'FP유형': f.fpType, 'FTR': f.ftr, 'DET': f.det,
+          '복잡도': getComplexityLabel(complexity),
+          '정통법 가중치': stdWeight, '간이법 가중치': avgWeight,
+          '재사용유형': f.reuseType,
+          'FTR변경량': f.ftrChange || '', 'DET변경량': f.detChange || '',
+          'FTR변경률(%)': f.reuseType === '기능변경' ? f.ftrChangePct : '',
+          'DET변경률(%)': f.reuseType === '기능변경' ? f.detChangePct : '',
+          '기능변경률(%)': f.reuseType === '기능변경' ? f.funcChangePct : '',
+          '영향계수': f.reuseType === '기능변경' ? f.impactFactor : '',
+          '재사용기능점수': f.reuseScore || '', '비고': f.bigo || '',
+        };
+      });
+      const ws2 = XLSX.utils.json_to_sheet(fpRows);
+      XLSX.utils.book_append_sheet(wb, ws2, 'FP산정표');
+
+      // FP 요약
+      const summaryRows = [
+        { '구분': '정통법 신규개발', 'FP합계': stdSummary.newDev },
+        { '구분': '정통법 기능변경', 'FP합계': stdSummary.changed },
+        { '구분': '간이법 신규개발', 'FP합계': simpleSummary.newDev },
+        { '구분': '간이법 기능변경', 'FP합계': simpleSummary.changed },
+        { '구분': '기능삭제', 'FP합계': '측정 비대상' },
+      ];
+      const ws2s = XLSX.utils.json_to_sheet(summaryRows);
+      XLSX.utils.book_append_sheet(wb, ws2s, 'FP요약');
+    }
+
+    // 시트3: 화면목록
+    if (screenList.length > 0) {
+      const screenRows = screenList.map(s => ({
+        '화면ID': s.screenId, '화면명': s.screenName, '화면유형': s.screenType,
+        'LV1': s.lv1, 'LV2': s.lv2, '관련기능': s.relatedFunctions, '비고': s.note || '',
+      }));
+      const ws3 = XLSX.utils.json_to_sheet(screenRows);
+      ws3['!cols'] = [{ wch: 12 }, { wch: 25 }, { wch: 12 }, { wch: 15 }, { wch: 15 }, { wch: 40 }, { wch: 15 }];
+      XLSX.utils.book_append_sheet(wb, ws3, '화면목록');
+    }
+
+    // 시트4: 요구사항정의서
+    if (reqList.length > 0) {
+      const reqRows = reqList.map(r => ({
+        '요구사항ID': r.reqId, '유형': r.type, '요구사항명': r.reqName,
+        '상세내용': r.detail, '관련화면': r.relatedScreen,
+        '우선순위': r.priority, '비고': r.note || '',
+      }));
+      const ws4 = XLSX.utils.json_to_sheet(reqRows);
+      ws4['!cols'] = [{ wch: 12 }, { wch: 10 }, { wch: 25 }, { wch: 50 }, { wch: 12 }, { wch: 10 }, { wch: 15 }];
+      XLSX.utils.book_append_sheet(wb, ws4, '요구사항정의서');
+    }
+
+    // 시트5: CRUD 분석
+    if ((crudMatrix.matrix || []).length > 0) {
+      const entities = crudMatrix.entities || [];
+      const crudRows = (crudMatrix.matrix || []).map(f => ({
+        'LV1': f.lv1, 'LV2': f.lv2, 'LV3': f.lv3,
+        ...Object.fromEntries(entities.map(e => [e, f.crud?.[e] || ''])),
+      }));
+      const ws5 = XLSX.utils.json_to_sheet(crudRows);
+      XLSX.utils.book_append_sheet(wb, ws5, 'CRUD분석');
+    }
+
+    if (wb.SheetNames.length === 0) {
+      alert('출력할 데이터가 없습니다. 먼저 기능목록을 생성하세요.');
+      return;
+    }
+
+    const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    saveAs(new Blob([buf]), project.name + '_전체산출물.xlsx');
+  };
 
   const exportExcel = () => {
     const rows = fpList.map((f) => {
@@ -693,6 +805,9 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
           <button onClick={exportExcel} style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
             Excel 출력
           </button>
+          <button onClick={exportAllExcel} style={{ background: '#0891b2', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            📦 전체 출력
+          </button>
           <button onClick={() => navigate('/project/' + id + '/cost')} style={{ background: '#7e22ce', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
             💰 개발비 산출
           </button>
@@ -749,14 +864,17 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
               ))}
               <div>
                 <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>
-                  키워드 입력 <span style={{ color: '#6b7280', fontWeight: 400 }}>(예: 연동계획, 연동운영)</span>
+                  키워드 입력 <span style={{ color: '#6b7280', fontWeight: 400 }}>(쉼표로 구분하면 여러 키워드 한번에 생성)</span>
                 </label>
                 <div style={{ display: 'flex', gap: 10 }}>
-                  <input value={keyword} onChange={(e) => setKeyword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleGenerateFunctions()} placeholder="키워드 입력 후 Enter 또는 버튼 클릭" style={{ ...inputStyle, flex: 1 }} />
+                  <input value={keyword} onChange={(e) => setKeyword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleGenerateFunctions()} placeholder="예: 연동계획, 연동운영, 체계관리" style={{ ...inputStyle, flex: 1 }} />
                   <button onClick={handleGenerateFunctions} style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                     AI 기능목록 생성
                   </button>
                 </div>
+                <p style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
+                  💡 여러 키워드를 쉼표로 구분하면 한번에 생성됩니다. 예: "연동계획, 연동운영, 연동관제"
+                </p>
                 <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
                   {['연동계획', '연동운영', '연동관제', '체계운영', '체계관리'].map((kw) => (
                     <button key={kw} onClick={() => setKeyword(kw)} style={{ padding: '4px 12px', borderRadius: 20, fontSize: 12, background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', cursor: 'pointer' }}>{kw}</button>
