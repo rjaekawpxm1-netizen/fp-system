@@ -118,6 +118,57 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
     return { entities: [], matrix: [] };
   });
   const [crudLoading, setCrudLoading] = useState(false);
+  const [showValidation, setShowValidation] = useState(false);
+  const [ifList, setIfList] = useState(project?.ifList || []);
+  const [ifLoading, setIfLoading] = useState(false);
+  const [wbsList, setWbsList] = useState(project?.wbsList || []);
+  const [wbsLoading, setWbsLoading] = useState(false);
+
+  // ============================================================
+  // 4. FP 검증 기능
+  // ============================================================
+  const validateFP = () => {
+    const issues = [];
+    const lv3Names = fpList.map(f => f.lv3?.trim()).filter(Boolean);
+    const duplicates = lv3Names.filter((name, i) => lv3Names.indexOf(name) !== i);
+    [...new Set(duplicates)].forEach(name => {
+      issues.push({ severity: 'error', type: '중복 기능', message: `"${name}" 기능이 중복 식별됩니다.` });
+    });
+
+    fpList.forEach((f, i) => {
+      const rowNum = i + 1;
+      const name = f.lv3 || `${rowNum}번째 행`;
+      const lv3 = (f.lv3 || '').toLowerCase();
+
+      if ((lv3.includes('등록') || lv3.includes('수정') || lv3.includes('삭제') || lv3.includes('승인')) && f.fpType === 'EQ') {
+        issues.push({ severity: 'warning', type: 'FP유형 의심', message: `"${name}": 등록/수정/삭제는 EI가 맞습니다. (현재: EQ)` });
+      }
+      if ((lv3.includes('조회') || lv3.includes('검색') || lv3.includes('목록')) && f.fpType === 'EI') {
+        issues.push({ severity: 'warning', type: 'FP유형 의심', message: `"${name}": 조회/검색/목록은 EQ가 맞습니다. (현재: EI)` });
+      }
+      if ((lv3.includes('통계') || lv3.includes('보고서') || lv3.includes('집계')) && f.fpType === 'EQ') {
+        issues.push({ severity: 'warning', type: 'FP유형 의심', message: `"${name}": 통계/보고서/집계는 EO가 맞습니다. (현재: EQ)` });
+      }
+
+      const det = Number(f.det);
+      const ftr = Number(f.ftr);
+      if (det < 2) issues.push({ severity: 'warning', type: 'DET 이상치', message: `"${name}": DET=${det} (최소 2 이상 권장)` });
+      if (det > 50 && ['EI','EQ'].includes(f.fpType)) issues.push({ severity: 'info', type: 'DET 검토', message: `"${name}": DET=${det} (50 초과, 검토 필요)` });
+      if (ftr === 0 && ['EI','EO','EQ'].includes(f.fpType)) issues.push({ severity: 'error', type: 'FTR 오류', message: `"${name}": FTR=0은 불가합니다. (최소 1 이상)` });
+      if (f.fpType === 'EIF' && f.reuseType === '기능변경') issues.push({ severity: 'error', type: 'EIF 오류', message: `"${name}": EIF는 기능변경 측정 대상이 아닙니다.` });
+      if (!f.lv3?.trim()) issues.push({ severity: 'error', type: '필수값 누락', message: `${rowNum}번째 행: LV3(단위프로세스명)이 비어있습니다.` });
+    });
+
+    const ilfCount = fpList.filter(f => f.fpType === 'ILF').length;
+    const eifCount = fpList.filter(f => f.fpType === 'EIF').length;
+    const maxFtr = fpList.filter(f => ['EI','EO','EQ'].includes(f.fpType)).reduce((max, f) => Math.max(max, Number(f.ftr)), 0);
+    if (maxFtr > ilfCount + eifCount && fpList.length > 0) {
+      issues.push({ severity: 'info', type: 'FTR 검토', message: `최대 FTR(${maxFtr}) > ILF+EIF 수(${ilfCount + eifCount}). ILF/EIF가 누락됐을 수 있습니다.` });
+    }
+
+    return issues;
+  };
+  const [showValidation, setShowValidation] = useState(false);
 
   if (!project) {
     return (
@@ -816,7 +867,7 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
 
       {/* 탭 */}
       <div style={{ display: 'flex', borderBottom: '2px solid #e5e7eb', marginBottom: 24 }}>
-        {[{ key: 'setup', label: '① 시스템 개요' }, { key: 'functions', label: '② 기능 목록' }, { key: 'fp', label: '③ FP 산정표' }, { key: 'screens', label: '④ 화면 목록' }, { key: 'requirements', label: '⑤ 요구사항 정의서' }, { key: 'crud', label: '⑥ CRUD 분석' }].map((t) => (
+        {[{ key: 'setup', label: '① 시스템 개요' }, { key: 'functions', label: '② 기능 목록' }, { key: 'fp', label: '③ FP 산정표' }, { key: 'screens', label: '④ 화면 목록' }, { key: 'requirements', label: '⑤ 요구사항 정의서' }, { key: 'crud', label: '⑥ CRUD 분석' }, { key: 'interface', label: '⑦ 인터페이스 정의서' }, { key: 'wbs', label: '⑧ WBS' }].map((t) => (
           <button key={t.key} onClick={() => setTab(t.key)} style={{ padding: '10px 24px', fontSize: 14, fontWeight: 600, border: 'none', background: 'none', cursor: 'pointer', borderBottom: tab === t.key ? '2px solid #2563eb' : '2px solid transparent', color: tab === t.key ? '#2563eb' : '#6b7280', marginBottom: -2 }}>
             {t.label}
           </button>
@@ -996,8 +1047,49 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                 <span style={{ fontSize: 11, color: '#6b7280', background: '#f0fdf4', padding: '2px 8px', borderRadius: 4 }}>EI=4.0 EO=5.2 EQ=3.9 ILF=7.5 EIF=5.4</span>
               )}
             </div>
-            <button onClick={addFPRow} style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>+ 행 추가</button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => setShowValidation(!showValidation)}
+                style={{ background: showValidation ? '#fef2f2' : '#fff7ed', color: showValidation ? '#dc2626' : '#ea580c', border: `1px solid ${showValidation ? '#fca5a5' : '#fdba74'}`, borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+              >
+                {showValidation ? '검증 닫기' : '🔍 FP 검증'}
+              </button>
+              <button onClick={addFPRow} style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>+ 행 추가</button>
+            </div>
           </div>
+
+          {/* 검증 결과 */}
+          {showValidation && (() => {
+            const issues = validateFP();
+            const errors = issues.filter(i => i.severity === 'error');
+            const warnings = issues.filter(i => i.severity === 'warning');
+            const infos = issues.filter(i => i.severity === 'info');
+            return (
+              <div style={{ marginBottom: 16, border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
+                <div style={{ padding: '12px 16px', background: issues.length === 0 ? '#f0fdf4' : errors.length > 0 ? '#fef2f2' : '#fff7ed', display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <span style={{ fontSize: 18 }}>{issues.length === 0 ? '✅' : errors.length > 0 ? '❌' : '⚠️'}</span>
+                  <span style={{ fontWeight: 700, fontSize: 14, color: issues.length === 0 ? '#166534' : errors.length > 0 ? '#dc2626' : '#ea580c' }}>
+                    {issues.length === 0 ? 'FP 산정이 정확합니다!' : `총 ${issues.length}개 항목 검토 필요 (오류 ${errors.length}, 경고 ${warnings.length}, 정보 ${infos.length})`}
+                  </span>
+                </div>
+                {issues.length > 0 && (
+                  <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {issues.map((issue, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '6px 10px', borderRadius: 6, background: issue.severity === 'error' ? '#fef2f2' : issue.severity === 'warning' ? '#fff7ed' : '#eff6ff' }}>
+                        <span style={{ fontSize: 14, flexShrink: 0 }}>{issue.severity === 'error' ? '❌' : issue.severity === 'warning' ? '⚠️' : 'ℹ️'}</span>
+                        <div>
+                          <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 6px', borderRadius: 4, marginRight: 6, background: issue.severity === 'error' ? '#fee2e2' : issue.severity === 'warning' ? '#fef9c3' : '#dbeafe', color: issue.severity === 'error' ? '#dc2626' : issue.severity === 'warning' ? '#854d0e' : '#1e40af' }}>
+                            {issue.type}
+                          </span>
+                          <span style={{ fontSize: 12, color: '#374151' }}>{issue.message}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* 범례 */}
           <div style={{ display: 'flex', gap: 12, marginBottom: 12, fontSize: 11, color: '#6b7280' }}>
@@ -1446,6 +1538,289 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                     </div>
                   );
                 })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ⑦ 인터페이스 정의서 */}
+      {tab === 'interface' && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <p style={{ fontSize: 14, color: '#6b7280', margin: 0 }}>총 {ifList.length}개 인터페이스 · EIF 기반 자동 생성</p>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={async () => {
+                  if (fpList.length === 0) return alert('FP 산정표를 먼저 작성하세요.');
+                  if (ifList.length > 0 && !window.confirm('기존 인터페이스 정의서를 덮어쓰시겠습니까?')) return;
+                  setIfLoading(true);
+                  try {
+                    const eifList = fpList.filter(f => f.fpType === 'EIF');
+                    const response = await fetch('/api/claude', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        messages: [{
+                          role: 'user',
+                          content: `SW사업 BA 전문가로서 아래 EIF(외부연계파일) 목록을 기반으로 인터페이스 정의서를 작성하세요.
+
+시스템명: ${systemName}
+EIF 목록:
+${JSON.stringify(eifList.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, definition: f.definition })), null, 2)}
+
+각 EIF에 대해:
+- ifId: IF-001 형식
+- ifName: 인터페이스명
+- sendSystem: 송신 시스템명
+- receiveSystem: 수신 시스템명 (현재 시스템 또는 외부)
+- method: 연동방식 (REST API/DB Link/파일/MQ/SOAP 중)
+- cycle: 연동주기 (실시간/배치/일회성)
+- dataItems: 주요 데이터 항목 (쉼표 구분)
+- note: 비고
+
+JSON만 응답:
+{"interfaces":[{"ifId":"IF-001","ifName":"","sendSystem":"","receiveSystem":"","method":"REST API","cycle":"실시간","dataItems":"","note":""}]}`
+                        }]
+                      }),
+                    });
+                    const data = await response.json();
+                    const text = data.content.map(c => c.type === 'text' ? c.text : '').join('');
+                    const start = text.indexOf('{'); const end = text.lastIndexOf('}');
+                    const parsed = JSON.parse(text.slice(start, end + 1));
+                    const withId = (parsed.interfaces || []).map((f, i) => ({ ...f, id: Date.now() + i }));
+                    setIfList(withId);
+                    saveProject({ ifList: withId });
+                  } catch (err) { alert('오류: ' + err.message); }
+                  finally { setIfLoading(false); }
+                }}
+                disabled={ifLoading}
+                style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: ifLoading ? 0.6 : 1 }}
+              >
+                {ifLoading ? '⚙️ AI 생성 중...' : 'AI 인터페이스 생성'}
+              </button>
+              <button
+                onClick={() => {
+                  const updated = [...ifList, { id: Date.now(), ifId: `IF-${String(ifList.length+1).padStart(3,'0')}`, ifName: '', sendSystem: '', receiveSystem: systemName, method: 'REST API', cycle: '실시간', dataItems: '', note: '' }];
+                  setIfList(updated); saveProject({ ifList: updated });
+                }}
+                style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}
+              >+ 행 추가</button>
+              <button
+                onClick={() => {
+                  const rows = ifList.map(f => ({ '인터페이스ID': f.ifId, '인터페이스명': f.ifName, '송신시스템': f.sendSystem, '수신시스템': f.receiveSystem, '연동방식': f.method, '연동주기': f.cycle, '주요데이터항목': f.dataItems, '비고': f.note }));
+                  const wb = XLSX.utils.book_new();
+                  const ws = XLSX.utils.json_to_sheet(rows);
+                  XLSX.utils.book_append_sheet(wb, ws, '인터페이스정의서');
+                  const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+                  saveAs(new Blob([buf]), project.name + '_인터페이스정의서.xlsx');
+                }}
+                style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+              >Excel 출력</button>
+            </div>
+          </div>
+
+          {ifList.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '60px 0', color: '#9ca3af', border: '2px dashed #e5e7eb', borderRadius: 12 }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>🔗</div>
+              <p style={{ fontSize: 15, marginBottom: 8 }}>인터페이스 정의서가 없습니다</p>
+              <p style={{ fontSize: 13 }}>FP 산정표에 EIF를 입력한 후 AI 생성 버튼을 클릭하세요</p>
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc' }}>
+                    {['인터페이스ID','인터페이스명','송신시스템','수신시스템','연동방식','연동주기','주요 데이터 항목','비고','삭제'].map(h => (
+                      <th key={h} style={{ ...cellStyle, fontWeight: 600, color: '#374151', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap', textAlign: 'left' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {ifList.map((f) => (
+                    <tr key={f.id}>
+                      <td style={{ ...cellStyle, whiteSpace: 'nowrap' }}>
+                        <input value={f.ifId||''} onChange={e => { const u=ifList.map(r=>r.id===f.id?{...r,ifId:e.target.value}:r); setIfList(u); saveProject({ifList:u}); }} style={{ width: 70, border: 'none', outline: 'none', fontSize: 12, background: 'transparent', fontWeight: 600, color: '#2563eb' }} />
+                      </td>
+                      {['ifName','sendSystem','receiveSystem'].map(field => (
+                        <td key={field} style={{ ...cellStyle, minWidth: 100 }}>
+                          <input value={f[field]||''} onChange={e => { const u=ifList.map(r=>r.id===f.id?{...r,[field]:e.target.value}:r); setIfList(u); saveProject({ifList:u}); }} style={{ width: '100%', border: 'none', outline: 'none', fontSize: 12, background: 'transparent' }} />
+                        </td>
+                      ))}
+                      <td style={cellStyle}>
+                        <select value={f.method||'REST API'} onChange={e => { const u=ifList.map(r=>r.id===f.id?{...r,method:e.target.value}:r); setIfList(u); saveProject({ifList:u}); }} style={{ fontSize: 11, border: '1px solid #d1d5db', borderRadius: 4, padding: '2px 4px' }}>
+                          {['REST API','DB Link','파일','MQ','SOAP','Web Service'].map(m => <option key={m}>{m}</option>)}
+                        </select>
+                      </td>
+                      <td style={cellStyle}>
+                        <select value={f.cycle||'실시간'} onChange={e => { const u=ifList.map(r=>r.id===f.id?{...r,cycle:e.target.value}:r); setIfList(u); saveProject({ifList:u}); }} style={{ fontSize: 11, border: '1px solid #d1d5db', borderRadius: 4, padding: '2px 4px' }}>
+                          {['실시간','배치(일간)','배치(주간)','배치(월간)','일회성','이벤트'].map(c => <option key={c}>{c}</option>)}
+                        </select>
+                      </td>
+                      <td style={{ ...cellStyle, minWidth: 200 }}>
+                        <textarea value={f.dataItems||''} onChange={e => { const u=ifList.map(r=>r.id===f.id?{...r,dataItems:e.target.value}:r); setIfList(u); saveProject({ifList:u}); }} rows={2} style={{ width: '100%', border: 'none', outline: 'none', fontSize: 12, background: 'transparent', resize: 'vertical', fontFamily: 'inherit' }} />
+                      </td>
+                      <td style={{ ...cellStyle, minWidth: 80 }}>
+                        <input value={f.note||''} onChange={e => { const u=ifList.map(r=>r.id===f.id?{...r,note:e.target.value}:r); setIfList(u); saveProject({ifList:u}); }} style={{ width: '100%', border: 'none', outline: 'none', fontSize: 12, background: 'transparent' }} />
+                      </td>
+                      <td style={cellStyle}>
+                        <button onClick={() => { const u=ifList.filter(r=>r.id!==f.id); setIfList(u); saveProject({ifList:u}); }} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: 16 }}>✕</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ⑧ WBS */}
+      {tab === 'wbs' && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <p style={{ fontSize: 14, color: '#6b7280', margin: 0 }}>총 {wbsList.length}개 작업 · 기능목록 기반 개발 일정 자동 생성</p>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={async () => {
+                  if (functions.length === 0) return alert('기능 목록을 먼저 생성하세요.');
+                  if (wbsList.length > 0 && !window.confirm('기존 WBS를 덮어쓰시겠습니까?')) return;
+                  setWbsLoading(true);
+                  try {
+                    const response = await fetch('/api/claude', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        messages: [{
+                          role: 'user',
+                          content: `SW사업 BA 전문가로서 아래 기능목록 기반으로 WBS(작업분류체계)를 작성하세요.
+
+시스템명: ${systemName}
+총 기능수: ${functions.length}개
+FP합계(정통법 신규): ${stdSummary.newDev} FP
+
+기능 목록:
+${JSON.stringify(functions.map(f=>({lv1:f.lv1,lv2:f.lv2,lv3:f.lv3})),null,2)}
+
+WBS 규칙:
+- 단계: 분석/설계/개발/테스트/이행 순서
+- LV2 업무단위별로 그룹화
+- 각 단계별 공수(일) 산정
+- 담당자: 분석가/설계자/개발자/테스터 구분
+- 전자정부프레임워크 기준 적용
+
+JSON만 응답:
+{"wbs":[{"wbsId":"1","phase":"분석","task":"요구사항 분석","lv1":"","lv2":"","workDays":3,"role":"분석가","note":""}]}`
+                        }]
+                      }),
+                    });
+                    const data = await response.json();
+                    const text = data.content.map(c=>c.type==='text'?c.text:'').join('');
+                    const start = text.indexOf('{'); const end = text.lastIndexOf('}');
+                    const parsed = JSON.parse(text.slice(start, end+1));
+                    const withId = (parsed.wbs||[]).map((w,i)=>({...w,id:Date.now()+i}));
+                    setWbsList(withId);
+                    saveProject({ wbsList: withId });
+                  } catch(err) { alert('오류: '+err.message); }
+                  finally { setWbsLoading(false); }
+                }}
+                disabled={wbsLoading}
+                style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: wbsLoading ? 0.6 : 1 }}
+              >
+                {wbsLoading ? '⚙️ AI 생성 중...' : 'AI WBS 생성'}
+              </button>
+              <button
+                onClick={() => {
+                  const rows = wbsList.map(w=>({'WBS ID':w.wbsId,'단계':w.phase,'작업명':w.task,'LV1':w.lv1,'LV2':w.lv2,'공수(일)':w.workDays,'담당자':w.role,'비고':w.note}));
+                  const wb = XLSX.utils.book_new();
+                  const ws = XLSX.utils.json_to_sheet(rows);
+                  ws['!cols']=[{wch:8},{wch:10},{wch:30},{wch:15},{wch:15},{wch:10},{wch:10},{wch:20}];
+                  XLSX.utils.book_append_sheet(wb,ws,'WBS');
+                  const buf=XLSX.write(wb,{bookType:'xlsx',type:'array'});
+                  saveAs(new Blob([buf]),project.name+'_WBS.xlsx');
+                }}
+                style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+              >Excel 출력</button>
+            </div>
+          </div>
+
+          {wbsList.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '60px 0', color: '#9ca3af', border: '2px dashed #e5e7eb', borderRadius: 12 }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>📅</div>
+              <p style={{ fontSize: 15, marginBottom: 8 }}>WBS가 없습니다</p>
+              <p style={{ fontSize: 13 }}>기능 목록 생성 후 AI WBS 생성 버튼을 클릭하세요</p>
+            </div>
+          ) : (
+            <div>
+              {/* 단계별 요약 */}
+              <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+                {['분석','설계','개발','테스트','이행'].map(phase => {
+                  const phaseTasks = wbsList.filter(w=>w.phase===phase);
+                  const totalDays = phaseTasks.reduce((sum,w)=>sum+Number(w.workDays||0),0);
+                  if (phaseTasks.length === 0) return null;
+                  return (
+                    <div key={phase} style={{ background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 16px', minWidth: 100, textAlign: 'center' }}>
+                      <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>{phase}</div>
+                      <div style={{ fontSize: 18, fontWeight: 700, color: '#2563eb' }}>{totalDays}일</div>
+                      <div style={{ fontSize: 11, color: '#9ca3af' }}>{phaseTasks.length}개 작업</div>
+                    </div>
+                  );
+                })}
+                <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '10px 16px', minWidth: 100, textAlign: 'center' }}>
+                  <div style={{ fontSize: 12, color: '#1e40af', marginBottom: 4 }}>총 공수</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: '#1e40af' }}>{wbsList.reduce((sum,w)=>sum+Number(w.workDays||0),0)}일</div>
+                  <div style={{ fontSize: 11, color: '#6b7280' }}>{wbsList.length}개 작업</div>
+                </div>
+              </div>
+
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc' }}>
+                      {['WBS ID','단계','작업명','LV1','LV2','공수(일)','담당자','비고','삭제'].map(h => (
+                        <th key={h} style={{ ...cellStyle, fontWeight: 600, color: '#374151', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap', textAlign: 'left' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {wbsList.map((w) => {
+                      const phaseColor = { '분석':'#eff6ff', '설계':'#f0fdf4', '개발':'#fff7ed', '테스트':'#fdf4ff', '이행':'#fef2f2' }[w.phase] || '#f9fafb';
+                      return (
+                        <tr key={w.id} style={{ background: phaseColor }}>
+                          <td style={{ ...cellStyle, whiteSpace: 'nowrap', fontWeight: 600, color: '#374151' }}>{w.wbsId}</td>
+                          <td style={{ ...cellStyle, whiteSpace: 'nowrap' }}>
+                            <select value={w.phase||'개발'} onChange={e=>{const u=wbsList.map(r=>r.id===w.id?{...r,phase:e.target.value}:r);setWbsList(u);saveProject({wbsList:u});}} style={{ fontSize: 11, border: '1px solid #d1d5db', borderRadius: 4, padding: '2px 4px' }}>
+                              {['분석','설계','개발','테스트','이행'].map(p=><option key={p}>{p}</option>)}
+                            </select>
+                          </td>
+                          <td style={{ ...cellStyle, minWidth: 180 }}>
+                            <input value={w.task||''} onChange={e=>{const u=wbsList.map(r=>r.id===w.id?{...r,task:e.target.value}:r);setWbsList(u);saveProject({wbsList:u});}} style={{ width:'100%',border:'none',outline:'none',fontSize:12,background:'transparent',fontWeight:500 }} />
+                          </td>
+                          <td style={{ ...cellStyle, whiteSpace: 'nowrap' }}>
+                            <input value={w.lv1||''} onChange={e=>{const u=wbsList.map(r=>r.id===w.id?{...r,lv1:e.target.value}:r);setWbsList(u);saveProject({wbsList:u});}} style={{ width:80,border:'none',outline:'none',fontSize:12,background:'transparent' }} />
+                          </td>
+                          <td style={{ ...cellStyle, whiteSpace: 'nowrap' }}>
+                            <input value={w.lv2||''} onChange={e=>{const u=wbsList.map(r=>r.id===w.id?{...r,lv2:e.target.value}:r);setWbsList(u);saveProject({wbsList:u});}} style={{ width:90,border:'none',outline:'none',fontSize:12,background:'transparent' }} />
+                          </td>
+                          <td style={{ ...cellStyle, textAlign: 'center' }}>
+                            <input type="number" value={w.workDays||0} onChange={e=>{const u=wbsList.map(r=>r.id===w.id?{...r,workDays:Number(e.target.value)}:r);setWbsList(u);saveProject({wbsList:u});}} style={{ width:50,border:'1px solid #d1d5db',borderRadius:4,padding:'2px 4px',fontSize:12,textAlign:'center' }} />
+                          </td>
+                          <td style={cellStyle}>
+                            <select value={w.role||'개발자'} onChange={e=>{const u=wbsList.map(r=>r.id===w.id?{...r,role:e.target.value}:r);setWbsList(u);saveProject({wbsList:u});}} style={{ fontSize:11,border:'1px solid #d1d5db',borderRadius:4,padding:'2px 4px' }}>
+                              {['분석가','설계자','개발자','테스터','PM'].map(r=><option key={r}>{r}</option>)}
+                            </select>
+                          </td>
+                          <td style={{ ...cellStyle, minWidth: 80 }}>
+                            <input value={w.note||''} onChange={e=>{const u=wbsList.map(r=>r.id===w.id?{...r,note:e.target.value}:r);setWbsList(u);saveProject({wbsList:u});}} style={{ width:'100%',border:'none',outline:'none',fontSize:12,background:'transparent' }} />
+                          </td>
+                          <td style={cellStyle}>
+                            <button onClick={()=>{const u=wbsList.filter(r=>r.id!==w.id);setWbsList(u);saveProject({wbsList:u});}} style={{ background:'none',border:'none',color:'#ef4444',cursor:'pointer',fontSize:16 }}>✕</button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}

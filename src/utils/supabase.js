@@ -70,6 +70,8 @@ const dbToProject = (row) => ({
   screenList: row.screen_list || [],
   reqList: row.req_list || [],
   crudMatrix: row.crud_matrix || { entities: [], matrix: [] },
+  ifList: row.if_list || [],
+  wbsList: row.wbs_list || [],
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
@@ -89,5 +91,7 @@ const projectToDb = (project) => {
   if (project.screenList !== undefined) db.screen_list = project.screenList;
   if (project.reqList !== undefined) db.req_list = project.reqList;
   if (project.crudMatrix !== undefined) db.crud_matrix = project.crudMatrix;
+  if (project.ifList !== undefined) db.if_list = project.ifList;
+  if (project.wbsList !== undefined) db.wbs_list = project.wbsList;
   return db;
 };
