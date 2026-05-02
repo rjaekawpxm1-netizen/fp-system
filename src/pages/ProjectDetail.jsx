@@ -110,6 +110,8 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
   const [fpList, setFpList] = useState(project?.fpList || []);
   const [screenList, setScreenList] = useState(project?.screenList || []);
   const [screenLoading, setScreenLoading] = useState(false);
+  const [reqList, setReqList] = useState(project?.reqList || []);
+  const [reqLoading, setReqLoading] = useState(false);
 
   if (!project) {
     return (
@@ -453,6 +455,106 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
   };
 
   const SCREEN_TYPES = ['목록화면', '상세화면', '등록화면', '수정화면', '팝업', '대시보드', '보고서', '기타'];
+
+  // 요구사항 AI 자동 생성
+  const handleGenerateRequirements = async () => {
+    if (functions.length === 0) return alert('기능 목록을 먼저 생성하세요.');
+    setReqLoading(true);
+    try {
+      const response = await fetch('/api/claude', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{
+            role: 'user',
+            content: `당신은 SW사업 BA 전문가입니다.
+아래 기능 목록과 화면 목록을 분석하여 요구사항 정의서를 생성하세요.
+
+기능 목록:
+${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, definition: f.definition })), null, 2)}
+
+화면 목록:
+${JSON.stringify(screenList.map(s => ({ screenId: s.screenId, screenName: s.screenName })), null, 2)}
+
+규칙:
+1. 기능 요구사항(FR): 각 LV3 기능별로 1~2개 생성
+   - "시스템은 ~할 수 있어야 한다" 형식
+   - 관련 화면ID 연결
+2. 비기능 요구사항(NFR): 성능/보안/가용성/사용성 각 1~2개
+   - 응답시간, 동시접속, 보안, 가용성 등
+3. 제약사항(CON): 기술/환경 제약 1~2개
+4. 우선순위: 상/중/하
+
+반드시 아래 JSON만 응답 (다른 텍스트 없이):
+{"requirements":[{"reqId":"FR-001","type":"기능","reqName":"요구사항명","detail":"상세내용 (~해야 한다 형식)","relatedScreen":"SCR-001","priority":"상","note":""}]}`
+          }]
+        }),
+      });
+      const data = await response.json();
+      const text = data.content.map(c => c.type === 'text' ? c.text : '').join('');
+      const start = text.indexOf('{');
+      const end = text.lastIndexOf('}');
+      const parsed = JSON.parse(text.slice(start, end + 1));
+      const withId = (parsed.requirements || []).map((r, i) => ({ ...r, id: Date.now() + i }));
+      setReqList(withId);
+      saveProject({ reqList: withId });
+    } catch (err) {
+      alert('오류: ' + err.message);
+    } finally {
+      setReqLoading(false);
+    }
+  };
+
+  const updateReq = (rid, field, value) => {
+    const updated = reqList.map(r => r.id === rid ? { ...r, [field]: value } : r);
+    setReqList(updated);
+    saveProject({ reqList: updated });
+  };
+
+  const addReq = () => {
+    const frCount = reqList.filter(r => r.type === '기능').length;
+    const nextNum = String(frCount + 1).padStart(3, '0');
+    const updated = [...reqList, { id: Date.now(), reqId: 'FR-' + nextNum, type: '기능', reqName: '', detail: '', relatedScreen: '', priority: '중', note: '' }];
+    setReqList(updated);
+    saveProject({ reqList: updated });
+  };
+
+  const deleteReq = (rid) => {
+    const updated = reqList.filter(r => r.id !== rid);
+    setReqList(updated);
+    saveProject({ reqList: updated });
+  };
+
+  const exportReqExcel = () => {
+    const rows = reqList.map(r => ({
+      '요구사항ID': r.reqId,
+      '유형': r.type,
+      '요구사항명': r.reqName,
+      '상세내용': r.detail,
+      '관련화면': r.relatedScreen,
+      '우선순위': r.priority,
+      '비고': r.note || '',
+    }));
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [{ wch: 12 }, { wch: 10 }, { wch: 25 }, { wch: 50 }, { wch: 12 }, { wch: 10 }, { wch: 15 }];
+    XLSX.utils.book_append_sheet(wb, ws, '요구사항정의서');
+    const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    saveAs(new Blob([buf]), project.name + '_요구사항정의서.xlsx');
+  };
+
+  const REQ_TYPES = ['기능', '비기능', '제약사항'];
+  const PRIORITIES = ['상', '중', '하'];
+  const TYPE_COLORS = {
+    기능: { bg: '#eff6ff', color: '#1e40af' },
+    비기능: { bg: '#f0fdf4', color: '#166534' },
+    제약사항: { bg: '#fff7ed', color: '#9a3412' },
+  };
+  const PRIORITY_COLORS = {
+    상: { bg: '#fef2f2', color: '#dc2626' },
+    중: { bg: '#fff7ed', color: '#ea580c' },
+    하: { bg: '#f8fafc', color: '#6b7280' },
+  };
   const numInput = (value, onChange, width = 45) => (
     <input
       type="number"
@@ -501,7 +603,7 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
 
       {/* 탭 */}
       <div style={{ display: 'flex', borderBottom: '2px solid #e5e7eb', marginBottom: 24 }}>
-        {[{ key: 'setup', label: '① 시스템 개요' }, { key: 'functions', label: '② 기능 목록' }, { key: 'fp', label: '③ FP 산정표' }, { key: 'screens', label: '④ 화면 목록' }].map((t) => (
+        {[{ key: 'setup', label: '① 시스템 개요' }, { key: 'functions', label: '② 기능 목록' }, { key: 'fp', label: '③ FP 산정표' }, { key: 'screens', label: '④ 화면 목록' }, { key: 'requirements', label: '⑤ 요구사항 정의서' }].map((t) => (
           <button key={t.key} onClick={() => setTab(t.key)} style={{ padding: '10px 24px', fontSize: 14, fontWeight: 600, border: 'none', background: 'none', cursor: 'pointer', borderBottom: tab === t.key ? '2px solid #2563eb' : '2px solid transparent', color: tab === t.key ? '#2563eb' : '#6b7280', marginBottom: -2 }}>
             {t.label}
           </button>
@@ -902,6 +1004,108 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                       </td>
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+      {/* ⑤ 요구사항 정의서 */}
+      {tab === 'requirements' && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <p style={{ fontSize: 14, color: '#6b7280', margin: 0 }}>총 {reqList.length}개 요구사항 · 셀 클릭하여 수정 가능</p>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {[
+                  { type: '기능', color: TYPE_COLORS['기능'] },
+                  { type: '비기능', color: TYPE_COLORS['비기능'] },
+                  { type: '제약사항', color: TYPE_COLORS['제약사항'] },
+                ].map(t => (
+                  <span key={t.type} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: t.color.bg, color: t.color.color, fontWeight: 500 }}>
+                    {t.type} {reqList.filter(r => r.type === t.type).length}개
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={handleGenerateRequirements}
+                disabled={reqLoading}
+                style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: reqLoading ? 0.6 : 1 }}
+              >
+                {reqLoading ? '⚙️ AI 생성 중...' : 'AI 요구사항 생성'}
+              </button>
+              <button onClick={addReq} style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
+                + 행 추가
+              </button>
+              <button onClick={exportReqExcel} style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                Excel 출력
+              </button>
+            </div>
+          </div>
+
+          {reqList.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '60px 0', color: '#9ca3af', border: '2px dashed #e5e7eb', borderRadius: 12 }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>📋</div>
+              <p style={{ fontSize: 15, marginBottom: 8 }}>요구사항 정의서가 없습니다</p>
+              <p style={{ fontSize: 13 }}>기능 목록 생성 후 AI 요구사항 생성 버튼을 클릭하세요</p>
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc' }}>
+                    {['요구사항ID', '유형', '요구사항명', '상세내용', '관련화면', '우선순위', '비고', '삭제'].map(h => (
+                      <th key={h} style={{ ...cellStyle, fontWeight: 600, textAlign: 'left', color: '#374151', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {reqList.map((r) => {
+                    const tColor = TYPE_COLORS[r.type] || {};
+                    const pColor = PRIORITY_COLORS[r.priority] || {};
+                    return (
+                      <tr key={r.id}>
+                        {/* 요구사항ID */}
+                        <td style={{ ...cellStyle, whiteSpace: 'nowrap' }}>
+                          <input value={r.reqId || ''} onChange={e => updateReq(r.id, 'reqId', e.target.value)} style={{ width: 80, border: 'none', outline: 'none', fontSize: 12, background: 'transparent', fontWeight: 600, color: '#2563eb' }} />
+                        </td>
+                        {/* 유형 */}
+                        <td style={{ ...cellStyle, whiteSpace: 'nowrap' }}>
+                          <select value={r.type || '기능'} onChange={e => updateReq(r.id, 'type', e.target.value)} style={{ fontSize: 11, border: '1px solid #d1d5db', borderRadius: 4, padding: '2px 4px', background: tColor.bg, color: tColor.color, fontWeight: 500 }}>
+                            {REQ_TYPES.map(t => <option key={t}>{t}</option>)}
+                          </select>
+                        </td>
+                        {/* 요구사항명 */}
+                        <td style={{ ...cellStyle, minWidth: 150 }}>
+                          <input value={r.reqName || ''} onChange={e => updateReq(r.id, 'reqName', e.target.value)} style={{ width: '100%', border: 'none', outline: 'none', fontSize: 12, background: 'transparent', fontWeight: 500 }} />
+                        </td>
+                        {/* 상세내용 */}
+                        <td style={{ ...cellStyle, minWidth: 300 }}>
+                          <textarea value={r.detail || ''} onChange={e => updateReq(r.id, 'detail', e.target.value)} rows={2} style={{ width: '100%', border: 'none', outline: 'none', fontSize: 12, background: 'transparent', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.5 }} />
+                        </td>
+                        {/* 관련화면 */}
+                        <td style={{ ...cellStyle, whiteSpace: 'nowrap' }}>
+                          <input value={r.relatedScreen || ''} onChange={e => updateReq(r.id, 'relatedScreen', e.target.value)} style={{ width: 90, border: 'none', outline: 'none', fontSize: 12, background: 'transparent' }} />
+                        </td>
+                        {/* 우선순위 */}
+                        <td style={{ ...cellStyle, textAlign: 'center' }}>
+                          <select value={r.priority || '중'} onChange={e => updateReq(r.id, 'priority', e.target.value)} style={{ fontSize: 11, border: '1px solid #d1d5db', borderRadius: 4, padding: '2px 4px', background: pColor.bg, color: pColor.color, fontWeight: 600 }}>
+                            {PRIORITIES.map(p => <option key={p}>{p}</option>)}
+                          </select>
+                        </td>
+                        {/* 비고 */}
+                        <td style={{ ...cellStyle, minWidth: 100 }}>
+                          <input value={r.note || ''} onChange={e => updateReq(r.id, 'note', e.target.value)} style={{ width: '100%', border: 'none', outline: 'none', fontSize: 12, background: 'transparent' }} />
+                        </td>
+                        {/* 삭제 */}
+                        <td style={cellStyle}>
+                          <button onClick={() => deleteReq(r.id)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: 16 }}>✕</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
