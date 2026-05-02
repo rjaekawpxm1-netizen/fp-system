@@ -1267,28 +1267,32 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                       <td style={{ ...cellStyle, whiteSpace: 'nowrap', fontWeight: 500 }}>{f.lv3}</td>
                       {(crudMatrix.entities || []).map(e => {
                         const val = f.crud?.[e] || '';
-                        const letters = val.split('').filter(c => ['C','R','U','D'].includes(c));
                         return (
-                          <td key={e} style={{ ...cellStyle, textAlign: 'center' }}>
-                            <div style={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
-                              {letters.length > 0 ? letters.map((c, i) => (
-                                <span key={i} style={{ fontSize: 11, padding: '1px 5px', borderRadius: 3, background: CRUD_COLORS[c]?.bg, color: CRUD_COLORS[c]?.color, fontWeight: 700 }}>{c}</span>
-                              )) : (
-                                <select value={val} onChange={ev => updateCrud(fi, e, ev.target.value)}
-                                  style={{ fontSize: 11, border: '1px solid #e5e7eb', borderRadius: 4, padding: '1px 2px', width: 55, textAlign: 'center', background: '#f9fafb' }}>
-                                  <option value="">-</option>
-                                  <option value="C">C</option>
-                                  <option value="R">R</option>
-                                  <option value="U">U</option>
-                                  <option value="D">D</option>
-                                  <option value="CR">CR</option>
-                                  <option value="CRU">CRU</option>
-                                  <option value="CRUD">CRUD</option>
-                                  <option value="RU">RU</option>
-                                  <option value="RUD">RUD</option>
-                                </select>
-                              )}
-                            </div>
+                          <td key={e} style={{ ...cellStyle, textAlign: 'center', padding: '4px 6px' }}>
+                            <select
+                              value={val}
+                              onChange={ev => updateCrud(fi, e, ev.target.value)}
+                              style={{
+                                fontSize: 12, border: '1px solid #e5e7eb', borderRadius: 4,
+                                padding: '2px 4px', width: 65, textAlign: 'center',
+                                background: val === 'C' ? '#dcfce7' : val === 'R' ? '#dbeafe' : val === 'U' ? '#fef9c3' : val === 'D' ? '#fee2e2' : val ? '#f3e8ff' : '#f9fafb',
+                                color: val === 'C' ? '#166534' : val === 'R' ? '#1e40af' : val === 'U' ? '#854d0e' : val === 'D' ? '#dc2626' : val ? '#7e22ce' : '#9ca3af',
+                                fontWeight: val ? 700 : 400,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <option value="">-</option>
+                              <option value="C">C</option>
+                              <option value="R">R</option>
+                              <option value="U">U</option>
+                              <option value="D">D</option>
+                              <option value="CR">CR</option>
+                              <option value="CRU">CRU</option>
+                              <option value="CRUD">CRUD</option>
+                              <option value="RU">RU</option>
+                              <option value="RUD">RUD</option>
+                              <option value="CU">CU</option>
+                            </select>
                           </td>
                         );
                       })}
