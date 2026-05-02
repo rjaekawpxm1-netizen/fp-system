@@ -108,6 +108,8 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
 
   const [functions, setFunctions] = useState(project?.functions || []);
   const [fpList, setFpList] = useState(project?.fpList || []);
+  const [screenList, setScreenList] = useState(project?.screenList || []);
+  const [screenLoading, setScreenLoading] = useState(false);
 
   if (!project) {
     return (
@@ -366,6 +368,91 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
 
   const inputStyle = { width: '100%', padding: '7px 10px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6, outline: 'none', boxSizing: 'border-box' };
   const cellStyle = { padding: '5px 6px', borderBottom: '1px solid #e5e7eb', fontSize: 12, verticalAlign: 'middle' };
+
+  // 화면목록 AI 자동 생성
+  const handleGenerateScreens = async () => {
+    if (functions.length === 0) return alert('기능 목록을 먼저 생성하세요.');
+    setScreenLoading(true);
+    try {
+      const response = await fetch('/api/claude', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{
+            role: 'user',
+            content: `당신은 SW사업 BA 전문가입니다.
+아래 기능 목록을 분석하여 화면 목록을 생성하세요.
+
+기능 목록:
+${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, definition: f.definition })), null, 2)}
+
+규칙:
+- 관련 기능들을 묶어서 화면 단위로 정의
+- 목록조회+검색조건 → 목록 화면 1개
+- 상세조회+수정+삭제 → 상세/수정 화면 1개
+- 등록 → 등록 화면 1개 (단순하면 상세화면과 통합 가능)
+- 화면ID: SCR-001 형식 (LV2 그룹별로 묶어서 순번)
+- 화면유형: 목록화면/상세화면/등록화면/팝업/대시보드 중 선택
+- 관련기능: 해당 화면에서 수행하는 LV3 기능명 나열
+
+반드시 아래 JSON만 응답 (다른 텍스트 없이):
+{"screens":[{"screenId":"SCR-001","screenName":"화면명","screenType":"화면유형","lv1":"LV1명","lv2":"LV2명","relatedFunctions":"관련기능 목록","note":"비고"}]}`
+          }]
+        }),
+      });
+      const data = await response.json();
+      const text = data.content.map(c => c.type === 'text' ? c.text : '').join('');
+      const start = text.indexOf('{');
+      const end = text.lastIndexOf('}');
+      const parsed = JSON.parse(text.slice(start, end + 1));
+      const withId = (parsed.screens || []).map((s, i) => ({ ...s, id: Date.now() + i }));
+      setScreenList(withId);
+      saveProject({ screenList: withId });
+    } catch (err) {
+      alert('오류: ' + err.message);
+    } finally {
+      setScreenLoading(false);
+    }
+  };
+
+  const updateScreen = (sid, field, value) => {
+    const updated = screenList.map(s => s.id === sid ? { ...s, [field]: value } : s);
+    setScreenList(updated);
+    saveProject({ screenList: updated });
+  };
+
+  const addScreen = () => {
+    const nextNum = String(screenList.length + 1).padStart(3, '0');
+    const updated = [...screenList, { id: Date.now(), screenId: 'SCR-' + nextNum, screenName: '', screenType: '목록화면', lv1: '', lv2: '', relatedFunctions: '', note: '' }];
+    setScreenList(updated);
+    saveProject({ screenList: updated });
+  };
+
+  const deleteScreen = (sid) => {
+    const updated = screenList.filter(s => s.id !== sid);
+    setScreenList(updated);
+    saveProject({ screenList: updated });
+  };
+
+  const exportScreenExcel = () => {
+    const rows = screenList.map(s => ({
+      '화면ID': s.screenId,
+      '화면명': s.screenName,
+      '화면유형': s.screenType,
+      'LV1': s.lv1,
+      'LV2': s.lv2,
+      '관련기능': s.relatedFunctions,
+      '비고': s.note || '',
+    }));
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [{ wch: 12 }, { wch: 25 }, { wch: 12 }, { wch: 15 }, { wch: 15 }, { wch: 40 }, { wch: 15 }];
+    XLSX.utils.book_append_sheet(wb, ws, '화면목록');
+    const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    saveAs(new Blob([buf]), project.name + '_화면목록.xlsx');
+  };
+
+  const SCREEN_TYPES = ['목록화면', '상세화면', '등록화면', '수정화면', '팝업', '대시보드', '보고서', '기타'];
   const numInput = (value, onChange, width = 45) => (
     <input
       type="number"
@@ -414,7 +501,7 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
 
       {/* 탭 */}
       <div style={{ display: 'flex', borderBottom: '2px solid #e5e7eb', marginBottom: 24 }}>
-        {[{ key: 'setup', label: '① 시스템 개요' }, { key: 'functions', label: '② 기능 목록' }, { key: 'fp', label: '③ FP 산정표' }].map((t) => (
+        {[{ key: 'setup', label: '① 시스템 개요' }, { key: 'functions', label: '② 기능 목록' }, { key: 'fp', label: '③ FP 산정표' }, { key: 'screens', label: '④ 화면 목록' }].map((t) => (
           <button key={t.key} onClick={() => setTab(t.key)} style={{ padding: '10px 24px', fontSize: 14, fontWeight: 600, border: 'none', background: 'none', cursor: 'pointer', borderBottom: tab === t.key ? '2px solid #2563eb' : '2px solid transparent', color: tab === t.key ? '#2563eb' : '#6b7280', marginBottom: -2 }}>
             {t.label}
           </button>
@@ -734,6 +821,91 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+      {/* ④ 화면 목록 */}
+      {tab === 'screens' && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div>
+              <p style={{ fontSize: 14, color: '#6b7280', margin: 0 }}>총 {screenList.length}개 화면 · 셀 클릭하여 수정 가능</p>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={handleGenerateScreens}
+                disabled={screenLoading}
+                style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: screenLoading ? 0.6 : 1 }}
+              >
+                {screenLoading ? '⚙️ AI 생성 중...' : 'AI 화면목록 생성'}
+              </button>
+              <button onClick={addScreen} style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
+                + 행 추가
+              </button>
+              <button onClick={exportScreenExcel} style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                Excel 출력
+              </button>
+            </div>
+          </div>
+
+          {screenList.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '60px 0', color: '#9ca3af', border: '2px dashed #e5e7eb', borderRadius: 12 }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>🖥️</div>
+              <p style={{ fontSize: 15, marginBottom: 8 }}>화면 목록이 없습니다</p>
+              <p style={{ fontSize: 13 }}>기능 목록 생성 후 AI 화면목록 생성 버튼을 클릭하세요</p>
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc' }}>
+                    {['화면ID', '화면명', '화면유형', 'LV1', 'LV2', '관련기능', '비고', '삭제'].map(h => (
+                      <th key={h} style={{ ...cellStyle, fontWeight: 600, textAlign: 'left', color: '#374151', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {screenList.map((s) => (
+                    <tr key={s.id}>
+                      {/* 화면ID */}
+                      <td style={{ ...cellStyle, whiteSpace: 'nowrap' }}>
+                        <input value={s.screenId || ''} onChange={e => updateScreen(s.id, 'screenId', e.target.value)} style={{ width: 80, border: 'none', outline: 'none', fontSize: 12, background: 'transparent', fontWeight: 600, color: '#2563eb' }} />
+                      </td>
+                      {/* 화면명 */}
+                      <td style={{ ...cellStyle, minWidth: 150 }}>
+                        <input value={s.screenName || ''} onChange={e => updateScreen(s.id, 'screenName', e.target.value)} style={{ width: '100%', border: 'none', outline: 'none', fontSize: 12, background: 'transparent', fontWeight: 500 }} />
+                      </td>
+                      {/* 화면유형 */}
+                      <td style={{ ...cellStyle, whiteSpace: 'nowrap' }}>
+                        <select value={s.screenType || '목록화면'} onChange={e => updateScreen(s.id, 'screenType', e.target.value)} style={{ fontSize: 11, border: '1px solid #d1d5db', borderRadius: 4, padding: '2px 4px' }}>
+                          {SCREEN_TYPES.map(t => <option key={t}>{t}</option>)}
+                        </select>
+                      </td>
+                      {/* LV1 */}
+                      <td style={{ ...cellStyle, whiteSpace: 'nowrap' }}>
+                        <input value={s.lv1 || ''} onChange={e => updateScreen(s.id, 'lv1', e.target.value)} style={{ width: 80, border: 'none', outline: 'none', fontSize: 12, background: 'transparent' }} />
+                      </td>
+                      {/* LV2 */}
+                      <td style={{ ...cellStyle, whiteSpace: 'nowrap' }}>
+                        <input value={s.lv2 || ''} onChange={e => updateScreen(s.id, 'lv2', e.target.value)} style={{ width: 100, border: 'none', outline: 'none', fontSize: 12, background: 'transparent' }} />
+                      </td>
+                      {/* 관련기능 */}
+                      <td style={{ ...cellStyle, minWidth: 250 }}>
+                        <textarea value={s.relatedFunctions || ''} onChange={e => updateScreen(s.id, 'relatedFunctions', e.target.value)} rows={2} style={{ width: '100%', border: 'none', outline: 'none', fontSize: 12, background: 'transparent', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.5 }} />
+                      </td>
+                      {/* 비고 */}
+                      <td style={{ ...cellStyle, minWidth: 100 }}>
+                        <input value={s.note || ''} onChange={e => updateScreen(s.id, 'note', e.target.value)} style={{ width: '100%', border: 'none', outline: 'none', fontSize: 12, background: 'transparent' }} />
+                      </td>
+                      {/* 삭제 */}
+                      <td style={cellStyle}>
+                        <button onClick={() => deleteScreen(s.id)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: 16 }}>✕</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
     </div>
