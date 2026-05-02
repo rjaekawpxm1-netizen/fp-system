@@ -406,6 +406,9 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
           <button onClick={exportExcel} style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
             Excel 출력
           </button>
+          <button onClick={() => navigate('/project/' + id + '/cost')} style={{ background: '#7e22ce', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            💰 개발비 산출
+          </button>
         </div>
       </div>
 

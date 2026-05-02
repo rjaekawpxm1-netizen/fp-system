@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import ProjectList from './pages/ProjectList';
 import ProjectDetail from './pages/ProjectDetail';
+import CostCalculator from './pages/CostCalculator';
 
 const App = () => {
   const [projects, setProjects] = useState(() => {
@@ -63,6 +64,14 @@ const App = () => {
               <ProjectDetail
                 projects={projects}
                 onUpdateProject={updateProject}
+              />
+            }
+          />
+          <Route
+            path="/project/:id/cost"
+            element={
+              <CostCalculator
+                projects={projects}
               />
             }
           />
