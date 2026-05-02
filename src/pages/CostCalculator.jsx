@@ -164,9 +164,17 @@ const CostCalculator = ({ projects }) => {
             <p style={{ margin: 0, fontSize: 13, color: '#6b7280' }}>{project.name} · 2025년 SW사업 대가산정 가이드 기준</p>
           </div>
         </div>
-        <button onClick={exportExcel} style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
-          Excel 출력
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => navigate('/project/' + id + '/rebuild')} style={{ background: '#7e22ce', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            🔄 재개발비
+          </button>
+          <button onClick={() => navigate('/project/' + id + '/maintenance')} style={{ background: '#0891b2', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            🔧 유지관리비
+          </button>
+          <button onClick={exportExcel} style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+            Excel 출력
+          </button>
+        </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>

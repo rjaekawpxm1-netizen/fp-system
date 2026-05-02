@@ -112,6 +112,8 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
   const [screenLoading, setScreenLoading] = useState(false);
   const [reqList, setReqList] = useState(project?.reqList || []);
   const [reqLoading, setReqLoading] = useState(false);
+  const [crudMatrix, setCrudMatrix] = useState(project?.crudMatrix || { entities: [], matrix: {} });
+  const [crudLoading, setCrudLoading] = useState(false);
 
   if (!project) {
     return (
@@ -555,6 +557,98 @@ ${JSON.stringify(screenList.map(s => ({ screenId: s.screenId, screenName: s.scre
     중: { bg: '#fff7ed', color: '#ea580c' },
     하: { bg: '#f8fafc', color: '#6b7280' },
   };
+
+  // CRUD 분석 AI 자동 생성
+  const handleGenerateCRUD = async () => {
+    if (functions.length === 0) return alert('기능 목록을 먼저 생성하세요.');
+    setCrudLoading(true);
+    try {
+      const response = await fetch('/api/claude', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{
+            role: 'user',
+            content: `당신은 SW사업 DA 전문가입니다.
+아래 기능 목록을 분석하여 CRUD 분석 매트릭스를 생성하세요.
+
+기능 목록:
+${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, definition: f.definition })), null, 2)}
+
+규칙:
+1. 기능목록에서 사용되는 엔티티(테이블)를 추출
+2. 각 기능(LV3)이 각 엔티티에 대해 C/R/U/D 중 어떤 작업을 하는지 분석
+   - C: Create (등록/생성)
+   - R: Read (조회/검색)
+   - U: Update (수정/변경)
+   - D: Delete (삭제)
+3. 해당 없으면 빈값("")
+4. 여러 작업이면 조합 가능 (예: "CR", "RU")
+5. ILF는 내부 엔티티, EIF는 외부 엔티티로 구분
+
+반드시 아래 JSON만 응답 (다른 텍스트 없이):
+{"entities":["엔티티1","엔티티2"],"matrix":[{"lv1":"","lv2":"","lv3":"","crud":{"엔티티1":"C","엔티티2":"R"}}]}`
+          }]
+        }),
+      });
+      const data = await response.json();
+      const text = data.content.map(c => c.type === 'text' ? c.text : '').join('');
+      const start = text.indexOf('{');
+      const end = text.lastIndexOf('}');
+      const parsed = JSON.parse(text.slice(start, end + 1));
+      setCrudMatrix(parsed);
+      saveProject({ crudMatrix: parsed });
+    } catch (err) {
+      alert('오류: ' + err.message);
+    } finally {
+      setCrudLoading(false);
+    }
+  };
+
+  const addEntity = () => {
+    const name = prompt('엔티티명 입력:');
+    if (!name) return;
+    const updated = {
+      ...crudMatrix,
+      entities: [...(crudMatrix.entities || []), name],
+    };
+    setCrudMatrix(updated);
+    saveProject({ crudMatrix: updated });
+  };
+
+  const updateCrud = (funcIdx, entity, value) => {
+    const updatedMatrix = [...(crudMatrix.matrix || [])];
+    if (!updatedMatrix[funcIdx].crud) updatedMatrix[funcIdx].crud = {};
+    updatedMatrix[funcIdx].crud[entity] = value;
+    const updated = { ...crudMatrix, matrix: updatedMatrix };
+    setCrudMatrix(updated);
+    saveProject({ crudMatrix: updated });
+  };
+
+  const exportCrudExcel = () => {
+    const entities = crudMatrix.entities || [];
+    const matrix = crudMatrix.matrix || [];
+    const header = ['LV1', 'LV2', 'LV3', ...entities];
+    const rows = matrix.map(f => ({
+      LV1: f.lv1,
+      LV2: f.lv2,
+      LV3: f.lv3,
+      ...Object.fromEntries(entities.map(e => [e, f.crud?.[e] || ''])),
+    }));
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(rows, { header });
+    ws['!cols'] = [{ wch: 15 }, { wch: 15 }, { wch: 25 }, ...entities.map(() => ({ wch: 10 }))];
+    XLSX.utils.book_append_sheet(wb, ws, 'CRUD분석');
+    const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    saveAs(new Blob([buf]), project.name + '_CRUD분석.xlsx');
+  };
+
+  const CRUD_COLORS = {
+    C: { bg: '#dcfce7', color: '#166534' },
+    R: { bg: '#dbeafe', color: '#1e40af' },
+    U: { bg: '#fef9c3', color: '#854d0e' },
+    D: { bg: '#fee2e2', color: '#dc2626' },
+  };
   const numInput = (value, onChange, width = 45) => (
     <input
       type="number"
@@ -603,7 +697,7 @@ ${JSON.stringify(screenList.map(s => ({ screenId: s.screenId, screenName: s.scre
 
       {/* 탭 */}
       <div style={{ display: 'flex', borderBottom: '2px solid #e5e7eb', marginBottom: 24 }}>
-        {[{ key: 'setup', label: '① 시스템 개요' }, { key: 'functions', label: '② 기능 목록' }, { key: 'fp', label: '③ FP 산정표' }, { key: 'screens', label: '④ 화면 목록' }, { key: 'requirements', label: '⑤ 요구사항 정의서' }].map((t) => (
+        {[{ key: 'setup', label: '① 시스템 개요' }, { key: 'functions', label: '② 기능 목록' }, { key: 'fp', label: '③ FP 산정표' }, { key: 'screens', label: '④ 화면 목록' }, { key: 'requirements', label: '⑤ 요구사항 정의서' }, { key: 'crud', label: '⑥ CRUD 분석' }].map((t) => (
           <button key={t.key} onClick={() => setTab(t.key)} style={{ padding: '10px 24px', fontSize: 14, fontWeight: 600, border: 'none', background: 'none', cursor: 'pointer', borderBottom: tab === t.key ? '2px solid #2563eb' : '2px solid transparent', color: tab === t.key ? '#2563eb' : '#6b7280', marginBottom: -2 }}>
             {t.label}
           </button>
@@ -1108,6 +1202,125 @@ ${JSON.stringify(screenList.map(s => ({ screenId: s.screenId, screenName: s.scre
                   })}
                 </tbody>
               </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ⑥ CRUD 분석 */}
+      {tab === 'crud' && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <p style={{ fontSize: 14, color: '#6b7280', margin: 0 }}>
+                기능 {(crudMatrix.matrix || []).length}개 × 엔티티 {(crudMatrix.entities || []).length}개
+              </p>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {['C','R','U','D'].map(c => (
+                  <span key={c} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: CRUD_COLORS[c]?.bg, color: CRUD_COLORS[c]?.color, fontWeight: 700 }}>
+                    {c} = {c === 'C' ? '등록' : c === 'R' ? '조회' : c === 'U' ? '수정' : '삭제'}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={handleGenerateCRUD} disabled={crudLoading} style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: crudLoading ? 0.6 : 1 }}>
+                {crudLoading ? '⚙️ AI 생성 중...' : 'AI CRUD 분석'}
+              </button>
+              <button onClick={addEntity} style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
+                + 엔티티 추가
+              </button>
+              <button onClick={exportCrudExcel} style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                Excel 출력
+              </button>
+            </div>
+          </div>
+
+          {(crudMatrix.matrix || []).length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '60px 0', color: '#9ca3af', border: '2px dashed #e5e7eb', borderRadius: 12 }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>🗃️</div>
+              <p style={{ fontSize: 15, marginBottom: 8 }}>CRUD 분석 매트릭스가 없습니다</p>
+              <p style={{ fontSize: 13 }}>기능 목록 생성 후 AI CRUD 분석 버튼을 클릭하세요</p>
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ borderCollapse: 'collapse', fontSize: 12, minWidth: 800 }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc' }}>
+                    <th style={{ ...cellStyle, fontWeight: 600, color: '#374151', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap', minWidth: 80 }}>LV1</th>
+                    <th style={{ ...cellStyle, fontWeight: 600, color: '#374151', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap', minWidth: 80 }}>LV2</th>
+                    <th style={{ ...cellStyle, fontWeight: 600, color: '#374151', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap', minWidth: 120 }}>LV3 (기능명)</th>
+                    {(crudMatrix.entities || []).map(e => (
+                      <th key={e} style={{ ...cellStyle, fontWeight: 600, color: '#374151', borderBottom: '2px solid #e5e7eb', textAlign: 'center', whiteSpace: 'nowrap', minWidth: 70, background: '#f0f4ff' }}>{e}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(crudMatrix.matrix || []).map((f, fi) => (
+                    <tr key={fi} style={{ background: fi % 2 === 0 ? '#fff' : '#fafafa' }}>
+                      <td style={{ ...cellStyle, whiteSpace: 'nowrap', color: '#6b7280' }}>{f.lv1}</td>
+                      <td style={{ ...cellStyle, whiteSpace: 'nowrap', color: '#6b7280' }}>{f.lv2}</td>
+                      <td style={{ ...cellStyle, whiteSpace: 'nowrap', fontWeight: 500 }}>{f.lv3}</td>
+                      {(crudMatrix.entities || []).map(e => {
+                        const val = f.crud?.[e] || '';
+                        const letters = val.split('').filter(c => ['C','R','U','D'].includes(c));
+                        return (
+                          <td key={e} style={{ ...cellStyle, textAlign: 'center' }}>
+                            <div style={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
+                              {letters.length > 0 ? letters.map((c, i) => (
+                                <span key={i} style={{ fontSize: 11, padding: '1px 5px', borderRadius: 3, background: CRUD_COLORS[c]?.bg, color: CRUD_COLORS[c]?.color, fontWeight: 700 }}>{c}</span>
+                              )) : (
+                                <select value={val} onChange={ev => updateCrud(fi, e, ev.target.value)}
+                                  style={{ fontSize: 11, border: '1px solid #e5e7eb', borderRadius: 4, padding: '1px 2px', width: 55, textAlign: 'center', background: '#f9fafb' }}>
+                                  <option value="">-</option>
+                                  <option value="C">C</option>
+                                  <option value="R">R</option>
+                                  <option value="U">U</option>
+                                  <option value="D">D</option>
+                                  <option value="CR">CR</option>
+                                  <option value="CRU">CRU</option>
+                                  <option value="CRUD">CRUD</option>
+                                  <option value="RU">RU</option>
+                                  <option value="RUD">RUD</option>
+                                </select>
+                              )}
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* 엔티티별 통계 */}
+          {(crudMatrix.entities || []).length > 0 && (crudMatrix.matrix || []).length > 0 && (
+            <div style={{ marginTop: 20 }}>
+              <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>📊 엔티티별 CRUD 통계</p>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                {(crudMatrix.entities || []).map(e => {
+                  const counts = { C: 0, R: 0, U: 0, D: 0 };
+                  (crudMatrix.matrix || []).forEach(f => {
+                    const val = f.crud?.[e] || '';
+                    ['C','R','U','D'].forEach(c => { if (val.includes(c)) counts[c]++; });
+                  });
+                  return (
+                    <div key={e} style={{ background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 14px', minWidth: 120 }}>
+                      <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: '#374151' }}>{e}</p>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        {['C','R','U','D'].map(c => (
+                          <div key={c} style={{ textAlign: 'center' }}>
+                            <div style={{ fontSize: 10, padding: '1px 5px', borderRadius: 3, background: CRUD_COLORS[c]?.bg, color: CRUD_COLORS[c]?.color, fontWeight: 700, marginBottom: 2 }}>{c}</div>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>{counts[c]}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>

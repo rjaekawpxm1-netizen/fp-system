@@ -3,6 +3,8 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import ProjectList from './pages/ProjectList';
 import ProjectDetail from './pages/ProjectDetail';
 import CostCalculator from './pages/CostCalculator';
+import RebuildCost from './pages/RebuildCost';
+import MaintenanceCost from './pages/MaintenanceCost';
 
 const App = () => {
   const [projects, setProjects] = useState(() => {
@@ -29,6 +31,8 @@ const App = () => {
       functions: [],
       fpList: [],
       fpSummary: { newDev: 0, changed: 0 },
+      screenList: [],
+      reqList: [],
       createdAt: new Date().toISOString(),
     };
     setProjects((prev) => [newProject, ...prev]);
@@ -69,11 +73,15 @@ const App = () => {
           />
           <Route
             path="/project/:id/cost"
-            element={
-              <CostCalculator
-                projects={projects}
-              />
-            }
+            element={<CostCalculator projects={projects} />}
+          />
+          <Route
+            path="/project/:id/rebuild"
+            element={<RebuildCost projects={projects} />}
+          />
+          <Route
+            path="/project/:id/maintenance"
+            element={<MaintenanceCost projects={projects} />}
           />
         </Routes>
       </div>
