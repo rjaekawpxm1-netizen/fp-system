@@ -112,7 +112,11 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
   const [screenLoading, setScreenLoading] = useState(false);
   const [reqList, setReqList] = useState(project?.reqList || []);
   const [reqLoading, setReqLoading] = useState(false);
-  const [crudMatrix, setCrudMatrix] = useState(project?.crudMatrix || { entities: [], matrix: {} });
+  const [crudMatrix, setCrudMatrix] = useState(() => {
+    const saved = project?.crudMatrix;
+    if (saved && Array.isArray(saved.matrix)) return saved;
+    return { entities: [], matrix: [] };
+  });
   const [crudLoading, setCrudLoading] = useState(false);
 
   if (!project) {
