@@ -123,6 +123,10 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
   const [ifLoading, setIfLoading] = useState(false);
   const [wbsList, setWbsList] = useState(project?.wbsList || []);
   const [wbsLoading, setWbsLoading] = useState(false);
+  const [traceList, setTraceList] = useState(project?.traceList || []);
+  const [traceLoading, setTraceLoading] = useState(false);
+  const [tcList, setTcList] = useState(project?.tcList || []);
+  const [tcLoading, setTcLoading] = useState(false);
 
   // ============================================================
   // 4. FP 검증 기능
@@ -487,6 +491,55 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
       }));
       const ws5 = XLSX.utils.json_to_sheet(crudRows);
       XLSX.utils.book_append_sheet(wb, ws5, 'CRUD분석');
+    }
+
+    // 시트6: 인터페이스 정의서
+    if (ifList.length > 0) {
+      const ifRows = ifList.map(f => ({
+        '인터페이스ID': f.ifId, '인터페이스명': f.ifName,
+        '송신시스템': f.sendSystem, '수신시스템': f.receiveSystem,
+        '연동방식': f.method, '연동주기': f.cycle,
+        '주요데이터항목': f.dataItems, '비고': f.note || '',
+      }));
+      const ws6 = XLSX.utils.json_to_sheet(ifRows);
+      ws6['!cols'] = [{ wch: 14 }, { wch: 25 }, { wch: 20 }, { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 40 }, { wch: 15 }];
+      XLSX.utils.book_append_sheet(wb, ws6, '인터페이스정의서');
+    }
+
+    // 시트7: WBS
+    if (wbsList.length > 0) {
+      const wbsRows = wbsList.map(w => ({
+        'WBS ID': w.wbsId, '단계': w.phase, '작업명': w.task,
+        'LV1': w.lv1, 'LV2': w.lv2,
+        '공수(일)': w.workDays, '담당자': w.role, '비고': w.note || '',
+      }));
+      const ws7 = XLSX.utils.json_to_sheet(wbsRows);
+      ws7['!cols'] = [{ wch: 8 }, { wch: 10 }, { wch: 30 }, { wch: 15 }, { wch: 15 }, { wch: 10 }, { wch: 10 }, { wch: 20 }];
+      XLSX.utils.book_append_sheet(wb, ws7, 'WBS');
+    }
+
+    // 시트8: 요구사항 추적표
+    if (traceList.length > 0) {
+      const traceRows = traceList.map(t => ({
+        '요구사항ID': t.reqId, '요구사항명': t.reqName,
+        '관련기능': t.relatedFunctions, '관련화면': t.relatedScreens,
+        '테스트케이스ID': t.testId, '상태': t.status,
+      }));
+      const ws8 = XLSX.utils.json_to_sheet(traceRows);
+      ws8['!cols'] = [{ wch: 12 }, { wch: 25 }, { wch: 30 }, { wch: 20 }, { wch: 14 }, { wch: 10 }];
+      XLSX.utils.book_append_sheet(wb, ws8, '요구사항추적표');
+    }
+
+    // 시트9: 테스트케이스
+    if (tcList.length > 0) {
+      const tcRows = tcList.map(t => ({
+        'TC ID': t.tcId, '요구사항ID': t.reqId, '테스트케이스명': t.tcName,
+        '유형': t.type, '사전조건': t.precondition,
+        '테스트절차': t.steps, '기대결과': t.expected, '결과': t.result,
+      }));
+      const ws9 = XLSX.utils.json_to_sheet(tcRows);
+      ws9['!cols'] = [{ wch: 10 }, { wch: 10 }, { wch: 30 }, { wch: 8 }, { wch: 20 }, { wch: 40 }, { wch: 30 }, { wch: 10 }];
+      XLSX.utils.book_append_sheet(wb, ws9, '테스트케이스');
     }
 
     if (wb.SheetNames.length === 0) {
@@ -867,7 +920,18 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
 
       {/* 탭 */}
       <div style={{ display: 'flex', borderBottom: '2px solid #e5e7eb', marginBottom: 24 }}>
-        {[{ key: 'setup', label: '① 시스템 개요' }, { key: 'functions', label: '② 기능 목록' }, { key: 'fp', label: '③ FP 산정표' }, { key: 'screens', label: '④ 화면 목록' }, { key: 'requirements', label: '⑤ 요구사항 정의서' }, { key: 'crud', label: '⑥ CRUD 분석' }, { key: 'interface', label: '⑦ 인터페이스 정의서' }, { key: 'wbs', label: '⑧ WBS' }].map((t) => (
+        {[
+          { key: 'setup', label: '① 시스템 개요' },
+          { key: 'functions', label: '② 기능 목록' },
+          { key: 'fp', label: '③ FP 산정표' },
+          { key: 'screens', label: '④ 화면 목록' },
+          { key: 'requirements', label: '⑤ 요구사항 정의서' },
+          { key: 'crud', label: '⑥ CRUD 분석' },
+          { key: 'interface', label: '⑦ 인터페이스 정의서' },
+          { key: 'wbs', label: '⑧ WBS' },
+          { key: 'traceability', label: '⑨ 요구사항 추적표' },
+          { key: 'testcase', label: '⑩ 테스트케이스' },
+        ].map((t) => (
           <button key={t.key} onClick={() => setTab(t.key)} style={{ padding: '10px 24px', fontSize: 14, fontWeight: 600, border: 'none', background: 'none', cursor: 'pointer', borderBottom: tab === t.key ? '2px solid #2563eb' : '2px solid transparent', color: tab === t.key ? '#2563eb' : '#6b7280', marginBottom: -2 }}>
             {t.label}
           </button>
@@ -1815,6 +1879,297 @@ JSON만 응답:
                           </td>
                           <td style={cellStyle}>
                             <button onClick={()=>{const u=wbsList.filter(r=>r.id!==w.id);setWbsList(u);saveProject({wbsList:u});}} style={{ background:'none',border:'none',color:'#ef4444',cursor:'pointer',fontSize:16 }}>✕</button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      {/* ⑨ 요구사항 추적표 */}
+      {tab === 'traceability' && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div>
+              <p style={{ fontSize: 14, color: '#6b7280', margin: 0 }}>총 {traceList.length}개 · 요구사항 → 기능 → 화면 → 테스트 매핑</p>
+              <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>감리/검수 시 필수 산출물</p>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={async () => {
+                  if (reqList.length === 0) return alert('요구사항 정의서를 먼저 작성하세요.');
+                  if (traceList.length > 0 && !window.confirm('기존 추적표를 덮어쓰시겠습니까?')) return;
+                  setTraceLoading(true);
+                  try {
+                    const response = await fetch('/api/claude', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        messages: [{
+                          role: 'user',
+                          content: `SW사업 BA 전문가로서 요구사항 추적표를 작성하세요.
+
+요구사항 목록:
+${JSON.stringify(reqList.map(r=>({reqId:r.reqId,type:r.type,reqName:r.reqName})),null,2)}
+
+기능 목록:
+${JSON.stringify(functions.map(f=>({lv2:f.lv2,lv3:f.lv3})),null,2)}
+
+화면 목록:
+${JSON.stringify(screenList.map(s=>({screenId:s.screenId,screenName:s.screenName})),null,2)}
+
+각 요구사항에 대해:
+- reqId: 요구사항ID
+- reqName: 요구사항명
+- relatedFunctions: 관련 기능명 (쉼표 구분)
+- relatedScreens: 관련 화면ID (쉼표 구분)
+- testId: 테스트케이스ID (TC-001 형식)
+- status: 상태 (미착수/진행중/완료)
+
+JSON만 응답:
+{"traces":[{"reqId":"FR-001","reqName":"","relatedFunctions":"","relatedScreens":"","testId":"TC-001","status":"미착수"}]}`
+                        }]
+                      }),
+                    });
+                    const data = await response.json();
+                    const text = data.content.map(c=>c.type==='text'?c.text:'').join('');
+                    const start=text.indexOf('{'); const end=text.lastIndexOf('}');
+                    const parsed = JSON.parse(text.slice(start,end+1));
+                    const withId = (parsed.traces||[]).map((t,i)=>({...t,id:Date.now()+i}));
+                    setTraceList(withId);
+                    saveProject({ traceList: withId });
+                  } catch(err) { alert('오류: '+err.message); }
+                  finally { setTraceLoading(false); }
+                }}
+                disabled={traceLoading}
+                style={{ background:'#2563eb',color:'#fff',border:'none',borderRadius:6,padding:'7px 16px',fontSize:13,fontWeight:600,cursor:'pointer',opacity:traceLoading?0.6:1 }}
+              >
+                {traceLoading ? '⚙️ AI 생성 중...' : 'AI 추적표 생성'}
+              </button>
+              <button
+                onClick={() => {
+                  const rows = traceList.map(t=>({'요구사항ID':t.reqId,'요구사항명':t.reqName,'관련기능':t.relatedFunctions,'관련화면':t.relatedScreens,'테스트케이스ID':t.testId,'상태':t.status}));
+                  const wb=XLSX.utils.book_new();
+                  const ws=XLSX.utils.json_to_sheet(rows);
+                  ws['!cols']=[{wch:12},{wch:25},{wch:30},{wch:20},{wch:14},{wch:10}];
+                  XLSX.utils.book_append_sheet(wb,ws,'요구사항추적표');
+                  const buf=XLSX.write(wb,{bookType:'xlsx',type:'array'});
+                  saveAs(new Blob([buf]),project.name+'_요구사항추적표.xlsx');
+                }}
+                style={{ background:'#16a34a',color:'#fff',border:'none',borderRadius:6,padding:'7px 14px',fontSize:13,fontWeight:600,cursor:'pointer' }}
+              >Excel 출력</button>
+            </div>
+          </div>
+
+          {traceList.length === 0 ? (
+            <div style={{ textAlign:'center',padding:'60px 0',color:'#9ca3af',border:'2px dashed #e5e7eb',borderRadius:12 }}>
+              <div style={{ fontSize:40,marginBottom:12 }}>🔎</div>
+              <p style={{ fontSize:15,marginBottom:8 }}>요구사항 추적표가 없습니다</p>
+              <p style={{ fontSize:13 }}>요구사항 정의서 작성 후 AI 추적표 생성 버튼을 클릭하세요</p>
+            </div>
+          ) : (
+            <div style={{ overflowX:'auto' }}>
+              <table style={{ width:'100%',borderCollapse:'collapse',fontSize:12 }}>
+                <thead>
+                  <tr style={{ background:'#f8fafc' }}>
+                    {['요구사항ID','요구사항명','관련기능','관련화면','테스트케이스ID','상태','삭제'].map(h=>(
+                      <th key={h} style={{ ...cellStyle,fontWeight:600,color:'#374151',borderBottom:'2px solid #e5e7eb',whiteSpace:'nowrap',textAlign:'left' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {traceList.map((t) => {
+                    const statusColor = { '미착수':'#f9fafb', '진행중':'#fff7ed', '완료':'#f0fdf4' }[t.status] || '#f9fafb';
+                    const statusTextColor = { '미착수':'#6b7280', '진행중':'#ea580c', '완료':'#16a34a' }[t.status] || '#6b7280';
+                    return (
+                      <tr key={t.id} style={{ background: statusColor }}>
+                        <td style={{ ...cellStyle,whiteSpace:'nowrap',fontWeight:600,color:'#2563eb' }}>{t.reqId}</td>
+                        <td style={{ ...cellStyle,minWidth:150 }}>
+                          <input value={t.reqName||''} onChange={e=>{const u=traceList.map(r=>r.id===t.id?{...r,reqName:e.target.value}:r);setTraceList(u);saveProject({traceList:u});}} style={{ width:'100%',border:'none',outline:'none',fontSize:12,background:'transparent',fontWeight:500 }} />
+                        </td>
+                        <td style={{ ...cellStyle,minWidth:200 }}>
+                          <textarea value={t.relatedFunctions||''} onChange={e=>{const u=traceList.map(r=>r.id===t.id?{...r,relatedFunctions:e.target.value}:r);setTraceList(u);saveProject({traceList:u});}} rows={2} style={{ width:'100%',border:'none',outline:'none',fontSize:12,background:'transparent',resize:'vertical',fontFamily:'inherit' }} />
+                        </td>
+                        <td style={{ ...cellStyle,minWidth:120 }}>
+                          <input value={t.relatedScreens||''} onChange={e=>{const u=traceList.map(r=>r.id===t.id?{...r,relatedScreens:e.target.value}:r);setTraceList(u);saveProject({traceList:u});}} style={{ width:'100%',border:'none',outline:'none',fontSize:12,background:'transparent' }} />
+                        </td>
+                        <td style={{ ...cellStyle,whiteSpace:'nowrap',color:'#7e22ce',fontWeight:600 }}>{t.testId}</td>
+                        <td style={{ ...cellStyle,textAlign:'center' }}>
+                          <select value={t.status||'미착수'} onChange={e=>{const u=traceList.map(r=>r.id===t.id?{...r,status:e.target.value}:r);setTraceList(u);saveProject({traceList:u});}} style={{ fontSize:11,border:'1px solid #d1d5db',borderRadius:4,padding:'2px 4px',color:statusTextColor,fontWeight:600 }}>
+                            {['미착수','진행중','완료'].map(s=><option key={s}>{s}</option>)}
+                          </select>
+                        </td>
+                        <td style={cellStyle}>
+                          <button onClick={()=>{const u=traceList.filter(r=>r.id!==t.id);setTraceList(u);saveProject({traceList:u});}} style={{ background:'none',border:'none',color:'#ef4444',cursor:'pointer',fontSize:16 }}>✕</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {/* 진행 현황 */}
+              <div style={{ display:'flex',gap:12,marginTop:16 }}>
+                {['미착수','진행중','완료'].map(s => {
+                  const cnt = traceList.filter(t=>t.status===s).length;
+                  const color = { '미착수':'#6b7280', '진행중':'#ea580c', '완료':'#16a34a' }[s];
+                  const bg = { '미착수':'#f9fafb', '진행중':'#fff7ed', '완료':'#f0fdf4' }[s];
+                  return (
+                    <div key={s} style={{ background:bg,border:`1px solid #e5e7eb`,borderRadius:8,padding:'10px 20px',textAlign:'center' }}>
+                      <div style={{ fontSize:12,color,fontWeight:600,marginBottom:4 }}>{s}</div>
+                      <div style={{ fontSize:22,fontWeight:700,color }}>{cnt}</div>
+                      <div style={{ fontSize:11,color:'#9ca3af' }}>{traceList.length > 0 ? Math.round(cnt/traceList.length*100) : 0}%</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ⑩ 테스트케이스 */}
+      {tab === 'testcase' && (
+        <div>
+          <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16 }}>
+            <div>
+              <p style={{ fontSize:14,color:'#6b7280',margin:0 }}>총 {tcList.length}개 테스트케이스 · 요구사항 기반 자동 생성</p>
+              <p style={{ fontSize:11,color:'#9ca3af',marginTop:4 }}>단위테스트/통합테스트/인수테스트 포함</p>
+            </div>
+            <div style={{ display:'flex',gap:8 }}>
+              <button
+                onClick={async () => {
+                  if (reqList.length === 0) return alert('요구사항 정의서를 먼저 작성하세요.');
+                  if (tcList.length > 0 && !window.confirm('기존 테스트케이스를 덮어쓰시겠습니까?')) return;
+                  setTcLoading(true);
+                  try {
+                    const frList = reqList.filter(r=>r.type==='기능').slice(0,15);
+                    const response = await fetch('/api/claude', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        messages: [{
+                          role: 'user',
+                          content: `SW사업 QA 전문가로서 아래 기능 요구사항 기반으로 테스트케이스를 작성하세요.
+
+시스템명: ${systemName}
+기능 요구사항:
+${JSON.stringify(frList.map(r=>({reqId:r.reqId,reqName:r.reqName,detail:r.detail})),null,2)}
+
+각 요구사항당 2~3개 테스트케이스 작성:
+- tcId: TC-001 형식
+- reqId: 관련 요구사항ID
+- tcName: 테스트케이스명
+- type: 단위/통합/인수 중 하나
+- precondition: 사전조건
+- steps: 테스트 절차 (간략히)
+- expected: 기대결과
+- result: 테스트결과 (미실시/성공/실패)
+
+JSON만 응답:
+{"testcases":[{"tcId":"TC-001","reqId":"FR-001","tcName":"","type":"단위","precondition":"","steps":"","expected":"","result":"미실시"}]}`
+                        }]
+                      }),
+                    });
+                    const data = await response.json();
+                    const text = data.content.map(c=>c.type==='text'?c.text:'').join('');
+                    const start=text.indexOf('{'); const end=text.lastIndexOf('}');
+                    const parsed = JSON.parse(text.slice(start,end+1));
+                    const withId = (parsed.testcases||[]).map((t,i)=>({...t,id:Date.now()+i}));
+                    setTcList(withId);
+                    saveProject({ tcList: withId });
+                  } catch(err) { alert('오류: '+err.message); }
+                  finally { setTcLoading(false); }
+                }}
+                disabled={tcLoading}
+                style={{ background:'#2563eb',color:'#fff',border:'none',borderRadius:6,padding:'7px 16px',fontSize:13,fontWeight:600,cursor:'pointer',opacity:tcLoading?0.6:1 }}
+              >
+                {tcLoading ? '⚙️ AI 생성 중...' : 'AI 테스트케이스 생성'}
+              </button>
+              <button
+                onClick={() => {
+                  const rows = tcList.map(t=>({'테스트케이스ID':t.tcId,'관련요구사항':t.reqId,'테스트케이스명':t.tcName,'유형':t.type,'사전조건':t.precondition,'테스트절차':t.steps,'기대결과':t.expected,'테스트결과':t.result}));
+                  const wb=XLSX.utils.book_new();
+                  const ws=XLSX.utils.json_to_sheet(rows);
+                  ws['!cols']=[{wch:14},{wch:12},{wch:30},{wch:8},{wch:20},{wch:40},{wch:30},{wch:10}];
+                  XLSX.utils.book_append_sheet(wb,ws,'테스트케이스');
+                  const buf=XLSX.write(wb,{bookType:'xlsx',type:'array'});
+                  saveAs(new Blob([buf]),project.name+'_테스트케이스.xlsx');
+                }}
+                style={{ background:'#16a34a',color:'#fff',border:'none',borderRadius:6,padding:'7px 14px',fontSize:13,fontWeight:600,cursor:'pointer' }}
+              >Excel 출력</button>
+            </div>
+          </div>
+
+          {tcList.length === 0 ? (
+            <div style={{ textAlign:'center',padding:'60px 0',color:'#9ca3af',border:'2px dashed #e5e7eb',borderRadius:12 }}>
+              <div style={{ fontSize:40,marginBottom:12 }}>🧪</div>
+              <p style={{ fontSize:15,marginBottom:8 }}>테스트케이스가 없습니다</p>
+              <p style={{ fontSize:13 }}>요구사항 정의서 작성 후 AI 테스트케이스 생성 버튼을 클릭하세요</p>
+            </div>
+          ) : (
+            <div>
+              {/* 결과 요약 */}
+              <div style={{ display:'flex',gap:10,marginBottom:16,flexWrap:'wrap' }}>
+                {['미실시','성공','실패'].map(r=>{
+                  const cnt=tcList.filter(t=>t.result===r).length;
+                  const color={'미실시':'#6b7280','성공':'#16a34a','실패':'#dc2626'}[r];
+                  const bg={'미실시':'#f9fafb','성공':'#f0fdf4','실패':'#fef2f2'}[r];
+                  return (
+                    <div key={r} style={{ background:bg,border:'1px solid #e5e7eb',borderRadius:8,padding:'10px 20px',textAlign:'center',minWidth:90 }}>
+                      <div style={{ fontSize:12,color,fontWeight:600,marginBottom:4 }}>{r}</div>
+                      <div style={{ fontSize:22,fontWeight:700,color }}>{cnt}</div>
+                    </div>
+                  );
+                })}
+                <div style={{ background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:8,padding:'10px 20px',textAlign:'center',minWidth:90 }}>
+                  <div style={{ fontSize:12,color:'#1e40af',fontWeight:600,marginBottom:4 }}>성공률</div>
+                  <div style={{ fontSize:22,fontWeight:700,color:'#1e40af' }}>
+                    {tcList.length > 0 ? Math.round(tcList.filter(t=>t.result==='성공').length/tcList.length*100) : 0}%
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ overflowX:'auto' }}>
+                <table style={{ width:'100%',borderCollapse:'collapse',fontSize:12 }}>
+                  <thead>
+                    <tr style={{ background:'#f8fafc' }}>
+                      {['TC ID','요구사항','테스트케이스명','유형','사전조건','테스트절차','기대결과','결과','삭제'].map(h=>(
+                        <th key={h} style={{ ...cellStyle,fontWeight:600,color:'#374151',borderBottom:'2px solid #e5e7eb',whiteSpace:'nowrap',textAlign:'left' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tcList.map((t) => {
+                      const resultColor={'미실시':'#6b7280','성공':'#16a34a','실패':'#dc2626'}[t.result]||'#6b7280';
+                      const resultBg={'미실시':'#f9fafb','성공':'#f0fdf4','실패':'#fef2f2'}[t.result]||'#f9fafb';
+                      return (
+                        <tr key={t.id}>
+                          <td style={{ ...cellStyle,whiteSpace:'nowrap',fontWeight:600,color:'#7e22ce' }}>{t.tcId}</td>
+                          <td style={{ ...cellStyle,whiteSpace:'nowrap',color:'#2563eb' }}>{t.reqId}</td>
+                          <td style={{ ...cellStyle,minWidth:180 }}>
+                            <input value={t.tcName||''} onChange={e=>{const u=tcList.map(r=>r.id===t.id?{...r,tcName:e.target.value}:r);setTcList(u);saveProject({tcList:u});}} style={{ width:'100%',border:'none',outline:'none',fontSize:12,background:'transparent',fontWeight:500 }} />
+                          </td>
+                          <td style={cellStyle}>
+                            <select value={t.type||'단위'} onChange={e=>{const u=tcList.map(r=>r.id===t.id?{...r,type:e.target.value}:r);setTcList(u);saveProject({tcList:u});}} style={{ fontSize:11,border:'1px solid #d1d5db',borderRadius:4,padding:'2px 4px' }}>
+                              {['단위','통합','인수','시스템'].map(tp=><option key={tp}>{tp}</option>)}
+                            </select>
+                          </td>
+                          {['precondition','steps','expected'].map(field=>(
+                            <td key={field} style={{ ...cellStyle,minWidth:field==='steps'?200:120 }}>
+                              <textarea value={t[field]||''} onChange={e=>{const u=tcList.map(r=>r.id===t.id?{...r,[field]:e.target.value}:r);setTcList(u);saveProject({tcList:u});}} rows={2} style={{ width:'100%',border:'none',outline:'none',fontSize:12,background:'transparent',resize:'vertical',fontFamily:'inherit' }} />
+                            </td>
+                          ))}
+                          <td style={{ ...cellStyle,textAlign:'center',background:resultBg }}>
+                            <select value={t.result||'미실시'} onChange={e=>{const u=tcList.map(r=>r.id===t.id?{...r,result:e.target.value}:r);setTcList(u);saveProject({tcList:u});}} style={{ fontSize:11,border:'1px solid #d1d5db',borderRadius:4,padding:'2px 4px',color:resultColor,fontWeight:700 }}>
+                              {['미실시','성공','실패'].map(r=><option key={r}>{r}</option>)}
+                            </select>
+                          </td>
+                          <td style={cellStyle}>
+                            <button onClick={()=>{const u=tcList.filter(r=>r.id!==t.id);setTcList(u);saveProject({tcList:u});}} style={{ background:'none',border:'none',color:'#ef4444',cursor:'pointer',fontSize:16 }}>✕</button>
                           </td>
                         </tr>
                       );
