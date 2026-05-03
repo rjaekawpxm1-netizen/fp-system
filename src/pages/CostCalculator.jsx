@@ -322,8 +322,8 @@ const CostCalculator = ({ projects }) => {
             </div>
 
             {/* 단계별 발주 참고 */}
-            <div style={{ background: '#fff7ed', border: '1px solid #fdba74', borderRadius: 8, padding: 12 }}>
-              <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 600, color: '#92400e' }}>📌 단계별 발주 참고 (FP 단가 605,784원 기준)</p>
+            <div style={{ background: '#fff7ed', border: '1px solid #fdba74', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+              <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 600, color: '#92400e' }}>📌 단계별 발주 참고</p>
               {[
                 { label: '분석 (19.0%)', rate: 0.190 },
                 { label: '설계사업 (28.1%)', rate: 0.281 },
@@ -334,6 +334,52 @@ const CostCalculator = ({ projects }) => {
                   <span style={{ fontWeight: 600 }}>{fmt(Math.round(devCost * s.rate))}</span>
                 </div>
               ))}
+            </div>
+
+            {/* 투입공수 산정 */}
+            <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+              <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 600, color: '#166534' }}>👥 투입공수 추정</p>
+              {(() => {
+                // 직무별 비율 (전자정부 표준프레임워크 기준)
+                const roles = [
+                  { role: '분석가', ratio: 0.10, unitCost: 75000 },
+                  { role: '설계자', ratio: 0.15, unitCost: 70000 },
+                  { role: '개발자', ratio: 0.50, unitCost: 55000 },
+                  { role: '테스터', ratio: 0.15, unitCost: 50000 },
+                  { role: 'PM', ratio: 0.10, unitCost: 90000 },
+                ];
+                const totalDays = Math.round(devCost / 550000); // 일당 평균 55만원 기준
+                return (
+                  <>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 6 }}>
+                      <span style={{ color: '#374151' }}>총 투입공수 (추정)</span>
+                      <span style={{ fontWeight: 700, color: '#166534' }}>{totalDays}일 ({Math.round(totalDays/20)}개월)</span>
+                    </div>
+                    {roles.map(r => (
+                      <div key={r.role} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#6b7280', padding: '2px 0' }}>
+                        <span>{r.role} ({Math.round(r.ratio*100)}%)</span>
+                        <span>{Math.round(totalDays * r.ratio)}일</span>
+                      </div>
+                    ))}
+                  </>
+                );
+              })()}
+            </div>
+
+            {/* 사업비 총괄표 */}
+            <div style={{ background: '#fdf4ff', border: '1px solid #d8b4fe', borderRadius: 8, padding: 12 }}>
+              <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 600, color: '#7e22ce' }}>📊 사업비 총괄표</p>
+              {[
+                { label: 'SW 개발비', value: totalDevCost },
+                { label: 'SW 유지관리비 (연간 추정 9%)', value: Math.round(totalDevCost * 0.09) },
+                { label: '합계 (개발+1년유지)', value: totalDevCost + Math.round(totalDevCost * 0.09) },
+              ].map(item => (
+                <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '4px 0', borderBottom: '1px solid #f3e8ff' }}>
+                  <span style={{ color: '#374151' }}>{item.label}</span>
+                  <span style={{ fontWeight: 600, color: '#7e22ce' }}>{fmt(item.value)}</span>
+                </div>
+              ))}
+              <p style={{ fontSize: 10, color: '#9ca3af', marginTop: 6 }}>* 유지관리비는 평균 요율(9%) 적용. 실제 산정은 유지관리비 산출서 참고</p>
             </div>
           </div>
         </div>

@@ -886,10 +886,17 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
   return (
     <div style={{ maxWidth: 1800, margin: '0 auto', padding: '24px 16px' }}>
       {/* 헤더 */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <button onClick={() => navigate('/')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', fontSize: 20 }}>←</button>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>{project.name}</h2>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>{project.name}</h2>
+            <div style={{ display: 'flex', align: 'center', gap: 8, marginTop: 4 }}>
+              <span style={{ fontSize: 11, color: '#9ca3af' }}>
+                💾 자동저장됨 · {new Date(project.updatedAt || project.createdAt).toLocaleString('ko-KR')}
+              </span>
+            </div>
+          </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <div style={{ background: '#f0f4ff', border: '1px solid #c7d2fe', borderRadius: 8, padding: '6px 12px', fontSize: 12 }}>
@@ -918,24 +925,42 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
         </div>
       </div>
 
-      {/* 탭 */}
-      <div style={{ display: 'flex', borderBottom: '2px solid #e5e7eb', marginBottom: 24 }}>
-        {[
-          { key: 'setup', label: '① 시스템 개요' },
-          { key: 'functions', label: '② 기능 목록' },
-          { key: 'fp', label: '③ FP 산정표' },
-          { key: 'screens', label: '④ 화면 목록' },
-          { key: 'requirements', label: '⑤ 요구사항 정의서' },
-          { key: 'crud', label: '⑥ CRUD 분석' },
-          { key: 'interface', label: '⑦ 인터페이스 정의서' },
-          { key: 'wbs', label: '⑧ WBS' },
-          { key: 'traceability', label: '⑨ 요구사항 추적표' },
-          { key: 'testcase', label: '⑩ 테스트케이스' },
-        ].map((t) => (
-          <button key={t.key} onClick={() => setTab(t.key)} style={{ padding: '10px 24px', fontSize: 14, fontWeight: 600, border: 'none', background: 'none', cursor: 'pointer', borderBottom: tab === t.key ? '2px solid #2563eb' : '2px solid transparent', color: tab === t.key ? '#2563eb' : '#6b7280', marginBottom: -2 }}>
-            {t.label}
-          </button>
-        ))}
+      {/* 탭 - 스크롤 가능 */}
+      <div style={{ position: 'relative', marginBottom: 24 }}>
+        <div style={{ display: 'flex', overflowX: 'auto', borderBottom: '2px solid #e5e7eb', scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+          {[
+            { key: 'setup', label: '① 시스템개요', icon: '📋' },
+            { key: 'functions', label: '② 기능목록', icon: '📝', count: functions.length },
+            { key: 'fp', label: '③ FP산정표', icon: '📊', count: fpList.length },
+            { key: 'screens', label: '④ 화면목록', icon: '🖥️', count: screenList.length },
+            { key: 'requirements', label: '⑤ 요구사항', icon: '📌', count: reqList.length },
+            { key: 'crud', label: '⑥ CRUD', icon: '🗃️' },
+            { key: 'interface', label: '⑦ 인터페이스', icon: '🔗', count: ifList.length },
+            { key: 'wbs', label: '⑧ WBS', icon: '📅', count: wbsList.length },
+            { key: 'traceability', label: '⑨ 추적표', icon: '🔎', count: traceList.length },
+            { key: 'testcase', label: '⑩ 테스트', icon: '🧪', count: tcList.length },
+          ].map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              style={{
+                padding: '8px 14px', fontSize: 12, fontWeight: 600, border: 'none',
+                background: 'none', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+                borderBottom: tab === t.key ? '2px solid #2563eb' : '2px solid transparent',
+                color: tab === t.key ? '#2563eb' : '#6b7280', marginBottom: -2,
+                display: 'flex', alignItems: 'center', gap: 4,
+              }}
+            >
+              <span>{t.icon}</span>
+              <span>{t.label}</span>
+              {t.count > 0 && (
+                <span style={{ background: tab === t.key ? '#2563eb' : '#e5e7eb', color: tab === t.key ? '#fff' : '#6b7280', borderRadius: 10, padding: '0 5px', fontSize: 10, fontWeight: 700 }}>
+                  {t.count}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* 로딩 */}
