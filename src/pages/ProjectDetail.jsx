@@ -172,7 +172,6 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
 
     return issues;
   };
-  const [showValidation, setShowValidation] = useState(false);
 
   if (!project) {
     return (
