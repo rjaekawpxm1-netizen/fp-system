@@ -40,6 +40,18 @@ const Home = () => {
       available: false,
       badge: '준비 중',
     },
+    {
+      key: 'ta',
+      label: 'TA',
+      fullName: 'Technical Architect',
+      korean: '기술 아키텍처',
+      desc: '서버 규모 산정 · 네트워크 설계 · 보안 아키텍처 · 인프라 설계',
+      icon: '⚙️',
+      color: '#dc2626',
+      bg: 'linear-gradient(135deg, #991b1b 0%, #dc2626 100%)',
+      available: false,
+      badge: '준비 중',
+    },
   ];
 
   return (
@@ -79,18 +91,17 @@ const Home = () => {
           </p>
         </div>
 
-        {/* BA / AA / DA 카드 */}
-        <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', justifyContent: 'center', maxWidth: 900, width: '100%' }}>
+        {/* BA / AA / DA / TA 카드 */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16, maxWidth: 1000, width: '100%' }}>
           {tools.map((tool) => (
             <div
               key={tool.key}
               onClick={() => tool.available && navigate('/ba')}
               style={{
-                flex: '1 1 240px', maxWidth: 280,
                 background: tool.available ? '#1a2535' : '#131c27',
                 border: `1px solid ${tool.available ? tool.color + '40' : '#1e2d3d'}`,
                 borderRadius: 20,
-                padding: '32px 28px',
+                padding: '28px 24px',
                 cursor: tool.available ? 'pointer' : 'default',
                 transition: 'all 0.25s',
                 position: 'relative',
@@ -159,7 +170,7 @@ const Home = () => {
 
         {/* 하단 설명 */}
         <p style={{ marginTop: 48, fontSize: 12, color: '#334155', textAlign: 'center', lineHeight: 1.8 }}>
-          BA 도우미는 현재 사용 가능합니다 · AA, DA 도우미는 순차적으로 출시 예정
+          BA 도우미는 현재 사용 가능합니다 · AA, DA, TA 도우미는 순차적으로 출시 예정
         </p>
       </div>
 
