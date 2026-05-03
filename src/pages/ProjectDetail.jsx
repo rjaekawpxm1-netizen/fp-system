@@ -24,8 +24,40 @@ const COMPLEXITY_COLORS = {
 };
 
 // ============================================================
-// 자동 계산 함수 (가이드 공식 기준)
+// 강화된 JSON 파싱 헬퍼 (잘림 방지)
 // ============================================================
+const safeParseJSON = (text) => {
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start === -1 || end === -1) throw new Error('JSON을 찾을 수 없습니다.');
+
+  // 1차 시도: 전체 파싱
+  try {
+    return JSON.parse(text.slice(start, end + 1));
+  } catch (e1) {
+    // 2차 시도: 배열 마지막 완전한 객체까지
+    const jsonStr = text.slice(start, end + 1);
+    const lastComma = jsonStr.lastIndexOf('},');
+    if (lastComma > 0) {
+      const fixed = jsonStr.slice(0, lastComma + 1) + ']}';
+      try {
+        return JSON.parse(fixed);
+      } catch (e2) {
+        // 3차 시도: 백틱/마크다운 제거
+        const clean = text
+          .replace(/```json/g, '').replace(/```/g, '')
+          .replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ')
+          .trim();
+        const s2 = clean.indexOf('{');
+        const e2end = clean.lastIndexOf('}');
+        if (s2 !== -1 && e2end !== -1) {
+          return JSON.parse(clean.slice(s2, e2end + 1));
+        }
+      }
+    }
+    throw new Error('JSON 파싱 실패: ' + e1.message);
+  }
+};
 
 // FTR 변경률 = FTR변경량 / FTR전체 × 100
 const calcFtrChangePct = (ftrChange, ftr) => {
@@ -641,9 +673,7 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
       });
       const data = await response.json();
       const text = data.content.map(c => c.type === 'text' ? c.text : '').join('');
-      const start = text.indexOf('{');
-      const end = text.lastIndexOf('}');
-      const parsed = JSON.parse(text.slice(start, end + 1));
+      const parsed = safeParseJSON(text);
       const withId = (parsed.screens || []).map((s, i) => ({ ...s, id: Date.now() + i }));
       setScreenList(withId);
       saveProject({ screenList: withId });
@@ -696,45 +726,88 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
   // 요구사항 AI 자동 생성
   const handleGenerateRequirements = async () => {
     if (functions.length === 0) return alert('기능 목록을 먼저 생성하세요.');
+    if (reqList.length > 0 && !window.confirm('기존 요구사항을 덮어쓰시겠습니까?')) return;
     setReqLoading(true);
     try {
-      const response = await fetch('/api/claude', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: [{
-            role: 'user',
-            content: `당신은 SW사업 BA 전문가입니다.
-아래 기능 목록과 화면 목록을 분석하여 요구사항 정의서를 생성하세요.
+      // 기능을 10개씩 나눠서 처리 (JSON 잘림 방지)
+      const chunkSize = 10;
+      const chunks = [];
+      for (let i = 0; i < functions.length; i += chunkSize) {
+        chunks.push(functions.slice(i, i + chunkSize));
+      }
 
-기능 목록:
-${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, definition: f.definition })), null, 2)}
+      let allReqs = [];
+      let frNum = 1;
+
+      for (let ci = 0; ci < chunks.length; ci++) {
+        const chunk = chunks[ci];
+        const response = await fetch('/api/claude', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: [{
+              role: 'user',
+              content: `SW사업 BA 전문가입니다. 아래 기능 목록으로 요구사항을 작성하세요.
+
+기능 목록 (${ci + 1}/${chunks.length} 묶음):
+${JSON.stringify(chunk.map(f => ({ lv2: f.lv2, lv3: f.lv3 })), null, 2)}
 
 화면 목록:
-${JSON.stringify(screenList.map(s => ({ screenId: s.screenId, screenName: s.screenName })), null, 2)}
+${JSON.stringify(screenList.slice(0, 10).map(s => ({ screenId: s.screenId, screenName: s.screenName })), null, 2)}
 
 규칙:
-1. 기능 요구사항(FR): 각 LV3 기능별로 1~2개 생성
-   - "시스템은 ~할 수 있어야 한다" 형식
-   - 관련 화면ID 연결
-2. 비기능 요구사항(NFR): 성능/보안/가용성/사용성 각 1~2개
-   - 응답시간, 동시접속, 보안, 가용성 등
-3. 제약사항(CON): 기술/환경 제약 1~2개
-4. 우선순위: 상/중/하
+- 기능 요구사항(FR): 각 LV3 기능당 정확히 1개만 생성 (짧고 명확하게)
+- NFR/CON은 마지막 묶음(${ci === chunks.length - 1 ? '이번' : '제외'})에만 각 2개씩 추가
+- reqId는 FR-${String(frNum).padStart(3,'0')}부터 순서대로
+- detail은 30자 이내로 간결하게
 
-반드시 아래 JSON만 응답 (다른 텍스트 없이):
-{"requirements":[{"reqId":"FR-001","type":"기능","reqName":"요구사항명","detail":"상세내용 (~해야 한다 형식)","relatedScreen":"SCR-001","priority":"상","note":""}]}`
-          }]
-        }),
-      });
-      const data = await response.json();
-      const text = data.content.map(c => c.type === 'text' ? c.text : '').join('');
-      const start = text.indexOf('{');
-      const end = text.lastIndexOf('}');
-      const parsed = JSON.parse(text.slice(start, end + 1));
-      const withId = (parsed.requirements || []).map((r, i) => ({ ...r, id: Date.now() + i }));
-      setReqList(withId);
-      saveProject({ reqList: withId });
+JSON만 응답:
+{"requirements":[{"reqId":"FR-${String(frNum).padStart(3,'0')}","type":"기능","reqName":"","detail":"시스템은 ~할 수 있어야 한다","relatedScreen":"","priority":"중","note":""}]}`
+            }]
+          }),
+        });
+
+        const data = await response.json();
+        const text = data.content.map(c => c.type === 'text' ? c.text : '').join('');
+
+        // JSON 추출 (잘림 방지 - 마지막 완전한 객체까지만 파싱)
+        const start = text.indexOf('{');
+        let end = text.lastIndexOf('}');
+        if (start === -1 || end === -1) continue;
+
+        let jsonStr = text.slice(start, end + 1);
+
+        // JSON이 잘렸을 경우 복구 시도
+        try {
+          const parsed = JSON.parse(jsonStr);
+          const items = (parsed.requirements || []).map((r, i) => ({
+            ...r,
+            id: Date.now() + allReqs.length + i,
+          }));
+          allReqs = [...allReqs, ...items];
+          frNum += items.filter(r => r.type === '기능').length;
+        } catch (parseErr) {
+          // 잘린 JSON 복구: 마지막 완전한 객체까지만 추출
+          const lastComplete = jsonStr.lastIndexOf('},');
+          if (lastComplete > 0) {
+            jsonStr = jsonStr.slice(0, lastComplete + 1) + ']}';
+            try {
+              const parsed = JSON.parse(jsonStr);
+              const items = (parsed.requirements || []).map((r, i) => ({
+                ...r,
+                id: Date.now() + allReqs.length + i,
+              }));
+              allReqs = [...allReqs, ...items];
+              frNum += items.filter(r => r.type === '기능').length;
+            } catch (e) {
+              console.error('청크 파싱 실패:', ci, e);
+            }
+          }
+        }
+      }
+
+      setReqList(allReqs);
+      saveProject({ reqList: allReqs });
     } catch (err) {
       alert('오류: ' + err.message);
     } finally {
@@ -828,9 +901,7 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
       });
       const data = await response.json();
       const text = data.content.map(c => c.type === 'text' ? c.text : '').join('');
-      const start = text.indexOf('{');
-      const end = text.lastIndexOf('}');
-      const parsed = JSON.parse(text.slice(start, end + 1));
+      const parsed = safeParseJSON(text);
       setCrudMatrix(parsed);
       saveProject({ crudMatrix: parsed });
     } catch (err) {
@@ -1691,8 +1762,7 @@ JSON만 응답:
                     });
                     const data = await response.json();
                     const text = data.content.map(c => c.type === 'text' ? c.text : '').join('');
-                    const start = text.indexOf('{'); const end = text.lastIndexOf('}');
-                    const parsed = JSON.parse(text.slice(start, end + 1));
+                    const parsed = safeParseJSON(text);
                     const withId = (parsed.interfaces || []).map((f, i) => ({ ...f, id: Date.now() + i }));
                     setIfList(withId);
                     saveProject({ ifList: withId });
@@ -1821,8 +1891,7 @@ JSON만 응답:
                     });
                     const data = await response.json();
                     const text = data.content.map(c=>c.type==='text'?c.text:'').join('');
-                    const start = text.indexOf('{'); const end = text.lastIndexOf('}');
-                    const parsed = JSON.parse(text.slice(start, end+1));
+                    const parsed = safeParseJSON(text);
                     const withId = (parsed.wbs||[]).map((w,i)=>({...w,id:Date.now()+i}));
                     setWbsList(withId);
                     saveProject({ wbsList: withId });
@@ -1978,8 +2047,7 @@ JSON만 응답:
                     });
                     const data = await response.json();
                     const text = data.content.map(c=>c.type==='text'?c.text:'').join('');
-                    const start=text.indexOf('{'); const end=text.lastIndexOf('}');
-                    const parsed = JSON.parse(text.slice(start,end+1));
+                    const parsed = safeParseJSON(text);
                     const withId = (parsed.traces||[]).map((t,i)=>({...t,id:Date.now()+i}));
                     setTraceList(withId);
                     saveProject({ traceList: withId });
@@ -2117,8 +2185,7 @@ JSON만 응답:
                     });
                     const data = await response.json();
                     const text = data.content.map(c=>c.type==='text'?c.text:'').join('');
-                    const start=text.indexOf('{'); const end=text.lastIndexOf('}');
-                    const parsed = JSON.parse(text.slice(start,end+1));
+                    const parsed = safeParseJSON(text);
                     const withId = (parsed.testcases||[]).map((t,i)=>({...t,id:Date.now()+i}));
                     setTcList(withId);
                     saveProject({ tcList: withId });
@@ -2267,8 +2334,7 @@ JSON만 응답:
                     });
                     const data = await response.json();
                     const text = data.content.map(c=>c.type==='text'?c.text:'').join('');
-                    const start=text.indexOf('{'); const end=text.lastIndexOf('}');
-                    const parsed = JSON.parse(text.slice(start,end+1));
+                    const parsed = safeParseJSON(text);
                     const withId = (parsed.items||[]).map((a,i)=>({...a,id:Date.now()+i}));
                     setAsisList(withId);
                     saveProject({ asisList: withId });
