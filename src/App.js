@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import Home from './pages/Home';
 import ProjectList from './pages/ProjectList';
 import ProjectDetail from './pages/ProjectDetail';
 import CostCalculator from './pages/CostCalculator';
@@ -128,10 +129,11 @@ const App = () => {
 
   return (
     <BrowserRouter>
-      <div style={{ minHeight: '100vh', background: '#f9fafb', fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif' }}>
+      <div style={{ minHeight: '100vh', fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif' }}>
         <Routes>
+          <Route path="/" element={<Home />} />
           <Route
-            path="/"
+            path="/ba"
             element={
               <ProjectList
                 projects={projects}
