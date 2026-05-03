@@ -127,6 +127,8 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
   const [traceLoading, setTraceLoading] = useState(false);
   const [tcList, setTcList] = useState(project?.tcList || []);
   const [tcLoading, setTcLoading] = useState(false);
+  const [asisList, setAsisList] = useState(project?.asisList || []);
+  const [asisLoading, setAsisLoading] = useState(false);
 
   // ============================================================
   // 4. FP 검증 기능
@@ -541,6 +543,20 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
       XLSX.utils.book_append_sheet(wb, ws9, '테스트케이스');
     }
 
+    // 시트10: AS-IS/TO-BE
+    if (asisList.length > 0) {
+      const asisRows = asisList.map(a => ({
+        'LV1': a.lv1, 'LV2': a.lv2,
+        'AS-IS(현행)': a.asIs,
+        'TO-BE(목표)': a.toBe,
+        '기대효과': a.improvement,
+        '변화유형': a.changeType,
+      }));
+      const ws10 = XLSX.utils.json_to_sheet(asisRows);
+      ws10['!cols'] = [{ wch: 15 }, { wch: 20 }, { wch: 40 }, { wch: 40 }, { wch: 30 }, { wch: 12 }];
+      XLSX.utils.book_append_sheet(wb, ws10, 'AS-IS_TO-BE');
+    }
+
     if (wb.SheetNames.length === 0) {
       alert('출력할 데이터가 없습니다. 먼저 기능목록을 생성하세요.');
       return;
@@ -938,6 +954,7 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
             { key: 'wbs', label: '⑧ WBS', icon: '📅', count: wbsList.length },
             { key: 'traceability', label: '⑨ 추적표', icon: '🔎', count: traceList.length },
             { key: 'testcase', label: '⑩ 테스트', icon: '🧪', count: tcList.length },
+            { key: 'asis', label: '⑪ AS-IS/TO-BE', icon: '🔄' },
           ].map((t) => (
             <button
               key={t.key}
@@ -2201,6 +2218,179 @@ JSON만 응답:
                   </tbody>
                 </table>
               </div>
+            </div>
+          )}
+        </div>
+      )}
+      {/* ⑪ AS-IS / TO-BE */}
+      {tab === 'asis' && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div>
+              <p style={{ fontSize: 14, color: '#6b7280', margin: 0 }}>현행(AS-IS) → 목표(TO-BE) 업무 흐름 비교</p>
+              <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>제안서/기획 단계 필수 산출물</p>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={async () => {
+                  if (functions.length === 0) return alert('기능 목록을 먼저 생성하세요.');
+                  if (asisList.length > 0 && !window.confirm('기존 AS-IS/TO-BE를 덮어쓰시겠습니까?')) return;
+                  setAsisLoading(true);
+                  try {
+                    const response = await fetch('/api/claude', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        messages: [{
+                          role: 'user',
+                          content: `SW사업 BA 전문가로서 AS-IS/TO-BE 업무 흐름 분석을 작성하세요.
+
+시스템명: ${systemName}
+시스템 개요: ${systemOverview}
+주요기능: ${mainFunctions}
+
+기능 목록:
+${JSON.stringify(functions.map(f=>({lv1:f.lv1,lv2:f.lv2,lv3:f.lv3})),null,2)}
+
+각 LV2 업무단위별로 AS-IS와 TO-BE를 작성하세요:
+- lv1: LV1 업무 분류
+- lv2: LV2 업무명
+- asIs: 현행 업무 방식 (수기/이메일/전화 등 현재 문제점 포함)
+- toBe: 목표 업무 방식 (시스템화 후 개선 방향)
+- improvement: 기대 효과 (효율성/정확성/시간단축 등)
+- changeType: 변화 유형 (신규도입/업무개선/자동화/폐지 중 하나)
+
+JSON만 응답:
+{"items":[{"lv1":"","lv2":"","asIs":"","toBe":"","improvement":"","changeType":"업무개선"}]}`
+                        }]
+                      }),
+                    });
+                    const data = await response.json();
+                    const text = data.content.map(c=>c.type==='text'?c.text:'').join('');
+                    const start=text.indexOf('{'); const end=text.lastIndexOf('}');
+                    const parsed = JSON.parse(text.slice(start,end+1));
+                    const withId = (parsed.items||[]).map((a,i)=>({...a,id:Date.now()+i}));
+                    setAsisList(withId);
+                    saveProject({ asisList: withId });
+                  } catch(err) { alert('오류: '+err.message); }
+                  finally { setAsisLoading(false); }
+                }}
+                disabled={asisLoading}
+                style={{ background:'#2563eb',color:'#fff',border:'none',borderRadius:6,padding:'7px 16px',fontSize:13,fontWeight:600,cursor:'pointer',opacity:asisLoading?0.6:1 }}
+              >
+                {asisLoading ? '⚙️ AI 생성 중...' : 'AI AS-IS/TO-BE 생성'}
+              </button>
+              <button
+                onClick={() => {
+                  const updated = [...asisList, { id:Date.now(), lv1:'', lv2:'', asIs:'', toBe:'', improvement:'', changeType:'업무개선' }];
+                  setAsisList(updated); saveProject({ asisList: updated });
+                }}
+                style={{ background:'#eff6ff',color:'#2563eb',border:'1px solid #bfdbfe',borderRadius:6,padding:'7px 14px',fontSize:13,fontWeight:500,cursor:'pointer' }}
+              >+ 행 추가</button>
+              <button
+                onClick={() => {
+                  const rows = asisList.map(a=>({'LV1':a.lv1,'LV2':a.lv2,'AS-IS(현행)':a.asIs,'TO-BE(목표)':a.toBe,'기대효과':a.improvement,'변화유형':a.changeType}));
+                  const wb=XLSX.utils.book_new();
+                  const ws=XLSX.utils.json_to_sheet(rows);
+                  ws['!cols']=[{wch:15},{wch:20},{wch:40},{wch:40},{wch:30},{wch:12}];
+                  XLSX.utils.book_append_sheet(wb,ws,'AS-IS_TO-BE');
+                  const buf=XLSX.write(wb,{bookType:'xlsx',type:'array'});
+                  saveAs(new Blob([buf]),project.name+'_ASIS_TOBE.xlsx');
+                }}
+                style={{ background:'#16a34a',color:'#fff',border:'none',borderRadius:6,padding:'7px 14px',fontSize:13,fontWeight:600,cursor:'pointer' }}
+              >Excel 출력</button>
+            </div>
+          </div>
+
+          {asisList.length === 0 ? (
+            <div style={{ textAlign:'center',padding:'60px 0',color:'#9ca3af',border:'2px dashed #e5e7eb',borderRadius:12 }}>
+              <div style={{ fontSize:40,marginBottom:12 }}>🔄</div>
+              <p style={{ fontSize:15,marginBottom:8 }}>AS-IS/TO-BE 분석이 없습니다</p>
+              <p style={{ fontSize:13 }}>기능 목록 생성 후 AI AS-IS/TO-BE 생성 버튼을 클릭하세요</p>
+            </div>
+          ) : (
+            <div style={{ display:'flex',flexDirection:'column',gap:16 }}>
+              {/* 변화유형 범례 */}
+              <div style={{ display:'flex',gap:8,flexWrap:'wrap' }}>
+                {[
+                  { type:'신규도입', bg:'#dbeafe', color:'#1e40af' },
+                  { type:'업무개선', bg:'#f0fdf4', color:'#166534' },
+                  { type:'자동화', bg:'#fdf4ff', color:'#7e22ce' },
+                  { type:'폐지', bg:'#f3f4f6', color:'#374151' },
+                ].map(t => (
+                  <span key={t.type} style={{ fontSize:11,padding:'2px 8px',borderRadius:4,background:t.bg,color:t.color,fontWeight:600 }}>
+                    {t.type} {asisList.filter(a=>a.changeType===t.type).length}개
+                  </span>
+                ))}
+              </div>
+
+              {/* AS-IS/TO-BE 카드 */}
+              {asisList.map((a) => {
+                const typeColors = {
+                  '신규도입': { bg:'#dbeafe', color:'#1e40af', border:'#93c5fd' },
+                  '업무개선': { bg:'#f0fdf4', color:'#166534', border:'#86efac' },
+                  '자동화': { bg:'#fdf4ff', color:'#7e22ce', border:'#d8b4fe' },
+                  '폐지': { bg:'#f3f4f6', color:'#374151', border:'#d1d5db' },
+                };
+                const tc = typeColors[a.changeType] || typeColors['업무개선'];
+                return (
+                  <div key={a.id} style={{ border:`1px solid ${tc.border}`,borderRadius:12,overflow:'hidden' }}>
+                    {/* 카드 헤더 */}
+                    <div style={{ background:tc.bg,padding:'10px 16px',display:'flex',alignItems:'center',gap:10 }}>
+                      <span style={{ fontSize:11,fontWeight:700,padding:'2px 8px',borderRadius:4,background:'#fff',color:tc.color }}>{a.changeType}</span>
+                      <input value={a.lv1||''} onChange={e=>{const u=asisList.map(r=>r.id===a.id?{...r,lv1:e.target.value}:r);setAsisList(u);saveProject({asisList:u});}} placeholder="LV1" style={{ fontSize:12,border:'none',outline:'none',background:'transparent',color:tc.color,fontWeight:600,width:100 }} />
+                      <span style={{ color:tc.color }}>›</span>
+                      <input value={a.lv2||''} onChange={e=>{const u=asisList.map(r=>r.id===a.id?{...r,lv2:e.target.value}:r);setAsisList(u);saveProject({asisList:u});}} placeholder="LV2 업무명" style={{ fontSize:13,border:'none',outline:'none',background:'transparent',color:tc.color,fontWeight:700,flex:1 }} />
+                      <select value={a.changeType||'업무개선'} onChange={e=>{const u=asisList.map(r=>r.id===a.id?{...r,changeType:e.target.value}:r);setAsisList(u);saveProject({asisList:u});}} style={{ fontSize:11,border:'1px solid '+tc.border,borderRadius:4,padding:'2px 6px',background:'#fff',color:tc.color,fontWeight:600 }}>
+                        {['신규도입','업무개선','자동화','폐지'].map(t=><option key={t}>{t}</option>)}
+                      </select>
+                      <button onClick={()=>{const u=asisList.filter(r=>r.id!==a.id);setAsisList(u);saveProject({asisList:u});}} style={{ background:'none',border:'none',color:'#ef4444',cursor:'pointer',fontSize:16,padding:'0 4px' }}>✕</button>
+                    </div>
+
+                    {/* AS-IS / TO-BE 비교 */}
+                    <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:0 }}>
+                      {/* AS-IS */}
+                      <div style={{ padding:'14px 16px',borderRight:'1px solid #e5e7eb' }}>
+                        <div style={{ display:'flex',alignItems:'center',gap:6,marginBottom:8 }}>
+                          <span style={{ fontSize:11,fontWeight:700,padding:'2px 8px',borderRadius:4,background:'#fee2e2',color:'#dc2626' }}>AS-IS 현행</span>
+                        </div>
+                        <textarea
+                          value={a.asIs||''}
+                          onChange={e=>{const u=asisList.map(r=>r.id===a.id?{...r,asIs:e.target.value}:r);setAsisList(u);saveProject({asisList:u});}}
+                          placeholder="현재 업무 방식, 문제점 입력..."
+                          rows={4}
+                          style={{ width:'100%',border:'1px solid #fca5a5',borderRadius:6,padding:'8px 10px',fontSize:12,resize:'vertical',fontFamily:'inherit',lineHeight:1.6,outline:'none',boxSizing:'border-box' }}
+                        />
+                      </div>
+
+                      {/* TO-BE */}
+                      <div style={{ padding:'14px 16px' }}>
+                        <div style={{ display:'flex',alignItems:'center',gap:6,marginBottom:8 }}>
+                          <span style={{ fontSize:11,fontWeight:700,padding:'2px 8px',borderRadius:4,background:'#dcfce7',color:'#16a34a' }}>TO-BE 목표</span>
+                        </div>
+                        <textarea
+                          value={a.toBe||''}
+                          onChange={e=>{const u=asisList.map(r=>r.id===a.id?{...r,toBe:e.target.value}:r);setAsisList(u);saveProject({asisList:u});}}
+                          placeholder="목표 업무 방식, 개선 방향 입력..."
+                          rows={4}
+                          style={{ width:'100%',border:'1px solid #86efac',borderRadius:6,padding:'8px 10px',fontSize:12,resize:'vertical',fontFamily:'inherit',lineHeight:1.6,outline:'none',boxSizing:'border-box' }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* 기대효과 */}
+                    <div style={{ padding:'10px 16px',borderTop:'1px solid #e5e7eb',background:'#fafafa',display:'flex',alignItems:'center',gap:8 }}>
+                      <span style={{ fontSize:11,fontWeight:600,color:'#6b7280',whiteSpace:'nowrap' }}>💡 기대효과:</span>
+                      <input
+                        value={a.improvement||''}
+                        onChange={e=>{const u=asisList.map(r=>r.id===a.id?{...r,improvement:e.target.value}:r);setAsisList(u);saveProject({asisList:u});}}
+                        placeholder="업무 효율화, 오류 감소, 처리 시간 단축 등..."
+                        style={{ flex:1,border:'none',outline:'none',fontSize:12,background:'transparent',color:'#374151' }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
