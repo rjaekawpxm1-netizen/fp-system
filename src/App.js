@@ -6,6 +6,10 @@ import ProjectDetail from './pages/ProjectDetail';
 import CostCalculator from './pages/CostCalculator';
 import RebuildCost from './pages/RebuildCost';
 import MaintenanceCost from './pages/MaintenanceCost';
+import DAMain from './pages/DAMain';
+import DAConnect from './pages/DAConnect';
+import DASetup from './pages/DASetup';
+import DAResult from './pages/DAResult';
 import {
   fetchProjects,
   createProject as dbCreateProject,
@@ -155,6 +159,10 @@ const App = () => {
           <Route path="/project/:id/cost" element={<CostCalculator projects={projects} />} />
           <Route path="/project/:id/rebuild" element={<RebuildCost projects={projects} />} />
           <Route path="/project/:id/maintenance" element={<MaintenanceCost projects={projects} />} />
+          <Route path="/da" element={<DAMain />} />
+          <Route path="/da/connect" element={<DAConnect />} />
+          <Route path="/da/setup" element={<DASetup />} />
+          <Route path="/da/result" element={<DAResult />} />
         </Routes>
       </div>
     </BrowserRouter>

@@ -37,8 +37,8 @@ const Home = () => {
       icon: '🗄️',
       color: '#059669',
       bg: 'linear-gradient(135deg, #065f46 0%, #059669 100%)',
-      available: false,
-      badge: '준비 중',
+      available: true,
+      badge: '사용 가능',
     },
     {
       key: 'ta',
@@ -96,7 +96,7 @@ const Home = () => {
           {tools.map((tool) => (
             <div
               key={tool.key}
-              onClick={() => tool.available && navigate('/ba')}
+              onClick={() => tool.available && navigate(tool.key === 'ba' ? '/ba' : '/' + tool.key)}
               style={{
                 background: tool.available ? '#1a2535' : '#131c27',
                 border: `1px solid ${tool.available ? tool.color + '40' : '#1e2d3d'}`,
