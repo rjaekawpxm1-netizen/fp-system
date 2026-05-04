@@ -8,199 +8,198 @@ import {
   getSystemInfoImagePrompt,
 } from './systemPrompt';
 
-// JSON 추출 함수
-const extractJSON = (text) => {
-  // 1. ```json ... ``` 블록
-  const jsonBlock = text.match(/```json\s*([\s\S]*?)\s*```/);
-  if (jsonBlock) return jsonBlock[1].trim();
+// JSON 안전 파싱 (잘림 방지)
+const safeParseJSON = (text) => {
+  // 마크다운 제거
+  let clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
 
-  // 2. ``` ... ``` 블록
-  const codeBlock = text.match(/```\s*([\s\S]*?)\s*```/);
-  if (codeBlock) return codeBlock[1].trim();
+  // 1차 시도
+  try { return JSON.parse(clean); } catch (e1) {}
 
-  // 3. { ... } 추출 (가장 바깥쪽)
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start !== -1 && end !== -1 && end > start) {
-    return text.slice(start, end + 1).trim();
+  // 2차: 마지막 완전한 객체까지
+  const start = clean.indexOf('{');
+  const end = clean.lastIndexOf('}');
+  if (start !== -1 && end !== -1) {
+    try { return JSON.parse(clean.slice(start, end + 1)); } catch (e2) {}
+
+    // 3차: 배열 마지막 완전한 항목까지
+    const lastComma = clean.lastIndexOf('},');
+    if (lastComma > 0) {
+      // functions 배열인지 확인
+      const prefix = clean.slice(start, lastComma + 1);
+      // 어떤 키인지 찾기
+      const keyMatch = prefix.match(/"(\w+)"\s*:\s*\[/);
+      if (keyMatch) {
+        const fixed = `{"${keyMatch[1]}":[${prefix.split('[').slice(1).join('[').slice(0, lastComma - prefix.indexOf('['))}]}`;
+        try { return JSON.parse(fixed); } catch (e3) {}
+      }
+      // 단순 배열 복구
+      const arrStart = clean.indexOf('[');
+      if (arrStart !== -1) {
+        const fixed2 = clean.slice(0, lastComma + 1) + ']}';
+        try { return JSON.parse(fixed2); } catch (e4) {}
+      }
+    }
   }
-
-  throw new Error('JSON을 찾을 수 없습니다. AI 응답: ' + text.substring(0, 300));
+  throw new Error('JSON 파싱 실패: ' + text.slice(0, 100));
 };
 
-// 텍스트 기반 Claude 호출
+// 텍스트 API 호출
 const callClaude = async (content) => {
   const response = await fetch('/api/claude', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      messages: [{ role: 'user', content: String(content) }],
+      messages: [{ role: 'user', content }],
     }),
   });
 
   if (!response.ok) {
-    let errMsg = 'API 호출 실패';
-    try {
-      const err = await response.json();
-      errMsg = err?.error?.message || err?.error || JSON.stringify(err);
-    } catch (e) {
-      errMsg = response.status + ' ' + response.statusText;
-    }
-    throw new Error(errMsg);
+    const err = await response.json().catch(() => ({}));
+    const status = response.status;
+    if (status === 504) throw new Error('504: 요청 시간 초과. 파일이 너무 크거나 텍스트가 길 수 있습니다.');
+    throw new Error(err.error?.message || `API 오류 (${status})`);
   }
 
   const data = await response.json();
-
-  if (!data.content || !Array.isArray(data.content)) {
-    throw new Error('API 응답 형식 오류: ' + JSON.stringify(data).substring(0, 200));
-  }
-
-  const text = data.content
-    .map((c) => (c.type === 'text' ? c.text : ''))
-    .join('');
-
-  const jsonStr = extractJSON(text);
-  return JSON.parse(jsonStr);
+  if (data.error) throw new Error(data.error);
+  const text = data.content?.map((c) => (c.type === 'text' ? c.text : '')).join('') || '';
+  return safeParseJSON(text);
 };
 
-// 이미지 기반 Claude 호출 (이미지 + 텍스트 프롬프트)
-const callClaudeWithImage = async (imageBase64, mediaType, textPrompt) => {
+// 이미지 API 호출
+const callClaudeWithImage = async (textPrompt, imageFile) => {
+  const base64 = await fileToBase64(imageFile);
+  const mediaType = imageFile.type || 'image/jpeg';
+
   const response = await fetch('/api/claude', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      messages: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'image',
-              source: {
-                type: 'base64',
-                media_type: mediaType,
-                data: imageBase64,
-              },
-            },
-            {
-              type: 'text',
-              text: String(textPrompt),
-            },
-          ],
-        },
-      ],
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
+          { type: 'text', text: textPrompt },
+        ],
+      }],
     }),
   });
 
   if (!response.ok) {
-    let errMsg = 'API 호출 실패';
-    try {
-      const err = await response.json();
-      errMsg = err?.error?.message || err?.error || JSON.stringify(err);
-    } catch (e) {
-      errMsg = response.status + ' ' + response.statusText;
-    }
-    throw new Error(errMsg);
+    const status = response.status;
+    if (status === 504) throw new Error('504: 이미지 처리 시간 초과. 이미지를 작게 줄여서 다시 시도하세요.');
+    throw new Error(`이미지 API 오류 (${status})`);
   }
 
   const data = await response.json();
-
-  if (!data.content || !Array.isArray(data.content)) {
-    throw new Error('API 응답 형식 오류: ' + JSON.stringify(data).substring(0, 200));
-  }
-
-  const text = data.content
-    .map((c) => (c.type === 'text' ? c.text : ''))
-    .join('');
-
-  const jsonStr = extractJSON(text);
-  return JSON.parse(jsonStr);
+  if (data.error) throw new Error(data.error);
+  const text = data.content?.map((c) => (c.type === 'text' ? c.text : '')).join('') || '';
+  return safeParseJSON(text);
 };
 
-// 파일을 base64로 변환
-const fileToBase64 = (file) => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result.split(',')[1]);
-    reader.onerror = () => reject(new Error('파일 읽기 실패'));
-    reader.readAsDataURL(file);
-  });
+const fileToBase64 = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(reader.result.split(',')[1]);
+  reader.onerror = reject;
+  reader.readAsDataURL(file);
+});
+
+// 텍스트 길이 제한 (토큰 절약)
+const truncateText = (text, maxLen = 3000) => {
+  if (!text || text.length <= maxLen) return text;
+  return text.slice(0, maxLen) + '\n...(이하 생략)';
 };
 
-// 이미지 타입 정규화
-const normalizeMediaType = (file) => {
-  if (file.type === 'image/jpg' || file.name.toLowerCase().endsWith('.jpg')) {
-    return 'image/jpeg';
-  }
-  return file.type || 'image/png';
-};
-
-// 이미지 파일 여부 확인
-const isImageFile = (file) => {
-  return file && (
-    file.type === 'image/png' ||
-    file.type === 'image/jpeg' ||
-    file.type === 'image/jpg' ||
-    file.name.toLowerCase().endsWith('.png') ||
-    file.name.toLowerCase().endsWith('.jpg') ||
-    file.name.toLowerCase().endsWith('.jpeg')
-  );
-};
-
-// LV1~LV3 기능목록 생성
+// ============================================================
+// 기능목록 생성
+// ============================================================
 export const generateFunctions = async (systemInfo, keyword) => {
   const prompt = getLV123Prompt(systemInfo, keyword);
   const result = await callClaude(prompt);
   return result.functions || [];
 };
 
-// FP 산정표 자동완성 (20개씩 나눠서 처리)
+// ============================================================
+// FP 산정
+// ============================================================
 export const generateFPList = async (functions) => {
-  const chunkSize = 20;
-
-  if (functions.length <= chunkSize) {
+  // 기능이 많으면 청크로 나눠서 처리
+  const CHUNK = 25;
+  if (functions.length <= CHUNK) {
     const prompt = getFPPrompt(functions);
     const result = await callClaude(prompt);
     return result.fpList || [];
   }
 
-  let allResults = [];
-  for (let i = 0; i < functions.length; i += chunkSize) {
-    const chunk = functions.slice(i, i + chunkSize);
+  let allFP = [];
+  for (let i = 0; i < functions.length; i += CHUNK) {
+    const chunk = functions.slice(i, i + CHUNK);
     const prompt = getFPPrompt(chunk);
     const result = await callClaude(prompt);
-    allResults = allResults.concat(result.fpList || []);
+    allFP = [...allFP, ...(result.fpList || [])];
   }
-  return allResults;
+  return allFP;
 };
 
-// 기능정의서 파싱 (텍스트 or 이미지)
-export const parseDocument = async (text, file) => {
-  if (isImageFile(file)) {
-    const base64 = await fileToBase64(file);
-    const mediaType = normalizeMediaType(file);
-    // 이미지 전용 프롬프트 사용 (더 정확한 표 인식)
+// ============================================================
+// 기능정의서 파싱
+// ============================================================
+export const parseDocument = async (text, imageFile = null) => {
+  if (imageFile) {
     const prompt = getParseImagePrompt();
-    const result = await callClaudeWithImage(base64, mediaType, prompt);
+    const result = await callClaudeWithImage(prompt, imageFile);
     return result.functions || [];
   }
 
-  const prompt = getParsePrompt(text);
-  const result = await callClaude(prompt);
-  return result.functions || [];
-};
+  // 텍스트가 길면 청크로 나눠서 처리
+  const MAX_CHUNK = 4000;
+  if (!text || text.length === 0) throw new Error('파일에서 텍스트를 추출할 수 없습니다.');
 
-// 시스템 개요 파싱 (텍스트 or 이미지)
-export const parseSystemInfo = async (text, file) => {
-  if (isImageFile(file)) {
-    const base64 = await fileToBase64(file);
-    const mediaType = normalizeMediaType(file);
-    // 이미지 전용 프롬프트 사용
-    const prompt = getSystemInfoImagePrompt();
-    const result = await callClaudeWithImage(base64, mediaType, prompt);
-    return result;
+  if (text.length <= MAX_CHUNK) {
+    const prompt = getParsePrompt(truncateText(text, MAX_CHUNK));
+    const result = await callClaude(prompt);
+    return result.functions || [];
   }
 
-  const prompt = getSystemInfoPrompt(text);
+  // 긴 문서: 청크별로 파싱 후 합산
+  let allFunctions = [];
+  const chunks = [];
+  for (let i = 0; i < text.length; i += MAX_CHUNK) {
+    chunks.push(text.slice(i, i + MAX_CHUNK));
+  }
+
+  for (const chunk of chunks.slice(0, 3)) { // 최대 3청크
+    try {
+      const prompt = getParsePrompt(chunk);
+      const result = await callClaude(prompt);
+      allFunctions = [...allFunctions, ...(result.functions || [])];
+    } catch (e) {
+      console.warn('청크 파싱 실패:', e.message);
+    }
+  }
+
+  // 중복 제거
+  const seen = new Set();
+  return allFunctions.filter(f => {
+    const key = `${f.lv1}|${f.lv2}|${f.lv3}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
+// ============================================================
+// 시스템 개요 파싱
+// ============================================================
+export const parseSystemInfo = async (text, imageFile = null) => {
+  if (imageFile) {
+    const prompt = getSystemInfoImagePrompt();
+    const result = await callClaudeWithImage(prompt, imageFile);
+    return result;
+  }
+  // 텍스트 3000자로 제한 (앞부분이 중요)
+  const prompt = getSystemInfoPrompt(truncateText(text, 3000));
   const result = await callClaude(prompt);
   return result;
 };
