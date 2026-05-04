@@ -242,6 +242,8 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    // 같은 파일 재업로드 허용
+    e.target.value = '';
     setUploadedFileName(file.name);
     setLoading(true);
     setLoadingMsg('파일 읽는 중...');
@@ -268,9 +270,13 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
       if (info.overview) setSystemOverview(info.overview);
       if (info.mainFunctions) setMainFunctions(Array.isArray(info.mainFunctions) ? info.mainFunctions.join(', ') : info.mainFunctions);
       if (info.relatedOrgs) setRelatedOrgs(Array.isArray(info.relatedOrgs) ? info.relatedOrgs.join(', ') : info.relatedOrgs);
-      alert('파일 분석 완료! 내용을 확인하고 키워드를 입력하세요.');
+      if (info.keywords?.length) setKeyword(Array.isArray(info.keywords) ? info.keywords.join(', ') : info.keywords);
+      saveProject({ systemName: info.systemName || systemName, systemOverview: info.overview || systemOverview });
+      setLoadingMsg('');
+      // alert 대신 탭 내 결과 표시로 대체 (업로드 완료 상태는 UI에서 확인)
     } catch (err) {
-      alert('오류: ' + err.message);
+      alert('파일 분석 오류: ' + err.message);
+      setUploadedFileName('');
     } finally {
       setLoading(false);
       setLoadingMsg('');
@@ -280,6 +286,7 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
   const handleFuncDefUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    e.target.value = '';
     setUploadedFuncFileName(file.name);
     setLoading(true);
     setLoadingMsg('기능정의서 파싱 중...');
@@ -302,13 +309,16 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
       }
       setLoadingMsg('AI가 기능 목록 추출 중...');
       const parsed = await parseDocument(text, imageFile);
+      if (!parsed || parsed.length === 0) {
+        throw new Error('기능 목록을 추출할 수 없습니다. 파일 형식을 확인하세요.');
+      }
       const withId = parsed.map((f, i) => ({ ...f, id: Date.now() + i }));
       setFunctions(withId);
-      setTab('functions');
       saveProject({ functions: withId });
-      alert('기능정의서 파싱 완료! 기능 목록을 확인하세요.');
+      setTab('functions');
     } catch (err) {
-      alert('오류: ' + err.message);
+      alert('기능정의서 파싱 오류: ' + err.message);
+      setUploadedFuncFileName('');
     } finally {
       setLoading(false);
       setLoadingMsg('');
@@ -316,28 +326,53 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
   };
 
   const handleGenerateFunctions = async () => {
-    if (!keyword.trim()) return alert('키워드를 입력하세요.');
+    if (!systemName.trim()) return alert('시스템명을 입력하세요.');
+    if (!systemOverview.trim()) return alert('시스템 개요를 입력하세요.');
 
-    // E. AI 재생성 경고
+    // AI 재생성 경고
     if (functions.length > 0) {
       const ok = window.confirm(`기존 기능 목록 ${functions.length}개가 있습니다.\nAI 재생성 시 기존 데이터가 덮어쓰기 됩니다.\n계속하시겠습니까?`);
       if (!ok) return;
     }
 
-    // C. 여러 키워드 일괄 생성 지원
-    const keywords = keyword.split(/[,，\s]+/).map(k => k.trim()).filter(k => k);
+    const keywords = keyword.trim()
+      ? keyword.split(/[,，\s]+/).map(k => k.trim()).filter(k => k)
+      : [];
 
     setLoading(true);
-    setLoadingMsg(`AI가 기능 목록 생성 중... (키워드 ${keywords.length}개)`);
+    setLoadingMsg(keywords.length > 0
+      ? `AI가 기능 목록 생성 중... (키워드 ${keywords.length}개)`
+      : 'AI가 시스템을 분석하여 기능 목록 생성 중...'
+    );
+
     try {
       saveProject({ systemName, systemOverview, mainFunctions, relatedOrgs });
       let allFunctions = [];
-      for (let i = 0; i < keywords.length; i++) {
-        setLoadingMsg(`AI가 기능 목록 생성 중... (${i + 1}/${keywords.length}: ${keywords[i]})`);
-        const result = await generateFunctions(systemInfo, keywords[i]);
-        allFunctions = [...allFunctions, ...result];
+
+      if (keywords.length > 0) {
+        // 키워드별 청크 생성
+        for (let i = 0; i < keywords.length; i++) {
+          setLoadingMsg(`AI가 기능 목록 생성 중... (${i + 1}/${keywords.length}: ${keywords[i]})`);
+          const result = await generateFunctions(systemInfo, keywords[i]);
+          allFunctions = [...allFunctions, ...result];
+        }
+      } else {
+        // 키워드 없음 → 시스템명+개요로 전체 자동 생성
+        setLoadingMsg('AI가 시스템 분석 후 전체 기능목록 자동 생성 중...');
+        const result = await generateFunctions(systemInfo, '');
+        allFunctions = result;
       }
-      const withId = allFunctions.map((f, i) => ({ ...f, id: Date.now() + i }));
+
+      // 중복 제거 (lv1+lv2+lv3 조합 기준)
+      const seen = new Set();
+      const unique = allFunctions.filter(f => {
+        const key = `${f.lv1}|${f.lv2}|${f.lv3}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+      const withId = unique.map((f, i) => ({ ...f, id: Date.now() + i }));
       setFunctions(withId);
       setTab('functions');
       saveProject({ functions: withId, systemName, systemOverview, mainFunctions, relatedOrgs });
@@ -1065,7 +1100,10 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
       {tab === 'setup' && (
         <div>
           <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
-            {[{ key: 'direct', label: '직접 입력' }, { key: 'file', label: '파일 업로드 (시스템개요)' }, { key: 'funcdef', label: '기능정의서 바로 업로드' }].map((m) => (
+            {[
+              { key: 'direct', label: '✏️ 직접 입력' },
+              { key: 'file', label: '📁 파일 업로드' },
+            ].map((m) => (
               <button key={m.key} onClick={() => setInputMethod(m.key)} style={{ padding: '8px 18px', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer', background: inputMethod === m.key ? '#2563eb' : '#f3f4f6', color: inputMethod === m.key ? '#fff' : '#374151', border: 'none' }}>
                 {m.label}
               </button>
@@ -1075,13 +1113,16 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
           {inputMethod === 'direct' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 700 }}>
               {[
-                { label: '시스템명', value: systemName, setter: setSystemName, placeholder: '예) 국방연동관리체계(DIMS)' },
-                { label: '시스템 개요', value: systemOverview, setter: setSystemOverview, placeholder: '시스템 개요를 입력하세요', multi: true },
-                { label: '주요기능', value: mainFunctions, setter: setMainFunctions, placeholder: '예) 연동계획, 연동운영, 연동관제, 체계운영, 체계관리' },
-                { label: '관련기관', value: relatedOrgs, setter: setRelatedOrgs, placeholder: '예) 국방부, 국방전산정보원' },
+                { label: '시스템명 *', value: systemName, setter: setSystemName, placeholder: '예) 민통선출입체계', required: true },
+                { label: '시스템 개요 *', value: systemOverview, setter: setSystemOverview, placeholder: '예) 군인, 민간인, 영농인 등의 민통선 출입자에 대한 통제체계 구축', multi: true, required: true },
+                { label: '주요기능', value: mainFunctions, setter: setMainFunctions, placeholder: '예) 출입관리, 출입체계 (없어도 자동 생성 가능)' },
+                { label: '관련기관', value: relatedOrgs, setter: setRelatedOrgs, placeholder: '예) 국방부, 국방전산정보원 (없어도 자동 생성 가능)' },
               ].map((item) => (
                 <div key={item.label}>
-                  <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>{item.label}</label>
+                  <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>
+                    {item.label}
+                    {item.required && <span style={{ color: '#ef4444', marginLeft: 4, fontSize: 11 }}>필수</span>}
+                  </label>
                   {item.multi ? (
                     <textarea value={item.value} onChange={(e) => item.setter(e.target.value)} placeholder={item.placeholder} rows={3} style={{ ...inputStyle, resize: 'vertical' }} />
                   ) : (
@@ -1089,22 +1130,29 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                   )}
                 </div>
               ))}
+
+              {/* 안내 박스 */}
+              <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#166534' }}>
+                💡 <strong>시스템명 + 개요</strong>만 입력해도 AI가 주요기능·관련기관·LV1~LV3 전체를 자동 생성합니다.<br />
+                키워드를 입력하면 해당 업무 중심으로 더 정확하게 생성됩니다.
+              </div>
+
               <div>
                 <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>
-                  키워드 입력 <span style={{ color: '#6b7280', fontWeight: 400 }}>(쉼표로 구분하면 여러 키워드 한번에 생성)</span>
+                  키워드 입력 <span style={{ color: '#6b7280', fontWeight: 400 }}>(선택 · 쉼표로 구분하면 여러 키워드 한번에 생성)</span>
                 </label>
                 <div style={{ display: 'flex', gap: 10 }}>
-                  <input value={keyword} onChange={(e) => setKeyword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleGenerateFunctions()} placeholder="예: 연동계획, 연동운영, 체계관리" style={{ ...inputStyle, flex: 1 }} />
-                  <button onClick={handleGenerateFunctions} style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  <input value={keyword} onChange={(e) => setKeyword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleGenerateFunctions()} placeholder="예: 출입신청, 출입이력, 출입구역관리 (비워두면 AI가 자동 추론)" style={{ ...inputStyle, flex: 1 }} />
+                  <button onClick={handleGenerateFunctions} disabled={!systemName.trim() || !systemOverview.trim()} style={{ background: (!systemName.trim() || !systemOverview.trim()) ? '#e5e7eb' : '#2563eb', color: (!systemName.trim() || !systemOverview.trim()) ? '#9ca3af' : '#fff', border: 'none', borderRadius: 8, padding: '8px 20px', fontSize: 14, fontWeight: 600, cursor: (!systemName.trim() || !systemOverview.trim()) ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}>
                     AI 기능목록 생성
                   </button>
                 </div>
                 <p style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
-                  💡 여러 키워드를 쉼표로 구분하면 한번에 생성됩니다. 예: "연동계획, 연동운영, 연동관제"
+                  시스템명과 개요만 입력 → 버튼 클릭하면 AI가 전체 기능목록 자동 생성
                 </p>
                 <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-                  {['연동계획', '연동운영', '연동관제', '체계운영', '체계관리'].map((kw) => (
-                    <button key={kw} onClick={() => setKeyword(kw)} style={{ padding: '4px 12px', borderRadius: 20, fontSize: 12, background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', cursor: 'pointer' }}>{kw}</button>
+                  {['연동계획', '연동운영', '연동관제', '체계운영', '체계관리', '출입관리', '민원관리', '사용자관리'].map((kw) => (
+                    <button key={kw} onClick={() => setKeyword(prev => prev ? prev + ', ' + kw : kw)} style={{ padding: '4px 12px', borderRadius: 20, fontSize: 12, background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', cursor: 'pointer' }}>{kw}</button>
                   ))}
                 </div>
               </div>
@@ -1112,55 +1160,74 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
           )}
 
           {inputMethod === 'file' && (
-            <div style={{ maxWidth: 500 }}>
-              <p style={{ fontSize: 14, color: '#374151', marginBottom: 12 }}>
-                시스템 개요 문서를 업로드하면 AI가 자동으로 분석합니다.<br />
-                <span style={{ color: '#ef4444', fontSize: 12 }}>※ HWP는 PDF로 변환 후 업로드하세요.</span>
-              </p>
-              <label style={{ display: 'block', border: '2px dashed #93c5fd', borderRadius: 10, padding: '32px', textAlign: 'center', cursor: 'pointer', background: '#eff6ff' }}>
-                <div style={{ fontSize: 32, marginBottom: 8 }}>📄</div>
-                <p style={{ fontWeight: 600, color: '#2563eb' }}>PDF / DOCX / Excel / PNG / JPG 업로드</p>
-                <p style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>클릭하여 파일 선택</p>
-                <input type="file" accept=".pdf,.docx,.xlsx,.xls,.png,.jpg,.jpeg" onChange={handleFileUpload} style={{ display: 'none' }} />
-              </label>
+            <div style={{ maxWidth: 600 }}>
+              <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 12, color: '#92400e' }}>
+                ⚠️ HWP 파일은 PDF로 변환 후 업로드하세요. 두 가지 용도 모두 지원합니다.
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+                {/* 시스템개요 업로드 */}
+                <div>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 8 }}>📄 시스템개요 문서</p>
+                  <label style={{ display: 'block', border: '2px dashed #93c5fd', borderRadius: 10, padding: '24px 16px', textAlign: 'center', cursor: 'pointer', background: '#eff6ff', transition: 'all 0.15s' }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#dbeafe'}
+                    onMouseLeave={e => e.currentTarget.style.background = '#eff6ff'}
+                  >
+                    <div style={{ fontSize: 28, marginBottom: 6 }}>📄</div>
+                    <p style={{ fontWeight: 600, color: '#2563eb', fontSize: 13 }}>시스템개요 업로드</p>
+                    <p style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>PDF · DOCX · Excel · 이미지</p>
+                    <input type="file" accept=".pdf,.docx,.xlsx,.xls,.png,.jpg,.jpeg" onChange={handleFileUpload} style={{ display: 'none' }} />
+                  </label>
+                  <p style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>→ 시스템명/개요/키워드 자동 추출</p>
+                </div>
+
+                {/* 기능정의서 업로드 */}
+                <div>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 8 }}>📋 기능정의서</p>
+                  <label style={{ display: 'block', border: '2px dashed #86efac', borderRadius: 10, padding: '24px 16px', textAlign: 'center', cursor: 'pointer', background: '#f0fdf4', transition: 'all 0.15s' }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#dcfce7'}
+                    onMouseLeave={e => e.currentTarget.style.background = '#f0fdf4'}
+                  >
+                    <div style={{ fontSize: 28, marginBottom: 6 }}>📋</div>
+                    <p style={{ fontWeight: 600, color: '#16a34a', fontSize: 13 }}>기능정의서 업로드</p>
+                    <p style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>PDF · DOCX · Excel · 이미지</p>
+                    <input type="file" accept=".pdf,.docx,.xlsx,.xls,.png,.jpg,.jpeg" onChange={handleFuncDefUpload} style={{ display: 'none' }} />
+                  </label>
+                  <p style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>→ LV1~LV3 기능목록 자동 추출</p>
+                </div>
+              </div>
+
+              {/* 업로드 결과 */}
               {uploadedFileName && (
-                <div style={{ marginTop: 12, padding: '10px 14px', background: '#f0fdf4', borderRadius: 8, border: '1px solid #86efac', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span>📎</span><span style={{ fontSize: 13, fontWeight: 500, color: '#16a34a' }}>{uploadedFileName}</span>
-                  <span style={{ fontSize: 12, color: '#6b7280', marginLeft: 'auto' }}>업로드 완료</span>
+                <div style={{ padding: '10px 14px', background: '#f0fdf4', borderRadius: 8, border: '1px solid #86efac', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <span>📎</span>
+                  <span style={{ fontSize: 13, fontWeight: 500, color: '#16a34a' }}>{uploadedFileName}</span>
+                  <span style={{ fontSize: 12, color: '#6b7280', marginLeft: 'auto' }}>
+                    {(systemName || systemOverview) ? '✅ 분석 완료' : '⏳ 분석 중...'}
+                  </span>
                 </div>
               )}
+
+              {uploadedFuncFileName && (
+                <div style={{ padding: '10px 14px', background: '#f0fdf4', borderRadius: 8, border: '1px solid #86efac', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <span>📎</span>
+                  <span style={{ fontSize: 13, fontWeight: 500, color: '#16a34a' }}>{uploadedFuncFileName}</span>
+                  <span style={{ fontSize: 12, color: '#6b7280', marginLeft: 'auto' }}>✅ 기능목록 추출 완료</span>
+                </div>
+              )}
+
+              {/* 파싱 완료 후 추가 생성 */}
               {(systemName || systemOverview) && (
-                <div style={{ marginTop: 16, padding: 16, background: '#f0fdf4', borderRadius: 8, border: '1px solid #86efac' }}>
-                  <p style={{ fontWeight: 600, color: '#16a34a', marginBottom: 8 }}>✅ 파싱 완료</p>
-                  <p style={{ fontSize: 13 }}>시스템명: {systemName}</p>
-                  <p style={{ fontSize: 13 }}>주요기능: {mainFunctions}</p>
-                  <div style={{ marginTop: 12 }}>
-                    <input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="키워드 입력" style={{ ...inputStyle, marginBottom: 8 }} />
-                    <button onClick={handleGenerateFunctions} style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                <div style={{ padding: 16, background: '#f0fdf4', borderRadius: 8, border: '1px solid #86efac' }}>
+                  <p style={{ fontWeight: 600, color: '#166534', marginBottom: 8, fontSize: 13 }}>✅ 시스템 정보 추출 완료</p>
+                  {systemName && <p style={{ fontSize: 12, color: '#374151', marginBottom: 4 }}>시스템명: <strong>{systemName}</strong></p>}
+                  {mainFunctions && <p style={{ fontSize: 12, color: '#374151', marginBottom: 8 }}>주요기능: {mainFunctions}</p>}
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="키워드 추가 입력 (선택)" style={{ ...inputStyle, flex: 1, fontSize: 12 }} />
+                    <button onClick={handleGenerateFunctions} style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                       AI 기능목록 생성
                     </button>
                   </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {inputMethod === 'funcdef' && (
-            <div style={{ maxWidth: 500 }}>
-              <p style={{ fontSize: 14, color: '#374151', marginBottom: 12 }}>
-                기능정의서를 업로드하면 LV1~LV3를 자동 추출합니다.<br />
-                <span style={{ color: '#6b7280', fontSize: 12 }}>PDF / DOCX / Excel / PNG / JPG 지원</span>
-              </p>
-              <label style={{ display: 'block', border: '2px dashed #86efac', borderRadius: 10, padding: '32px', textAlign: 'center', cursor: 'pointer', background: '#f0fdf4' }}>
-                <div style={{ fontSize: 32, marginBottom: 8 }}>📋</div>
-                <p style={{ fontWeight: 600, color: '#16a34a' }}>기능정의서 업로드</p>
-                <p style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>PDF / DOCX / Excel / PNG / JPG</p>
-                <input type="file" accept=".pdf,.docx,.xlsx,.xls,.png,.jpg,.jpeg" onChange={handleFuncDefUpload} style={{ display: 'none' }} />
-              </label>
-              {uploadedFuncFileName && (
-                <div style={{ marginTop: 12, padding: '10px 14px', background: '#f0fdf4', borderRadius: 8, border: '1px solid #86efac', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span>📎</span><span style={{ fontSize: 13, fontWeight: 500, color: '#16a34a' }}>{uploadedFuncFileName}</span>
-                  <span style={{ fontSize: 12, color: '#6b7280', marginLeft: 'auto' }}>업로드 완료</span>
                 </div>
               )}
             </div>

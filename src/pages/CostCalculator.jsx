@@ -61,13 +61,21 @@ const CostCalculator = ({ projects }) => {
   const project = projects.find((p) => p.id === id);
 
   // 보정계수 선택
-  const [linkIdx, setLinkIdx] = useState(1);      // 기본: 1~2개 연계 0.94
-  const [perfIdx, setPerfIdx] = useState(2);      // 기본: 피크타임 1.00
-  const [envIdx, setEnvIdx] = useState(1);        // 기본: 동일환경 1.00
-  const [secIdx, setSecIdx] = useState(1);        // 기본: 2가지 1.00
-  const [profitRate, setProfitRate] = useState(25); // 이윤율 (%)
-  const [directCost, setDirectCost] = useState(0);  // 직접경비
-  const [method, setMethod] = useState('standard'); // 정통법/간이법
+  const [linkIdx, setLinkIdx] = useState(1);
+  const [perfIdx, setPerfIdx] = useState(2);
+  const [envIdx, setEnvIdx] = useState(1);
+  const [secIdx, setSecIdx] = useState(1);
+  const [profitRate, setProfitRate] = useState(25);
+  const [directCost, setDirectCost] = useState(0);
+  const [method, setMethod] = useState('standard');
+
+  // 요구사항 4: 기능점수당 단가 변경 가능
+  const [fpUnitPrice, setFpUnitPrice] = useState(FP_UNIT_PRICE);
+  const [showUnitEdit, setShowUnitEdit] = useState(false);
+
+  // 요구사항 5: 금액 역산
+  const [reverseMode, setReverseMode] = useState(false);
+  const [targetBudget, setTargetBudget] = useState('');
 
   if (!project) {
     return (
@@ -82,7 +90,7 @@ const CostCalculator = ({ projects }) => {
   const fpSummary = calcTotalFP(fpList, method);
   const totalFP = Number(fpSummary.newDev) + Number(fpSummary.changed);
 
-  // 보정계수 값
+  // 보정계수
   const sizeCoeff = calcSizeCoeff(totalFP);
   const linkCoeff = LINK_COMPLEXITY[linkIdx].value;
   const perfCoeff = PERFORMANCE[perfIdx].value;
@@ -90,12 +98,29 @@ const CostCalculator = ({ projects }) => {
   const secCoeff = SECURITY[secIdx].value;
   const totalCoeff = sizeCoeff * linkCoeff * perfCoeff * envCoeff * secCoeff;
 
-  // 개발원가 계산
-  const preCorrectionCost = Math.round(totalFP * FP_UNIT_PRICE);
+  // 순방향 계산
+  const preCorrectionCost = Math.round(totalFP * fpUnitPrice);
   const devCost = Math.round(preCorrectionCost * totalCoeff);
   const profit = Math.round(devCost * (profitRate / 100));
   const totalDevCost = devCost + profit + Number(directCost);
   const totalWithVAT = Math.round(totalDevCost * 1.1);
+
+  // 역산: 예산 → FP → 기능 수
+  const calcReverse = () => {
+    const budget = Number(String(targetBudget).replace(/[^0-9]/g, ''));
+    if (!budget) return null;
+    // 예산 = FP × 단가 × 보정계수 × (1 + 이윤율) + 직접경비
+    // FP = (예산 - 직접경비) / (단가 × 보정계수 × (1 + 이윤율/100))
+    const reversedFP = Math.round(
+      (budget - Number(directCost)) / (fpUnitPrice * totalCoeff * (1 + profitRate / 100))
+    );
+    // 기능 수 추정 (평균 FP 3.9~4.5점 기준)
+    const estFuncCount = Math.round(reversedFP / 4.2);
+    const estLV2Count = Math.round(estFuncCount / 6); // LV2당 평균 6개 LV3
+    return { reversedFP, estFuncCount, estLV2Count };
+  };
+
+  const reverseResult = reverseMode && targetBudget ? calcReverse() : null;
 
   const fmt = (n) => n.toLocaleString('ko-KR') + '원';
 
@@ -190,6 +215,39 @@ const CostCalculator = ({ projects }) => {
                 </button>
               ))}
             </div>
+
+            {/* 요구사항 4: 기능점수당 단가 변경 */}
+            <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '10px 12px', marginBottom: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: showUnitEdit ? 8 : 0 }}>
+                <span style={{ fontSize: 12, color: '#92400e', fontWeight: 600 }}>
+                  💰 기능점수당 단가: {fpUnitPrice.toLocaleString()}원/FP
+                </span>
+                <button onClick={() => setShowUnitEdit(!showUnitEdit)} style={{ fontSize: 11, color: '#d97706', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
+                  {showUnitEdit ? '닫기' : '✏️ 변경'}
+                </button>
+              </div>
+              {showUnitEdit && (
+                <div>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                    <input
+                      type="number"
+                      value={fpUnitPrice}
+                      onChange={e => setFpUnitPrice(Number(e.target.value))}
+                      style={{ flex: 1, padding: '6px 10px', fontSize: 13, border: '1px solid #fde68a', borderRadius: 6, outline: 'none' }}
+                    />
+                    <span style={{ fontSize: 12, color: '#92400e' }}>원/FP</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {[{ year: '2025', price: 605784 }, { year: '2024', price: 582004 }, { year: '2023', price: 559600 }].map(p => (
+                      <button key={p.year} onClick={() => setFpUnitPrice(p.price)} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: fpUnitPrice === p.price ? '#d97706' : '#fef3c7', color: fpUnitPrice === p.price ? '#fff' : '#92400e', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
+                        {p.year}년 {p.price.toLocaleString()}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div style={{ background: '#f8fafc', borderRadius: 8, padding: 12 }}>
               {resultRow('신규개발 FP', fpSummary.newDev + ' FP')}
               {resultRow('기능변경 FP', fpSummary.changed + ' FP')}
@@ -367,7 +425,7 @@ const CostCalculator = ({ projects }) => {
             </div>
 
             {/* 사업비 총괄표 */}
-            <div style={{ background: '#fdf4ff', border: '1px solid #d8b4fe', borderRadius: 8, padding: 12 }}>
+            <div style={{ background: '#fdf4ff', border: '1px solid #d8b4fe', borderRadius: 8, padding: 12, marginBottom: 12 }}>
               <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 600, color: '#7e22ce' }}>📊 사업비 총괄표</p>
               {[
                 { label: 'SW 개발비', value: totalDevCost },
@@ -379,7 +437,69 @@ const CostCalculator = ({ projects }) => {
                   <span style={{ fontWeight: 600, color: '#7e22ce' }}>{fmt(item.value)}</span>
                 </div>
               ))}
-              <p style={{ fontSize: 10, color: '#9ca3af', marginTop: 6 }}>* 유지관리비는 평균 요율(9%) 적용. 실제 산정은 유지관리비 산출서 참고</p>
+              <p style={{ fontSize: 10, color: '#9ca3af', marginTop: 6 }}>* 유지관리비는 평균 요율(9%) 적용.</p>
+            </div>
+
+            {/* 요구사항 5: 금액 역산 */}
+            <div style={{ background: '#f0f9ff', border: '1px solid #7dd3fc', borderRadius: 8, padding: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: '#0369a1' }}>🔄 금액 역산 (예산 → FP · 기능 수)</p>
+                <button onClick={() => setReverseMode(!reverseMode)} style={{ fontSize: 11, color: '#0369a1', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
+                  {reverseMode ? '닫기' : '열기'}
+                </button>
+              </div>
+              {reverseMode && (
+                <div>
+                  <p style={{ fontSize: 11, color: '#0369a1', marginBottom: 8 }}>
+                    목표 예산을 입력하면 필요한 FP와 기능 수를 역산합니다.<br />
+                    현재 설정된 보정계수와 단가가 적용됩니다.
+                  </p>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'center' }}>
+                    <input
+                      type="text"
+                      value={targetBudget}
+                      onChange={e => setTargetBudget(e.target.value.replace(/[^0-9]/g, ''))}
+                      placeholder="예산 입력 (원)"
+                      style={{ flex: 1, padding: '7px 10px', fontSize: 13, border: '1px solid #7dd3fc', borderRadius: 6, outline: 'none' }}
+                    />
+                    <span style={{ fontSize: 12, color: '#0369a1', whiteSpace: 'nowrap' }}>원</span>
+                  </div>
+                  {/* 빠른 선택 */}
+                  <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+                    {['2억', '4억', '6억', '10억', '20억'].map(v => {
+                      const num = v.includes('억') ? Number(v.replace('억', '')) * 100000000 : Number(v.replace('천만', '')) * 10000000;
+                      return (
+                        <button key={v} onClick={() => setTargetBudget(String(num))} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 10, background: targetBudget === String(num) ? '#0369a1' : '#e0f2fe', color: targetBudget === String(num) ? '#fff' : '#0369a1', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
+                          {v}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {reverseResult && (
+                    <div style={{ background: '#fff', borderRadius: 8, padding: '10px 12px', border: '1px solid #bae6fd' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '4px 0', borderBottom: '1px solid #f0f9ff' }}>
+                        <span style={{ color: '#374151' }}>목표 예산</span>
+                        <span style={{ fontWeight: 700, color: '#0369a1' }}>{Number(targetBudget).toLocaleString()}원</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '4px 0', borderBottom: '1px solid #f0f9ff' }}>
+                        <span style={{ color: '#374151' }}>필요 FP (역산)</span>
+                        <span style={{ fontWeight: 700, color: '#0369a1' }}>{reverseResult.reversedFP.toLocaleString()} FP</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '4px 0', borderBottom: '1px solid #f0f9ff' }}>
+                        <span style={{ color: '#374151' }}>추정 기능 수 (LV3)</span>
+                        <span style={{ fontWeight: 700, color: '#0369a1' }}>약 {reverseResult.estFuncCount.toLocaleString()}개</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '4px 0' }}>
+                        <span style={{ color: '#374151' }}>추정 LV2 업무단위</span>
+                        <span style={{ fontWeight: 700, color: '#0369a1' }}>약 {reverseResult.estLV2Count}개</span>
+                      </div>
+                      <p style={{ fontSize: 10, color: '#94a3b8', marginTop: 6 }}>
+                        * 평균 FP 4.2점/기능, LV2당 6개 LV3 기준 추정값
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
