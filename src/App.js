@@ -10,6 +10,7 @@ import DAMain from './pages/DAMain';
 import DAConnect from './pages/DAConnect';
 import DASetup from './pages/DASetup';
 import DAResult from './pages/DAResult';
+import DAStandard from './pages/DAStandard';
 import {
   fetchProjects,
   createProject as dbCreateProject,
@@ -163,6 +164,7 @@ const App = () => {
           <Route path="/da/connect" element={<DAConnect />} />
           <Route path="/da/setup" element={<DASetup />} />
           <Route path="/da/result" element={<DAResult />} />
+          <Route path="/da/standard" element={<DAStandard />} />
         </Routes>
       </div>
     </BrowserRouter>

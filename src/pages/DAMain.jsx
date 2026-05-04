@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getConnectStatus } from '../utils/daApi';
 
-const STEPS = [
+  const STEPS = [
   { num: '01', icon: '🔌', title: 'DB 연결', desc: 'Oracle·MySQL·PostgreSQL 직접 연결 또는 CSV/Excel 파일 업로드', tip: '💡 Oracle Wallet 파일 업로드 방식도 지원합니다', color: '#2563eb' },
   { num: '02', icon: '⚙️', title: '진단 항목 설정', desc: '테이블 선택 후 컬럼별 진단 규칙을 설정합니다. 타입에 따라 자동 추천됩니다', tip: '💡 DATE/NUMBER/TEXT 타입별로 기본 규칙이 자동 설정됩니다', color: '#7c3aed' },
   { num: '03', icon: '▶️', title: '진단 실행', desc: '6개 품질 영역(완전성·일관성·정확성·유용성·유일성·유효성) 자동 진단', tip: '💡 진단 완료 후 오류 데이터 원본을 바로 확인할 수 있습니다', color: '#db2777' },
   { num: '04', icon: '📈', title: '결과 분석', desc: '영역별 등급, 레이더 차트, 드릴다운으로 오류 원본 데이터 추적', tip: '💡 Claude AI가 진단 결과를 분석하고 개선 방안을 제시합니다', color: '#059669' },
   { num: '05', icon: '📄', title: '보고서 출력', desc: 'Excel 3시트(진단개요·상세결과·영역별요약) + PDF 공문 형식 출력', tip: '💡 진단 이력이 자동으로 저장되어 추이를 비교할 수 있습니다', color: '#d97706' },
+  { num: '06', icon: '🤖', title: 'AI 표준화 추천', desc: '공통표준용어 13,177개 기반 컬럼명 표준화 · 영문약어 자동 추천 · DDL 생성', tip: '💡 DB 연결 없이 컬럼명 직접 입력으로도 사용 가능합니다', color: '#059669' },
 ];
 
 const QUALITY_AREAS = [
@@ -121,11 +122,14 @@ const DAMain = () => {
         {/* 워크플로우 */}
         <div style={{ marginBottom: 24 }}>
           <h2 style={{ color: '#1e293b', fontSize: 15, fontWeight: 700, marginBottom: 14 }}>📌 진단 워크플로우</h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
             {STEPS.map((step) => (
               <button
                 key={step.num}
-                onClick={() => navigate(step.num === '01' ? '/da/connect' : step.num === '02' || step.num === '03' ? '/da/setup' : '/da/result')}
+                onClick={() => {
+                  const routes = { '01': '/da/connect', '02': '/da/setup', '03': '/da/setup', '04': '/da/result', '05': '/da/result', '06': '/da/standard' };
+                  navigate(routes[step.num] || '/da');
+                }}
                 style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: '16px 14px', cursor: 'pointer', textAlign: 'left', boxShadow: '0 1px 4px rgba(0,0,0,0.04)', transition: 'all 0.15s' }}
                 onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)'; e.currentTarget.style.borderColor = step.color + '60'; }}
                 onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.04)'; e.currentTarget.style.borderColor = '#e2e8f0'; }}
