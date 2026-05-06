@@ -1350,17 +1350,88 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                       ))}
                     </div>
 
-                    {/* 현재 기능목록과 비교 */}
+                    {/* 현재 기능목록과 비교 + 추가 생성 버튼 */}
                     {functions.length > 0 && (
-                      <div style={{ padding: '10px 12px', background: gap > 0 ? '#eff6ff' : gap < 0 ? '#fef2f2' : '#f0fdf4', borderRadius: 8, fontSize: 12 }}>
-                        <span style={{ fontWeight: 600, color: gap > 0 ? '#1e40af' : gap < 0 ? '#dc2626' : '#16a34a' }}>
-                          {gap > 0 ? `📈 현재 기능 ${functions.length}개보다 약 ${Math.round(gap / 4.2)}개 더 필요합니다` :
-                           gap < 0 ? `📉 현재 기능 ${functions.length}개가 예산보다 약 ${Math.round(Math.abs(gap) / 4.2)}개 초과합니다` :
-                           '✅ 현재 기능 수가 예산에 적합합니다'}
-                        </span>
-                        <span style={{ color: '#6b7280', marginLeft: 8 }}>
-                          (현재 기능 {functions.length}개 / 목표 약 {estFuncCount}개)
-                        </span>
+                      <div style={{ padding: '10px 12px', background: gap > 0 ? '#eff6ff' : gap < 0 ? '#fef2f2' : '#f0fdf4', borderRadius: 8, fontSize: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                        <div>
+                          <span style={{ fontWeight: 600, color: gap > 0 ? '#1e40af' : gap < 0 ? '#dc2626' : '#16a34a' }}>
+                            {gap > 0 ? `📈 현재 기능 ${functions.length}개보다 약 ${Math.round(gap / 4.2)}개 더 필요합니다` :
+                             gap < 0 ? `📉 현재 기능 ${functions.length}개가 예산보다 약 ${Math.round(Math.abs(gap) / 4.2)}개 초과합니다` :
+                             '✅ 현재 기능 수가 예산에 적합합니다'}
+                          </span>
+                          <span style={{ color: '#6b7280', marginLeft: 8 }}>
+                            (현재 {functions.length}개 / 목표 약 {estFuncCount}개)
+                          </span>
+                        </div>
+                        {gap > 0 && (
+                          <button
+                            onClick={async () => {
+                              const needMore = Math.round(gap / 4.2);
+                              const ok = window.confirm(`부족한 기능 약 ${needMore}개를 AI로 추가 생성하시겠습니까?\n기존 기능 ${functions.length}개는 유지됩니다.`);
+                              if (!ok) return;
+
+                              // 기존 기능 LV1/LV2 목록 추출해서 프롬프트에 포함
+                              const existingLV1 = [...new Set(functions.map(f => f.lv1))].join(', ');
+                              const existingLV2 = [...new Set(functions.map(f => f.lv2))].join(', ');
+                              const extraKeyword = `추가필요기능(목표${estFuncCount}개중현재${functions.length}개보유,기존LV1:${existingLV1},기존LV2:${existingLV2},중복제외하고새로운기능만생성)`;
+
+                              setLoading(true);
+                              setLoadingMsg(`예산에 맞는 추가 기능 약 ${needMore}개 생성 중...`);
+                              try {
+                                const result = await generateFunctions(systemInfo, extraKeyword);
+                                // 기존 lv3명과 중복 제거
+                                const existingLV3 = new Set(functions.map(f => f.lv3));
+                                const newFuncs = result.filter(f => !existingLV3.has(f.lv3));
+                                const withId = newFuncs.map((f, i) => ({ ...f, id: Date.now() + i }));
+                                const merged = [...functions, ...withId];
+                                setFunctions(merged);
+                                saveProject({ functions: merged });
+                                alert(`✅ ${withId.length}개 기능이 추가되었습니다. (총 ${merged.length}개)`);
+                              } catch (err) {
+                                alert('추가 생성 오류: ' + err.message);
+                              } finally {
+                                setLoading(false);
+                                setLoadingMsg('');
+                              }
+                            }}
+                            style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 16px', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                          >
+                            ✨ 부족한 기능 AI 추가 생성
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* 기능 없을 때 바로 생성 */}
+                    {functions.length === 0 && reverseTarget && Number(reverseTarget) > 0 && (
+                      <div style={{ marginTop: 10 }}>
+                        <button
+                          onClick={async () => {
+                            const ok = window.confirm(`예산에 맞는 기능 약 ${estFuncCount}개를 AI로 생성하시겠습니까?`);
+                            if (!ok) return;
+                            if (!systemName || !systemOverview) {
+                              alert('먼저 시스템명과 개요를 입력해주세요.');
+                              setTab('setup');
+                              return;
+                            }
+                            setLoading(true);
+                            setLoadingMsg(`예산 ${(Number(reverseTarget) / 100000000).toFixed(1)}억에 맞는 기능 ${estFuncCount}개 생성 중...`);
+                            try {
+                              const result = await generateFunctions(systemInfo, `목표기능수${estFuncCount}개`);
+                              const withId = result.map((f, i) => ({ ...f, id: Date.now() + i }));
+                              setFunctions(withId);
+                              saveProject({ functions: withId });
+                            } catch (err) {
+                              alert('생성 오류: ' + err.message);
+                            } finally {
+                              setLoading(false);
+                              setLoadingMsg('');
+                            }
+                          }}
+                          style={{ width: '100%', padding: '10px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
+                        >
+                          ✨ 예산에 맞는 기능 약 {estFuncCount}개 AI 생성
+                        </button>
                       </div>
                     )}
                     <p style={{ fontSize: 10, color: '#9ca3af', marginTop: 8 }}>
