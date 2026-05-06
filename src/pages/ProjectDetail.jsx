@@ -1367,26 +1367,47 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                           <button
                             onClick={async () => {
                               const needMore = Math.round(gap / 4.2);
-                              const ok = window.confirm(`부족한 기능 약 ${needMore}개를 AI로 추가 생성하시겠습니까?\n기존 기능 ${functions.length}개는 유지됩니다.`);
+                              const ok = window.confirm(`부족한 기능 약 ${needMore}개를 AI로 추가 생성하시겠습니까?\n기존 기능 ${functions.length}개는 유지됩니다.\n※ 수량이 많으면 여러 번 나눠 생성됩니다.`);
                               if (!ok) return;
 
-                              // 기존 기능 LV1/LV2 목록 추출해서 프롬프트에 포함
                               const existingLV1 = [...new Set(functions.map(f => f.lv1))].join(', ');
                               const existingLV2 = [...new Set(functions.map(f => f.lv2))].join(', ');
-                              const extraKeyword = `추가필요기능(목표${estFuncCount}개중현재${functions.length}개보유,기존LV1:${existingLV1},기존LV2:${existingLV2},중복제외하고새로운기능만생성)`;
 
                               setLoading(true);
-                              setLoadingMsg(`예산에 맞는 추가 기능 약 ${needMore}개 생성 중...`);
+                              let merged = [...functions];
+                              let totalAdded = 0;
+                              const maxRounds = Math.ceil(needMore / 60); // 1회당 최대 60개 생성 기준
+
                               try {
-                                const result = await generateFunctions(systemInfo, extraKeyword);
-                                // 기존 lv3명과 중복 제거
-                                const existingLV3 = new Set(functions.map(f => f.lv3));
-                                const newFuncs = result.filter(f => !existingLV3.has(f.lv3));
-                                const withId = newFuncs.map((f, i) => ({ ...f, id: Date.now() + i }));
-                                const merged = [...functions, ...withId];
+                                for (let round = 0; round < Math.min(maxRounds, 8); round++) {
+                                  const remaining = estFuncCount - merged.length;
+                                  if (remaining <= 0) break;
+
+                                  setLoadingMsg(`추가 기능 생성 중... (${round + 1}/${Math.min(maxRounds, 8)}회 · 현재 ${merged.length}개 / 목표 ${estFuncCount}개)`);
+
+                                  const existingLV3 = new Set(merged.map(f => f.lv3));
+                                  const existingLV2now = [...new Set(merged.map(f => f.lv2))].join(', ');
+                                  const extraKeyword = `추가기능생성(목표${estFuncCount}개중현재${merged.length}개,나머지${remaining}개필요,기존LV1:${existingLV1},기존업무단위:${existingLV2now},완전히새로운LV2와LV3만생성,절대중복금지)`;
+
+                                  try {
+                                    const result = await generateFunctions(systemInfo, extraKeyword);
+                                    const newFuncs = result
+                                      .filter(f => !existingLV3.has(f.lv3))
+                                      .map((f, i) => ({ ...f, id: Date.now() + totalAdded + i }));
+
+                                    if (newFuncs.length === 0) break; // 더 이상 새 기능 없으면 중단
+
+                                    merged = [...merged, ...newFuncs];
+                                    totalAdded += newFuncs.length;
+                                  } catch (err) {
+                                    console.warn(`${round + 1}회차 실패:`, err.message);
+                                    break;
+                                  }
+                                }
+
                                 setFunctions(merged);
                                 saveProject({ functions: merged });
-                                alert(`✅ ${withId.length}개 기능이 추가되었습니다. (총 ${merged.length}개)`);
+                                alert(`✅ ${totalAdded}개 기능이 추가되었습니다.\n(총 ${merged.length}개 / 목표 ${estFuncCount}개)`);
                               } catch (err) {
                                 alert('추가 생성 오류: ' + err.message);
                               } finally {
