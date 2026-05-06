@@ -162,6 +162,12 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
   const [asisList, setAsisList] = useState(project?.asisList || []);
   const [asisLoading, setAsisLoading] = useState(false);
 
+  // 역산 관련 state
+  const [showReversePanel, setShowReversePanel] = useState(false);
+  const [reverseTarget, setReverseTarget] = useState('');
+  const [reverseUnitPrice, setReverseUnitPrice] = useState(605784);
+  const [reverseCoeff, setReverseCoeff] = useState(1.0);
+
   // ============================================================
   // 4. FP 검증 기능
   // ============================================================
@@ -1239,12 +1245,132 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
       {tab === 'functions' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <p style={{ fontSize: 14, color: '#6b7280' }}>총 {functions.length}개 기능 · 셀 클릭하여 수정 가능</p>
+            <p style={{ fontSize: 14, color: '#6b7280', margin: 0 }}>총 {functions.length}개 기능 · 셀 클릭하여 수정 가능</p>
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={addFunction} style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>+ 행 추가</button>
+              <button
+                onClick={() => setShowReversePanel(!showReversePanel)}
+                style={{ background: showReversePanel ? '#fff7ed' : '#f8fafc', color: showReversePanel ? '#d97706' : '#374151', border: `1px solid ${showReversePanel ? '#fdba74' : '#d1d5db'}`, borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}
+              >
+                🔄 예산 역산
+              </button>
               <button onClick={handleGenerateFP} style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>AI FP 산정 →</button>
             </div>
           </div>
+
+          {/* 예산 역산 패널 */}
+          {showReversePanel && (
+            <div style={{ background: '#fff7ed', border: '1px solid #fdba74', borderRadius: 12, padding: '18px 20px', marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                <div>
+                  <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#92400e' }}>🔄 예산 역산 — 예산에 맞는 FP · 기능 수 산출</p>
+                  <p style={{ margin: '3px 0 0', fontSize: 11, color: '#b45309' }}>목표 예산을 입력하면 필요한 FP와 적정 기능 수를 자동으로 계산합니다</p>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 14 }}>
+                {/* 목표 예산 */}
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#92400e', display: 'block', marginBottom: 6 }}>목표 예산 (원)</label>
+                  <input
+                    type="text"
+                    value={reverseTarget}
+                    onChange={e => setReverseTarget(e.target.value.replace(/[^0-9]/g, ''))}
+                    placeholder="예산 입력"
+                    style={{ width: '100%', padding: '9px 12px', border: '1.5px solid #fdba74', borderRadius: 8, fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+                  />
+                  <div style={{ display: 'flex', gap: 5, marginTop: 6, flexWrap: 'wrap' }}>
+                    {[['2억', 200000000], ['4억', 400000000], ['6억', 600000000], ['10억', 1000000000], ['20억', 2000000000]].map(([label, val]) => (
+                      <button key={label} onClick={() => setReverseTarget(String(val))}
+                        style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: reverseTarget === String(val) ? '#d97706' : '#fef3c7', color: reverseTarget === String(val) ? '#fff' : '#92400e', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* FP 단가 */}
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#92400e', display: 'block', marginBottom: 6 }}>기능점수당 단가 (원/FP)</label>
+                  <input
+                    type="number"
+                    value={reverseUnitPrice}
+                    onChange={e => setReverseUnitPrice(Number(e.target.value))}
+                    style={{ width: '100%', padding: '9px 12px', border: '1.5px solid #fdba74', borderRadius: 8, fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+                  />
+                  <div style={{ display: 'flex', gap: 5, marginTop: 6 }}>
+                    {[['2025년', 605784], ['2024년', 582004], ['2023년', 559600]].map(([label, val]) => (
+                      <button key={label} onClick={() => setReverseUnitPrice(val)}
+                        style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: reverseUnitPrice === val ? '#d97706' : '#fef3c7', color: reverseUnitPrice === val ? '#fff' : '#92400e', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 보정계수 */}
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#92400e', display: 'block', marginBottom: 6 }}>보정계수 (합계)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={reverseCoeff}
+                    onChange={e => setReverseCoeff(Number(e.target.value))}
+                    style={{ width: '100%', padding: '9px 12px', border: '1.5px solid #fdba74', borderRadius: 8, fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+                  />
+                  <p style={{ fontSize: 10, color: '#b45309', marginTop: 4 }}>기본값 1.0 (보정계수 없음)</p>
+                </div>
+              </div>
+
+              {/* 역산 결과 */}
+              {reverseTarget && Number(reverseTarget) > 0 && (() => {
+                const budget = Number(reverseTarget);
+                const reversedFP = Math.round(budget / (reverseUnitPrice * reverseCoeff));
+                const estFuncCount = Math.round(reversedFP / 4.2);
+                const estLV2Count = Math.round(estFuncCount / 6);
+                const currentFP = fpList.reduce((s, f) => {
+                  const w = getAvgWeight(f.fpType);
+                  return s + (f.reuseType === '신규개발' ? w : 0);
+                }, 0);
+                const gap = reversedFP - Math.round(currentFP);
+
+                return (
+                  <div style={{ background: '#fff', borderRadius: 10, padding: '14px 16px', border: '1px solid #fed7aa' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: gap !== 0 ? 12 : 0 }}>
+                      {[
+                        { label: '목표 예산', value: (budget / 100000000).toFixed(1) + '억원', color: '#92400e' },
+                        { label: '필요 FP (역산)', value: reversedFP.toLocaleString() + ' FP', color: '#d97706' },
+                        { label: '추정 기능 수 (LV3)', value: '약 ' + estFuncCount + '개', color: '#059669' },
+                        { label: '추정 LV2 업무단위', value: '약 ' + estLV2Count + '개', color: '#2563eb' },
+                      ].map(k => (
+                        <div key={k.label} style={{ textAlign: 'center', padding: '10px', background: '#fffbeb', borderRadius: 8 }}>
+                          <div style={{ fontSize: 18, fontWeight: 800, color: k.color }}>{k.value}</div>
+                          <div style={{ fontSize: 11, color: '#6b7280', marginTop: 3 }}>{k.label}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* 현재 기능목록과 비교 */}
+                    {functions.length > 0 && (
+                      <div style={{ padding: '10px 12px', background: gap > 0 ? '#eff6ff' : gap < 0 ? '#fef2f2' : '#f0fdf4', borderRadius: 8, fontSize: 12 }}>
+                        <span style={{ fontWeight: 600, color: gap > 0 ? '#1e40af' : gap < 0 ? '#dc2626' : '#16a34a' }}>
+                          {gap > 0 ? `📈 현재 기능 ${functions.length}개보다 약 ${Math.round(gap / 4.2)}개 더 필요합니다` :
+                           gap < 0 ? `📉 현재 기능 ${functions.length}개가 예산보다 약 ${Math.round(Math.abs(gap) / 4.2)}개 초과합니다` :
+                           '✅ 현재 기능 수가 예산에 적합합니다'}
+                        </span>
+                        <span style={{ color: '#6b7280', marginLeft: 8 }}>
+                          (현재 기능 {functions.length}개 / 목표 약 {estFuncCount}개)
+                        </span>
+                      </div>
+                    )}
+                    <p style={{ fontSize: 10, color: '#9ca3af', marginTop: 8 }}>
+                      * 평균 FP 4.2점/기능, LV2당 6개 LV3 기준 추정값 · 이윤율 미포함
+                    </p>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
