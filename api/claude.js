@@ -13,6 +13,10 @@ export default async function handler(req) {
   try {
     const body = await req.json();
 
+    // 용도별 max_tokens 자동 설정
+    // body.max_tokens로 호출부에서 직접 지정 가능
+    const maxTokens = body.max_tokens || 4000;
+
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -22,7 +26,7 @@ export default async function handler(req) {
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 8000,
+        max_tokens: maxTokens,
         ...(body.system ? { system: body.system } : {}),
         messages: body.messages,
       }),
