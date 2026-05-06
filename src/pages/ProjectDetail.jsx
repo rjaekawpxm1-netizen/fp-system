@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import * as XLSX from 'xlsx';
-import { saveAs } from 'file-saver';
+import { exportAllExcelNew, exportFPExcel } from '../utils/excelExport';
 import { generateFunctions, generateFPList, parseDocument, parseSystemInfo } from '../utils/claudeApi';
 import { getWeight, getAvgWeight, getComplexity, getComplexityLabel, calcTotalFP, getChangePct, getFuncChangePct, getImpactFactor } from '../utils/fpCalculator';
 import mammoth from 'mammoth';
@@ -169,46 +168,113 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
   const [reverseCoeff, setReverseCoeff] = useState(1.0);
 
   // ============================================================
-  // 4. FP 검증 기능
+  // 4. FP 검증 기능 (강화버전)
   // ============================================================
   const validateFP = () => {
     const issues = [];
+    if (!fpList || fpList.length === 0) return issues;
+
+    const ilfCount = fpList.filter(f => f.fpType === 'ILF').length;
+    const eifCount = fpList.filter(f => f.fpType === 'EIF').length;
+    const txList   = fpList.filter(f => ['EI','EO','EQ'].includes(f.fpType));
+    const maxFtr   = txList.reduce((max, f) => Math.max(max, Number(f.ftr) || 0), 0);
+
+    // ── 1. 중복 LV3 ───────────────────────────────────────────
     const lv3Names = fpList.map(f => f.lv3?.trim()).filter(Boolean);
-    const duplicates = lv3Names.filter((name, i) => lv3Names.indexOf(name) !== i);
+    const duplicates = lv3Names.filter((n, i) => lv3Names.indexOf(n) !== i);
     [...new Set(duplicates)].forEach(name => {
       issues.push({ severity: 'error', type: '중복 기능', message: `"${name}" 기능이 중복 식별됩니다.` });
     });
 
+    // ── 2. ILF 누락 경고 ──────────────────────────────────────
+    if (ilfCount === 0 && fpList.length > 5) {
+      issues.push({ severity: 'error', type: 'ILF 누락', message: `ILF(내부논리파일)가 없습니다. 시스템이 관리하는 주요 데이터 그룹(사용자정보, 신청정보, 기준코드 등)을 ILF로 추가해야 합니다.` });
+    } else if (ilfCount < 3 && fpList.length > 20) {
+      issues.push({ severity: 'warning', type: 'ILF 부족', message: `ILF가 ${ilfCount}개입니다. 기능 수 대비 ILF가 적습니다. (권장: 최소 3개 이상)` });
+    }
+
+    // ── 3. FTR > ILF+EIF 경고 ────────────────────────────────
+    if (maxFtr > ilfCount + eifCount && txList.length > 0) {
+      issues.push({ severity: 'warning', type: 'FTR/ILF 불일치', message: `최대 FTR(${maxFtr}) > ILF+EIF 수(${ilfCount + eifCount}). FTR은 참조하는 ILF/EIF 수이므로 ILF/EIF를 추가하거나 FTR을 줄여야 합니다.` });
+    }
+
+    // ── 4. EIF 확인 (외부연동 있으면 필요) ───────────────────
+    const hasExternal = fpList.some(f =>
+      (f.lv3 || '').match(/연동|인터페이스|외부|API|EIF|연계/)
+    );
+    if (hasExternal && eifCount === 0) {
+      issues.push({ severity: 'info', type: 'EIF 검토', message: `외부연동/인터페이스 관련 기능이 있지만 EIF(외부연계파일)가 없습니다. 외부시스템 데이터를 참조한다면 EIF를 추가하세요.` });
+    }
+
+    // ── 5. 행별 FP유형 의심 검사 ─────────────────────────────
     fpList.forEach((f, i) => {
       const rowNum = i + 1;
-      const name = f.lv3 || `${rowNum}번째 행`;
-      const lv3 = (f.lv3 || '').toLowerCase();
+      const name   = f.lv3 || `${rowNum}번째 행`;
+      const lv3    = (f.lv3 || '').toLowerCase();
+      const type   = f.fpType;
 
-      if ((lv3.includes('등록') || lv3.includes('수정') || lv3.includes('삭제') || lv3.includes('승인')) && f.fpType === 'EQ') {
+      // 필수값
+      if (!f.lv3?.trim()) {
+        issues.push({ severity: 'error', type: '필수값 누락', message: `${rowNum}번째 행: LV3(단위프로세스명)이 비어있습니다.` });
+        return;
+      }
+      if (!type) {
+        issues.push({ severity: 'error', type: 'FP유형 누락', message: `"${name}": FP유형이 선택되지 않았습니다.` });
+        return;
+      }
+
+      // ILF/EIF 행은 트랜잭션 규칙 적용 안 함
+      if (['ILF','EIF'].includes(type)) {
+        const det = Number(f.det);
+        const ret = Number(f.ftr); // ILF/EIF에서 ftr 필드는 RET
+        if (ret < 1) issues.push({ severity: 'warning', type: 'RET 오류', message: `"${name}": RET=${ret} (ILF/EIF의 RET는 최소 1 이상)` });
+        if (det < 5) issues.push({ severity: 'warning', type: 'DET 적음', message: `"${name}": DET=${det} (ILF/EIF의 DET는 보통 5~50)` });
+        if (type === 'EIF' && f.reuseType === '기능변경') {
+          issues.push({ severity: 'error', type: 'EIF 오류', message: `"${name}": EIF는 기능변경 측정 대상이 아닙니다.` });
+        }
+        return;
+      }
+
+      // 트랜잭션 유형 의심
+      const isEI = type === 'EI';
+      const isEO = type === 'EO';
+      const isEQ = type === 'EQ';
+
+      const hasCreate = lv3.match(/등록|신청|생성|작성|저장|입력|추가|발급|승인|반려|처리|설정|배포|업로드|일괄/);
+      const hasModify = lv3.match(/수정|변경|편집|업데이트/);
+      const hasDelete = lv3.match(/삭제|취소|폐기|철회/);
+      const hasQuery  = lv3.match(/조회|검색|목록|리스트|현황|확인|출력|다운로드|뷰|보기/);
+      const hasStat   = lv3.match(/통계|집계|분석|그래프|차트|보고서|현황도|대시보드/);
+
+      if ((hasCreate || hasModify || hasDelete) && isEQ) {
         issues.push({ severity: 'warning', type: 'FP유형 의심', message: `"${name}": 등록/수정/삭제는 EI가 맞습니다. (현재: EQ)` });
       }
-      if ((lv3.includes('조회') || lv3.includes('검색') || lv3.includes('목록')) && f.fpType === 'EI') {
+      if (hasQuery && !hasStat && isEI) {
         issues.push({ severity: 'warning', type: 'FP유형 의심', message: `"${name}": 조회/검색/목록은 EQ가 맞습니다. (현재: EI)` });
       }
-      if ((lv3.includes('통계') || lv3.includes('보고서') || lv3.includes('집계')) && f.fpType === 'EQ') {
+      if (hasStat && isEQ) {
         issues.push({ severity: 'warning', type: 'FP유형 의심', message: `"${name}": 통계/보고서/집계는 EO가 맞습니다. (현재: EQ)` });
       }
+      if (hasStat && isEI) {
+        issues.push({ severity: 'warning', type: 'FP유형 의심', message: `"${name}": 통계/보고서/집계는 EO가 맞습니다. (현재: EI)` });
+      }
 
+      // FTR/DET 이상치
       const det = Number(f.det);
       const ftr = Number(f.ftr);
-      if (det < 2) issues.push({ severity: 'warning', type: 'DET 이상치', message: `"${name}": DET=${det} (최소 2 이상 권장)` });
-      if (det > 50 && ['EI','EQ'].includes(f.fpType)) issues.push({ severity: 'info', type: 'DET 검토', message: `"${name}": DET=${det} (50 초과, 검토 필요)` });
-      if (ftr === 0 && ['EI','EO','EQ'].includes(f.fpType)) issues.push({ severity: 'error', type: 'FTR 오류', message: `"${name}": FTR=0은 불가합니다. (최소 1 이상)` });
-      if (f.fpType === 'EIF' && f.reuseType === '기능변경') issues.push({ severity: 'error', type: 'EIF 오류', message: `"${name}": EIF는 기능변경 측정 대상이 아닙니다.` });
-      if (!f.lv3?.trim()) issues.push({ severity: 'error', type: '필수값 누락', message: `${rowNum}번째 행: LV3(단위프로세스명)이 비어있습니다.` });
+      if (ftr < 1) {
+        issues.push({ severity: 'error', type: 'FTR 오류', message: `"${name}": FTR=${ftr} (트랜잭션은 최소 1 이상)` });
+      }
+      if (det < 2) {
+        issues.push({ severity: 'warning', type: 'DET 적음', message: `"${name}": DET=${det} (최소 3 이상 권장)` });
+      }
+      if (det > 60 && isEI) {
+        issues.push({ severity: 'info', type: 'DET 검토', message: `"${name}": DET=${det} (60 초과, EI 화면 필드 수 재확인)` });
+      }
+      if (ftr > ilfCount + eifCount && ilfCount > 0) {
+        issues.push({ severity: 'info', type: 'FTR 검토', message: `"${name}": FTR=${ftr} > ILF+EIF(${ilfCount + eifCount}). FTR은 참조하는 ILF/EIF 수입니다.` });
+      }
     });
-
-    const ilfCount = fpList.filter(f => f.fpType === 'ILF').length;
-    const eifCount = fpList.filter(f => f.fpType === 'EIF').length;
-    const maxFtr = fpList.filter(f => ['EI','EO','EQ'].includes(f.fpType)).reduce((max, f) => Math.max(max, Number(f.ftr)), 0);
-    if (maxFtr > ilfCount + eifCount && fpList.length > 0) {
-      issues.push({ severity: 'info', type: 'FTR 검토', message: `최대 FTR(${maxFtr}) > ILF+EIF 수(${ilfCount + eifCount}). ILF/EIF가 누락됐을 수 있습니다.` });
-    }
 
     return issues;
   };
@@ -487,195 +553,20 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
 
   // B. 전체 Excel 일괄 출력
   const exportAllExcel = () => {
-    const wb = XLSX.utils.book_new();
-
-    // 시트1: 기능목록
-    if (functions.length > 0) {
-      const funcRows = functions.map(f => ({ 'LV1': f.lv1, 'LV2': f.lv2, 'LV3': f.lv3, '기능정의': f.definition }));
-      const ws1 = XLSX.utils.json_to_sheet(funcRows);
-      ws1['!cols'] = [{ wch: 20 }, { wch: 20 }, { wch: 25 }, { wch: 50 }];
-      XLSX.utils.book_append_sheet(wb, ws1, '기능목록');
-    }
-
-    // 시트2: FP산정표
-    if (fpList.length > 0) {
-      const fpRows = fpList.map((f) => {
-        const stdWeight = getWeight(f.fpType, f.ftr, f.det);
-        const avgWeight = getAvgWeight(f.fpType);
-        const complexity = getComplexity(f.fpType, f.ftr, f.det);
-        return {
-          'LV1': f.lv1, 'LV2': f.lv2, 'LV3': f.lv3,
-          '단위프로세스 설명': f.definition,
-          'FP유형': f.fpType, 'FTR': f.ftr, 'DET': f.det,
-          '복잡도': getComplexityLabel(complexity),
-          '정통법 가중치': stdWeight, '간이법 가중치': avgWeight,
-          '재사용유형': f.reuseType,
-          'FTR변경량': f.ftrChange || '', 'DET변경량': f.detChange || '',
-          'FTR변경률(%)': f.reuseType === '기능변경' ? f.ftrChangePct : '',
-          'DET변경률(%)': f.reuseType === '기능변경' ? f.detChangePct : '',
-          '기능변경률(%)': f.reuseType === '기능변경' ? f.funcChangePct : '',
-          '영향계수': f.reuseType === '기능변경' ? f.impactFactor : '',
-          '재사용기능점수': f.reuseScore || '', '비고': f.bigo || '',
-        };
-      });
-      const ws2 = XLSX.utils.json_to_sheet(fpRows);
-      XLSX.utils.book_append_sheet(wb, ws2, 'FP산정표');
-
-      // FP 요약
-      const summaryRows = [
-        { '구분': '정통법 신규개발', 'FP합계': stdSummary.newDev },
-        { '구분': '정통법 기능변경', 'FP합계': stdSummary.changed },
-        { '구분': '간이법 신규개발', 'FP합계': simpleSummary.newDev },
-        { '구분': '간이법 기능변경', 'FP합계': simpleSummary.changed },
-        { '구분': '기능삭제', 'FP합계': '측정 비대상' },
-      ];
-      const ws2s = XLSX.utils.json_to_sheet(summaryRows);
-      XLSX.utils.book_append_sheet(wb, ws2s, 'FP요약');
-    }
-
-    // 시트3: 화면목록
-    if (screenList.length > 0) {
-      const screenRows = screenList.map(s => ({
-        '화면ID': s.screenId, '화면명': s.screenName, '화면유형': s.screenType,
-        'LV1': s.lv1, 'LV2': s.lv2, '관련기능': s.relatedFunctions, '비고': s.note || '',
-      }));
-      const ws3 = XLSX.utils.json_to_sheet(screenRows);
-      ws3['!cols'] = [{ wch: 12 }, { wch: 25 }, { wch: 12 }, { wch: 15 }, { wch: 15 }, { wch: 40 }, { wch: 15 }];
-      XLSX.utils.book_append_sheet(wb, ws3, '화면목록');
-    }
-
-    // 시트4: 요구사항정의서
-    if (reqList.length > 0) {
-      const reqRows = reqList.map(r => ({
-        '요구사항ID': r.reqId, '유형': r.type, '요구사항명': r.reqName,
-        '상세내용': r.detail, '관련화면': r.relatedScreen,
-        '우선순위': r.priority, '비고': r.note || '',
-      }));
-      const ws4 = XLSX.utils.json_to_sheet(reqRows);
-      ws4['!cols'] = [{ wch: 12 }, { wch: 10 }, { wch: 25 }, { wch: 50 }, { wch: 12 }, { wch: 10 }, { wch: 15 }];
-      XLSX.utils.book_append_sheet(wb, ws4, '요구사항정의서');
-    }
-
-    // 시트5: CRUD 분석
-    if ((crudMatrix.matrix || []).length > 0) {
-      const entities = crudMatrix.entities || [];
-      const crudRows = (crudMatrix.matrix || []).map(f => ({
-        'LV1': f.lv1, 'LV2': f.lv2, 'LV3': f.lv3,
-        ...Object.fromEntries(entities.map(e => [e, f.crud?.[e] || ''])),
-      }));
-      const ws5 = XLSX.utils.json_to_sheet(crudRows);
-      XLSX.utils.book_append_sheet(wb, ws5, 'CRUD분석');
-    }
-
-    // 시트6: 인터페이스 정의서
-    if (ifList.length > 0) {
-      const ifRows = ifList.map(f => ({
-        '인터페이스ID': f.ifId, '인터페이스명': f.ifName,
-        '송신시스템': f.sendSystem, '수신시스템': f.receiveSystem,
-        '연동방식': f.method, '연동주기': f.cycle,
-        '주요데이터항목': f.dataItems, '비고': f.note || '',
-      }));
-      const ws6 = XLSX.utils.json_to_sheet(ifRows);
-      ws6['!cols'] = [{ wch: 14 }, { wch: 25 }, { wch: 20 }, { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 40 }, { wch: 15 }];
-      XLSX.utils.book_append_sheet(wb, ws6, '인터페이스정의서');
-    }
-
-    // 시트7: WBS
-    if (wbsList.length > 0) {
-      const wbsRows = wbsList.map(w => ({
-        'WBS ID': w.wbsId, '단계': w.phase, '작업명': w.task,
-        'LV1': w.lv1, 'LV2': w.lv2,
-        '공수(일)': w.workDays, '담당자': w.role, '비고': w.note || '',
-      }));
-      const ws7 = XLSX.utils.json_to_sheet(wbsRows);
-      ws7['!cols'] = [{ wch: 8 }, { wch: 10 }, { wch: 30 }, { wch: 15 }, { wch: 15 }, { wch: 10 }, { wch: 10 }, { wch: 20 }];
-      XLSX.utils.book_append_sheet(wb, ws7, 'WBS');
-    }
-
-    // 시트8: 요구사항 추적표
-    if (traceList.length > 0) {
-      const traceRows = traceList.map(t => ({
-        '요구사항ID': t.reqId, '요구사항명': t.reqName,
-        '관련기능': t.relatedFunctions, '관련화면': t.relatedScreens,
-        '테스트케이스ID': t.testId, '상태': t.status,
-      }));
-      const ws8 = XLSX.utils.json_to_sheet(traceRows);
-      ws8['!cols'] = [{ wch: 12 }, { wch: 25 }, { wch: 30 }, { wch: 20 }, { wch: 14 }, { wch: 10 }];
-      XLSX.utils.book_append_sheet(wb, ws8, '요구사항추적표');
-    }
-
-    // 시트9: 테스트케이스
-    if (tcList.length > 0) {
-      const tcRows = tcList.map(t => ({
-        'TC ID': t.tcId, '요구사항ID': t.reqId, '테스트케이스명': t.tcName,
-        '유형': t.type, '사전조건': t.precondition,
-        '테스트절차': t.steps, '기대결과': t.expected, '결과': t.result,
-      }));
-      const ws9 = XLSX.utils.json_to_sheet(tcRows);
-      ws9['!cols'] = [{ wch: 10 }, { wch: 10 }, { wch: 30 }, { wch: 8 }, { wch: 20 }, { wch: 40 }, { wch: 30 }, { wch: 10 }];
-      XLSX.utils.book_append_sheet(wb, ws9, '테스트케이스');
-    }
-
-    // 시트10: AS-IS/TO-BE
-    if (asisList.length > 0) {
-      const asisRows = asisList.map(a => ({
-        'LV1': a.lv1, 'LV2': a.lv2,
-        'AS-IS(현행)': a.asIs,
-        'TO-BE(목표)': a.toBe,
-        '기대효과': a.improvement,
-        '변화유형': a.changeType,
-      }));
-      const ws10 = XLSX.utils.json_to_sheet(asisRows);
-      ws10['!cols'] = [{ wch: 15 }, { wch: 20 }, { wch: 40 }, { wch: 40 }, { wch: 30 }, { wch: 12 }];
-      XLSX.utils.book_append_sheet(wb, ws10, 'AS-IS_TO-BE');
-    }
-
-    if (wb.SheetNames.length === 0) {
+    if (!functions.length && !fpList.length) {
       alert('출력할 데이터가 없습니다. 먼저 기능목록을 생성하세요.');
       return;
     }
-
-    const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-    saveAs(new Blob([buf]), project.name + '_전체산출물.xlsx');
+    exportAllExcelNew({
+      functions, fpList, screenList, reqList,
+      crudMatrix, ifList, wbsList, traceList, tcList, asisList,
+      systemName, projectNameStr: systemName, manager: '',
+    }, project.name);
   };
 
   const exportExcel = () => {
-    const rows = fpList.map((f) => {
-      const stdWeight = getWeight(f.fpType, f.ftr, f.det);
-      const avgWeight = getAvgWeight(f.fpType);
-      const complexity = getComplexity(f.fpType, f.ftr, f.det);
-      return {
-        'LV1': f.lv1, 'LV2': f.lv2, 'LV3': f.lv3,
-        '단위프로세스 설명': f.definition,
-        'FP유형': f.fpType, 'FTR': f.ftr, 'DET': f.det,
-        '복잡도': getComplexityLabel(complexity),
-        '정통법 가중치': stdWeight,
-        '간이법 가중치': avgWeight,
-        '재사용유형': f.reuseType,
-        'FTR변경량': f.ftrChange || '',
-        'DET변경량': f.detChange || '',
-        'FTR변경률(%)': f.reuseType === '기능변경' ? f.ftrChangePct : '',
-        'DET변경률(%)': f.reuseType === '기능변경' ? f.detChangePct : '',
-        '기능변경률(%)': f.reuseType === '기능변경' ? f.funcChangePct : '',
-        '영향계수': f.reuseType === '기능변경' ? f.impactFactor : '',
-        '재사용기능점수': f.reuseScore || '',
-        '비고': f.bigo || '',
-      };
-    });
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(rows);
-    XLSX.utils.book_append_sheet(wb, ws, 'FP산정');
-    const summaryData = [
-      { '구분': '정통법 신규개발', 'FP합계': stdSummary.newDev },
-      { '구분': '정통법 기능변경', 'FP합계': stdSummary.changed },
-      { '구분': '간이법 신규개발', 'FP합계': simpleSummary.newDev },
-      { '구분': '간이법 기능변경', 'FP합계': simpleSummary.changed },
-      { '구분': '기능삭제', 'FP합계': '측정 비대상' },
-    ];
-    const ws2 = XLSX.utils.json_to_sheet(summaryData);
-    XLSX.utils.book_append_sheet(wb, ws2, 'FP요약');
-    const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-    saveAs(new Blob([buf]), project.name + '_FP산정.xlsx');
+    if (!fpList.length) { alert('FP 산정 데이터가 없습니다.'); return; }
+    exportFPExcel(fpList, { systemName, projectName: project.name }, 'both');
   };
 
   const inputStyle = { width: '100%', padding: '7px 10px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6, outline: 'none', boxSizing: 'border-box' };
