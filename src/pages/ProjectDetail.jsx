@@ -1367,23 +1367,31 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                           <button
                             onClick={async () => {
                               const needMore = Math.round(gap / 4.2);
-                              const ok = window.confirm(`부족한 기능 약 ${needMore}개를 AI로 추가 생성하시겠습니까?\n기존 기능 ${functions.length}개는 유지됩니다.\n※ 수량이 많으면 여러 번 나눠 생성됩니다.`);
+                              const ok = window.confirm(`부족한 기능 약 ${needMore}개를 AI로 추가 생성하시겠습니까?\n기존 기능 ${functions.length}개는 유지됩니다.\n※ 수량이 많으면 시간이 걸립니다 (rate limit 방지 딜레이 적용)`);
                               if (!ok) return;
 
                               const existingLV1 = [...new Set(functions.map(f => f.lv1))].join(', ');
-                              const existingLV2 = [...new Set(functions.map(f => f.lv2))].join(', ');
+                              const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
                               setLoading(true);
                               let merged = [...functions];
                               let totalAdded = 0;
-                              const maxRounds = Math.ceil(needMore / 60); // 1회당 최대 60개 생성 기준
+                              const maxRounds = Math.min(Math.ceil(needMore / 50), 10);
 
                               try {
-                                for (let round = 0; round < Math.min(maxRounds, 8); round++) {
+                                for (let round = 0; round < maxRounds; round++) {
                                   const remaining = estFuncCount - merged.length;
                                   if (remaining <= 0) break;
 
-                                  setLoadingMsg(`추가 기능 생성 중... (${round + 1}/${Math.min(maxRounds, 8)}회 · 현재 ${merged.length}개 / 목표 ${estFuncCount}개)`);
+                                  setLoadingMsg(`추가 기능 생성 중... (${round + 1}/${maxRounds}회 · ${merged.length}개 → 목표 ${estFuncCount}개)`);
+
+                                  // rate limit 방지: 2회차부터 15초 대기
+                                  if (round > 0) {
+                                    for (let t = 15; t > 0; t--) {
+                                      setLoadingMsg(`rate limit 방지 대기 중... ${t}초 후 ${round + 1}/${maxRounds}회 생성 시작 (현재 ${merged.length}개)`);
+                                      await sleep(1000);
+                                    }
+                                  }
 
                                   const existingLV3 = new Set(merged.map(f => f.lv3));
                                   const existingLV2now = [...new Set(merged.map(f => f.lv2))].join(', ');
@@ -1395,19 +1403,34 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                                       .filter(f => !existingLV3.has(f.lv3))
                                       .map((f, i) => ({ ...f, id: Date.now() + totalAdded + i }));
 
-                                    if (newFuncs.length === 0) break; // 더 이상 새 기능 없으면 중단
+                                    if (newFuncs.length === 0) {
+                                      setLoadingMsg('더 이상 새로운 기능이 없어 종료합니다.');
+                                      await sleep(1500);
+                                      break;
+                                    }
 
                                     merged = [...merged, ...newFuncs];
                                     totalAdded += newFuncs.length;
+
+                                    // 중간 저장
+                                    setFunctions([...merged]);
+                                    saveProject({ functions: merged });
+
                                   } catch (err) {
-                                    console.warn(`${round + 1}회차 실패:`, err.message);
-                                    break;
+                                    if (err.message?.includes('rate limit') || err.message?.includes('10,000')) {
+                                      setLoadingMsg(`rate limit 도달. 60초 대기 후 재시도...`);
+                                      await sleep(60000);
+                                      round--; // 재시도
+                                    } else {
+                                      console.warn(`${round + 1}회차 실패:`, err.message);
+                                      break;
+                                    }
                                   }
                                 }
 
-                                setFunctions(merged);
+                                setFunctions([...merged]);
                                 saveProject({ functions: merged });
-                                alert(`✅ ${totalAdded}개 기능이 추가되었습니다.\n(총 ${merged.length}개 / 목표 ${estFuncCount}개)`);
+                                alert(`✅ 총 ${totalAdded}개 기능이 추가되었습니다.\n(최종 ${merged.length}개 / 목표 ${estFuncCount}개)\n\n${merged.length < estFuncCount ? '목표에 미달한 경우 버튼을 다시 클릭하여 추가 생성하세요.' : '목표 달성!'}`);
                               } catch (err) {
                                 alert('추가 생성 오류: ' + err.message);
                               } finally {
