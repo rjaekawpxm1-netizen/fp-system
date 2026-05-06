@@ -1385,12 +1385,10 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
 
                                   setLoadingMsg(`추가 기능 생성 중... (${round + 1}/${maxRounds}회 · ${merged.length}개 → 목표 ${estFuncCount}개)`);
 
-                                  // rate limit 방지: 2회차부터 15초 대기
+                                  // rate limit 방지: 2회차부터 3초 대기
                                   if (round > 0) {
-                                    for (let t = 15; t > 0; t--) {
-                                      setLoadingMsg(`rate limit 방지 대기 중... ${t}초 후 ${round + 1}/${maxRounds}회 생성 시작 (현재 ${merged.length}개)`);
-                                      await sleep(1000);
-                                    }
+                                    setLoadingMsg(`잠시 대기 중... (${round + 1}/${maxRounds}회 · 현재 ${merged.length}개 / 목표 ${estFuncCount}개)`);
+                                    await sleep(3000);
                                   }
 
                                   const existingLV3 = new Set(merged.map(f => f.lv3));
@@ -1418,8 +1416,8 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
 
                                   } catch (err) {
                                     if (err.message?.includes('rate limit') || err.message?.includes('10,000')) {
-                                      setLoadingMsg(`rate limit 도달. 60초 대기 후 재시도...`);
-                                      await sleep(60000);
+                                      setLoadingMsg(`잠시 대기 후 재시도... (현재 ${merged.length}개)`);
+                                      await sleep(20000);
                                       round--; // 재시도
                                     } else {
                                       console.warn(`${round + 1}회차 실패:`, err.message);

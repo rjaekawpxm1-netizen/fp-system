@@ -114,11 +114,11 @@ const truncateText = (text, maxLen = 3000) => {
 };
 
 // ============================================================
-// 기능목록 생성 (출력 많음 → 6000)
+// 기능목록 생성 (2000토큰으로 줄여서 rate limit 회피)
 // ============================================================
 export const generateFunctions = async (systemInfo, keyword) => {
   const prompt = getLV123Prompt(systemInfo, keyword);
-  const result = await callClaude(prompt, 6000);
+  const result = await callClaude(prompt, 2500);
   return result.functions || [];
 };
 
