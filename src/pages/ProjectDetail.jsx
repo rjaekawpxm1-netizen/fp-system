@@ -1328,11 +1328,8 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                 const reversedFP = Math.round(budget / (reverseUnitPrice * reverseCoeff));
                 const estFuncCount = Math.round(reversedFP / 4.2);
                 const estLV2Count = Math.round(estFuncCount / 6);
-                const currentFP = fpList.reduce((s, f) => {
-                  const w = getAvgWeight(f.fpType);
-                  return s + (f.reuseType === '신규개발' ? w : 0);
-                }, 0);
-                const gap = reversedFP - Math.round(currentFP);
+                const currentFuncCount = functions.length;
+                const gap = estFuncCount - currentFuncCount;
 
                 return (
                   <div style={{ background: '#fff', borderRadius: 10, padding: '14px 16px', border: '1px solid #fed7aa' }}>
@@ -1355,12 +1352,12 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                       <div style={{ padding: '10px 12px', background: gap > 0 ? '#eff6ff' : gap < 0 ? '#fef2f2' : '#f0fdf4', borderRadius: 8, fontSize: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                         <div>
                           <span style={{ fontWeight: 600, color: gap > 0 ? '#1e40af' : gap < 0 ? '#dc2626' : '#16a34a' }}>
-                            {gap > 0 ? `📈 현재 기능 ${functions.length}개보다 약 ${Math.round(gap / 4.2)}개 더 필요합니다` :
-                             gap < 0 ? `📉 현재 기능 ${functions.length}개가 예산보다 약 ${Math.round(Math.abs(gap) / 4.2)}개 초과합니다` :
+                            {gap > 0 ? `📈 현재 기능 ${currentFuncCount}개보다 약 ${gap}개 더 필요합니다` :
+                             gap < 0 ? `📉 현재 기능 ${currentFuncCount}개가 목표보다 약 ${Math.abs(gap)}개 초과합니다` :
                              '✅ 현재 기능 수가 예산에 적합합니다'}
                           </span>
                           <span style={{ color: '#6b7280', marginLeft: 8 }}>
-                            (현재 {functions.length}개 / 목표 약 {estFuncCount}개)
+                            (현재 {currentFuncCount}개 / 목표 약 {estFuncCount}개)
                           </span>
                         </div>
                         {gap > 0 && (
