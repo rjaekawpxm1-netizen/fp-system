@@ -668,3 +668,33 @@ export const exportCostExcel = async (data) => {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
   }), `${data.projectName}_개발비산출서.xlsx`);
 };
+
+
+// ════════════════════════════════════════════════════════════════
+// 범용 시트 단독 내보내기 (탭별 Excel 출력)
+// ════════════════════════════════════════════════════════════════
+export const exportGenericExcel = async (sheetName, headers, rows, colWidths = [], projectName = '') => {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet(sheetName);
+
+  ws.columns = headers.map((h, i) => ({ width: colWidths[i] || 15 }));
+  ws.getRow(1).height = 20;
+
+  // 헤더
+  headers.forEach((h, ci) => {
+    applyCell(ws.getCell(1, ci + 1), h, { bg: C.HEADER1, bold: true });
+  });
+
+  // 데이터
+  rows.forEach((row, ri) => {
+    const r = ri + 2;
+    headers.forEach((h, ci) => {
+      applyCell(ws.getCell(r, ci + 1), row[h] ?? '', { align: ci < 3 ? 'center' : 'left' });
+    });
+  });
+
+  const buf = await wb.xlsx.writeBuffer();
+  saveAs(new Blob([buf], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  }), `${projectName}_${sheetName}.xlsx`);
+};

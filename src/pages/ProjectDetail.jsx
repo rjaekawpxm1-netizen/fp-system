@@ -552,21 +552,39 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
   const simpleSummary = calcTotalFP(fpList, 'simple');
 
   // B. 전체 Excel 일괄 출력
-  const exportAllExcel = () => {
+  const exportAllExcel = async () => {
     if (!functions.length && !fpList.length) {
       alert('출력할 데이터가 없습니다. 먼저 기능목록을 생성하세요.');
       return;
     }
-    exportAllExcelNew({
-      functions, fpList, screenList, reqList,
-      crudMatrix, ifList, wbsList, traceList, tcList, asisList,
-      systemName, projectNameStr: systemName, manager: '',
-    }, project.name);
+    try {
+      await exportAllExcelNew({
+        functions, fpList, screenList, reqList,
+        crudMatrix, ifList, wbsList, traceList, tcList, asisList,
+        systemName, projectNameStr: systemName, manager: '',
+      }, project.name);
+    } catch (err) {
+      alert('Excel 출력 오류: ' + err.message);
+    }
   };
 
-  const exportExcel = () => {
+  const exportExcel = async () => {
     if (!fpList.length) { alert('FP 산정 데이터가 없습니다.'); return; }
-    exportFPExcel(fpList, { systemName, projectName: project.name }, 'both');
+    try {
+      await exportFPExcel(fpList, { systemName, projectName: project.name }, 'both');
+    } catch (err) {
+      alert('Excel 출력 오류: ' + err.message);
+    }
+  };
+
+  // 탭별 Excel 출력 함수들
+  const exportTabExcel = async (tabName, headers, rows, colWidths = []) => {
+    try {
+      const { exportGenericExcel } = await import('../utils/excelExport');
+      await exportGenericExcel(tabName, headers, rows, colWidths, project.name);
+    } catch (err) {
+      alert('Excel 출력 오류: ' + err.message);
+    }
   };
 
   const inputStyle = { width: '100%', padding: '7px 10px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6, outline: 'none', boxSizing: 'border-box' };
@@ -635,22 +653,13 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
     saveProject({ screenList: updated });
   };
 
-  const exportScreenExcel = () => {
-    const rows = screenList.map(s => ({
-      '화면ID': s.screenId,
-      '화면명': s.screenName,
-      '화면유형': s.screenType,
-      'LV1': s.lv1,
-      'LV2': s.lv2,
-      '관련기능': s.relatedFunctions,
-      '비고': s.note || '',
-    }));
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(rows);
-    ws['!cols'] = [{ wch: 12 }, { wch: 25 }, { wch: 12 }, { wch: 15 }, { wch: 15 }, { wch: 40 }, { wch: 15 }];
-    XLSX.utils.book_append_sheet(wb, ws, '화면목록');
-    const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-    saveAs(new Blob([buf]), project.name + '_화면목록.xlsx');
+  const exportScreenExcel = async () => {
+    const { exportGenericExcel } = await import('../utils/excelExport');
+    await exportGenericExcel('화면목록',
+      ['화면ID','화면명','화면유형','LV1','LV2','관련기능','비고'],
+      screenList.map(s => ({ '화면ID': s.screenId, '화면명': s.screenName, '화면유형': s.screenType, 'LV1': s.lv1, 'LV2': s.lv2, '관련기능': s.relatedFunctions, '비고': s.note||'' })),
+      [12,25,12,15,15,40,15], project.name
+    );
   };
 
   const SCREEN_TYPES = ['목록화면', '상세화면', '등록화면', '수정화면', '팝업', '대시보드', '보고서', '기타'];
@@ -767,22 +776,13 @@ JSON만 응답:
     saveProject({ reqList: updated });
   };
 
-  const exportReqExcel = () => {
-    const rows = reqList.map(r => ({
-      '요구사항ID': r.reqId,
-      '유형': r.type,
-      '요구사항명': r.reqName,
-      '상세내용': r.detail,
-      '관련화면': r.relatedScreen,
-      '우선순위': r.priority,
-      '비고': r.note || '',
-    }));
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(rows);
-    ws['!cols'] = [{ wch: 12 }, { wch: 10 }, { wch: 25 }, { wch: 50 }, { wch: 12 }, { wch: 10 }, { wch: 15 }];
-    XLSX.utils.book_append_sheet(wb, ws, '요구사항정의서');
-    const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-    saveAs(new Blob([buf]), project.name + '_요구사항정의서.xlsx');
+  const exportReqExcel = async () => {
+    const { exportGenericExcel } = await import('../utils/excelExport');
+    await exportGenericExcel('요구사항정의서',
+      ['요구사항ID','유형','요구사항명','상세내용','관련화면','우선순위','비고'],
+      reqList.map(r => ({ '요구사항ID': r.reqId, '유형': r.type, '요구사항명': r.reqName, '상세내용': r.detail, '관련화면': r.relatedScreen, '우선순위': r.priority, '비고': r.note||'' })),
+      [12,10,25,50,12,10,15], project.name
+    );
   };
 
   const REQ_TYPES = ['기능', '비기능', '제약사항'];
@@ -863,22 +863,15 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
     saveProject({ crudMatrix: updated });
   };
 
-  const exportCrudExcel = () => {
+  const exportCrudExcel = async () => {
     const entities = crudMatrix.entities || [];
-    const matrix = crudMatrix.matrix || [];
-    const header = ['LV1', 'LV2', 'LV3', ...entities];
-    const rows = matrix.map(f => ({
-      LV1: f.lv1,
-      LV2: f.lv2,
-      LV3: f.lv3,
-      ...Object.fromEntries(entities.map(e => [e, f.crud?.[e] || ''])),
-    }));
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(rows, { header });
-    ws['!cols'] = [{ wch: 15 }, { wch: 15 }, { wch: 25 }, ...entities.map(() => ({ wch: 10 }))];
-    XLSX.utils.book_append_sheet(wb, ws, 'CRUD분석');
-    const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-    saveAs(new Blob([buf]), project.name + '_CRUD분석.xlsx');
+    const matrix   = crudMatrix.matrix   || [];
+    const { exportGenericExcel } = await import('../utils/excelExport');
+    await exportGenericExcel('CRUD분석',
+      ['LV1','LV2','LV3',...entities],
+      matrix.map(f => ({ 'LV1':f.lv1,'LV2':f.lv2,'LV3':f.lv3,...Object.fromEntries(entities.map(e=>[e,f.crud?.[e]||''])) })),
+      [15,15,25,...entities.map(()=>10)], project.name
+    );
   };
 
   const CRUD_COLORS = {
@@ -1425,6 +1418,7 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                 {showValidation ? '검증 닫기' : '🔍 FP 검증'}
               </button>
               <button onClick={addFPRow} style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>+ 행 추가</button>
+              <button onClick={exportExcel} style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>📥 Excel 출력</button>
             </div>
           </div>
 
@@ -1976,16 +1970,16 @@ JSON만 응답:
                 style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}
               >+ 행 추가</button>
               <button
-                onClick={() => {
-                  const rows = ifList.map(f => ({ '인터페이스ID': f.ifId, '인터페이스명': f.ifName, '송신시스템': f.sendSystem, '수신시스템': f.receiveSystem, '연동방식': f.method, '연동주기': f.cycle, '주요데이터항목': f.dataItems, '비고': f.note }));
-                  const wb = XLSX.utils.book_new();
-                  const ws = XLSX.utils.json_to_sheet(rows);
-                  XLSX.utils.book_append_sheet(wb, ws, '인터페이스정의서');
-                  const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-                  saveAs(new Blob([buf]), project.name + '_인터페이스정의서.xlsx');
+                onClick={async () => {
+                  const { exportGenericExcel } = await import('../utils/excelExport');
+                  await exportGenericExcel('인터페이스정의서',
+                    ['인터페이스ID','인터페이스명','송신시스템','수신시스템','연동방식','연동주기','주요데이터항목','비고'],
+                    ifList.map(f=>({'인터페이스ID':f.ifId,'인터페이스명':f.ifName,'송신시스템':f.sendSystem,'수신시스템':f.receiveSystem,'연동방식':f.method,'연동주기':f.cycle,'주요데이터항목':f.dataItems,'비고':f.note})),
+                    [14,25,20,20,12,12,40,15], project.name
+                  );
                 }}
                 style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-              >Excel 출력</button>
+              >📥 Excel 출력</button>
             </div>
           </div>
 
@@ -2098,17 +2092,16 @@ JSON만 응답:
                 {wbsLoading ? '⚙️ AI 생성 중...' : 'AI WBS 생성'}
               </button>
               <button
-                onClick={() => {
-                  const rows = wbsList.map(w=>({'WBS ID':w.wbsId,'단계':w.phase,'작업명':w.task,'LV1':w.lv1,'LV2':w.lv2,'공수(일)':w.workDays,'담당자':w.role,'비고':w.note}));
-                  const wb = XLSX.utils.book_new();
-                  const ws = XLSX.utils.json_to_sheet(rows);
-                  ws['!cols']=[{wch:8},{wch:10},{wch:30},{wch:15},{wch:15},{wch:10},{wch:10},{wch:20}];
-                  XLSX.utils.book_append_sheet(wb,ws,'WBS');
-                  const buf=XLSX.write(wb,{bookType:'xlsx',type:'array'});
-                  saveAs(new Blob([buf]),project.name+'_WBS.xlsx');
+                onClick={async () => {
+                  const { exportGenericExcel } = await import('../utils/excelExport');
+                  await exportGenericExcel('WBS',
+                    ['WBS ID','단계','작업명','LV1','LV2','공수(일)','담당자','비고'],
+                    wbsList.map(w=>({'WBS ID':w.wbsId,'단계':w.phase,'작업명':w.task,'LV1':w.lv1,'LV2':w.lv2,'공수(일)':w.workDays,'담당자':w.role,'비고':w.note})),
+                    [8,10,30,15,15,10,10,20], project.name
+                  );
                 }}
                 style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-              >Excel 출력</button>
+              >📥 Excel 출력</button>
             </div>
           </div>
 
@@ -2254,17 +2247,16 @@ JSON만 응답:
                 {traceLoading ? '⚙️ AI 생성 중...' : 'AI 추적표 생성'}
               </button>
               <button
-                onClick={() => {
-                  const rows = traceList.map(t=>({'요구사항ID':t.reqId,'요구사항명':t.reqName,'관련기능':t.relatedFunctions,'관련화면':t.relatedScreens,'테스트케이스ID':t.testId,'상태':t.status}));
-                  const wb=XLSX.utils.book_new();
-                  const ws=XLSX.utils.json_to_sheet(rows);
-                  ws['!cols']=[{wch:12},{wch:25},{wch:30},{wch:20},{wch:14},{wch:10}];
-                  XLSX.utils.book_append_sheet(wb,ws,'요구사항추적표');
-                  const buf=XLSX.write(wb,{bookType:'xlsx',type:'array'});
-                  saveAs(new Blob([buf]),project.name+'_요구사항추적표.xlsx');
+                onClick={async () => {
+                  const { exportGenericExcel } = await import('../utils/excelExport');
+                  await exportGenericExcel('요구사항추적표',
+                    ['요구사항ID','요구사항명','관련기능','관련화면','테스트케이스ID','상태'],
+                    traceList.map(t=>({'요구사항ID':t.reqId,'요구사항명':t.reqName,'관련기능':t.relatedFunctions,'관련화면':t.relatedScreens,'테스트케이스ID':t.testId,'상태':t.status})),
+                    [12,25,30,20,14,10], project.name
+                  );
                 }}
                 style={{ background:'#16a34a',color:'#fff',border:'none',borderRadius:6,padding:'7px 14px',fontSize:13,fontWeight:600,cursor:'pointer' }}
-              >Excel 출력</button>
+              >📥 Excel 출력</button>
             </div>
           </div>
 
@@ -2392,17 +2384,16 @@ JSON만 응답:
                 {tcLoading ? '⚙️ AI 생성 중...' : 'AI 테스트케이스 생성'}
               </button>
               <button
-                onClick={() => {
-                  const rows = tcList.map(t=>({'테스트케이스ID':t.tcId,'관련요구사항':t.reqId,'테스트케이스명':t.tcName,'유형':t.type,'사전조건':t.precondition,'테스트절차':t.steps,'기대결과':t.expected,'테스트결과':t.result}));
-                  const wb=XLSX.utils.book_new();
-                  const ws=XLSX.utils.json_to_sheet(rows);
-                  ws['!cols']=[{wch:14},{wch:12},{wch:30},{wch:8},{wch:20},{wch:40},{wch:30},{wch:10}];
-                  XLSX.utils.book_append_sheet(wb,ws,'테스트케이스');
-                  const buf=XLSX.write(wb,{bookType:'xlsx',type:'array'});
-                  saveAs(new Blob([buf]),project.name+'_테스트케이스.xlsx');
+                onClick={async () => {
+                  const { exportGenericExcel } = await import('../utils/excelExport');
+                  await exportGenericExcel('테스트케이스',
+                    ['테스트케이스ID','관련요구사항','테스트케이스명','유형','사전조건','테스트절차','기대결과','테스트결과'],
+                    tcList.map(t=>({'테스트케이스ID':t.tcId,'관련요구사항':t.reqId,'테스트케이스명':t.tcName,'유형':t.type,'사전조건':t.precondition,'테스트절차':t.steps,'기대결과':t.expected,'테스트결과':t.result})),
+                    [14,12,30,8,20,40,30,10], project.name
+                  );
                 }}
                 style={{ background:'#16a34a',color:'#fff',border:'none',borderRadius:6,padding:'7px 14px',fontSize:13,fontWeight:600,cursor:'pointer' }}
-              >Excel 출력</button>
+              >📥 Excel 출력</button>
             </div>
           </div>
 
@@ -2548,17 +2539,16 @@ JSON만 응답:
                 style={{ background:'#eff6ff',color:'#2563eb',border:'1px solid #bfdbfe',borderRadius:6,padding:'7px 14px',fontSize:13,fontWeight:500,cursor:'pointer' }}
               >+ 행 추가</button>
               <button
-                onClick={() => {
-                  const rows = asisList.map(a=>({'LV1':a.lv1,'LV2':a.lv2,'AS-IS(현행)':a.asIs,'TO-BE(목표)':a.toBe,'기대효과':a.improvement,'변화유형':a.changeType}));
-                  const wb=XLSX.utils.book_new();
-                  const ws=XLSX.utils.json_to_sheet(rows);
-                  ws['!cols']=[{wch:15},{wch:20},{wch:40},{wch:40},{wch:30},{wch:12}];
-                  XLSX.utils.book_append_sheet(wb,ws,'AS-IS_TO-BE');
-                  const buf=XLSX.write(wb,{bookType:'xlsx',type:'array'});
-                  saveAs(new Blob([buf]),project.name+'_ASIS_TOBE.xlsx');
+                onClick={async () => {
+                  const { exportGenericExcel } = await import('../utils/excelExport');
+                  await exportGenericExcel('AS-IS_TO-BE',
+                    ['LV1','LV2','AS-IS(현행)','TO-BE(목표)','기대효과','변화유형'],
+                    asisList.map(a=>({'LV1':a.lv1,'LV2':a.lv2,'AS-IS(현행)':a.asIs,'TO-BE(목표)':a.toBe,'기대효과':a.improvement,'변화유형':a.changeType})),
+                    [15,20,40,40,30,12], project.name
+                  );
                 }}
                 style={{ background:'#16a34a',color:'#fff',border:'none',borderRadius:6,padding:'7px 14px',fontSize:13,fontWeight:600,cursor:'pointer' }}
-              >Excel 출력</button>
+              >📥 Excel 출력</button>
             </div>
           </div>
 
