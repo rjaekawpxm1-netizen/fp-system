@@ -2,20 +2,11 @@
  * excelExport.js
  * ExcelJS 기반 공식 양식 Excel 생성
  * SW사업 대가산정 가이드 2025 공식 양식 기준
+ *
+ * 설치 필요: npm install exceljs file-saver
  */
-
-// ExcelJS는 CDN에서 동적 로드
-const loadExcelJS = async () => {
-  if (window.ExcelJS) return window.ExcelJS;
-  await new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';
-    s.onload = resolve;
-    s.onerror = reject;
-    document.head.appendChild(s);
-  });
-  return window.ExcelJS;
-};
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
 
 // ── 공통 색상 상수 ────────────────────────────────────────────
 const C = {
@@ -432,7 +423,6 @@ function buildGenericSheet(wb, sheetName, headers, rows, colWidths = []) {
 // 메인 내보내기 함수
 // ════════════════════════════════════════════════════════════════
 export const exportAllExcelNew = async (projectData, projectName) => {
-  const ExcelJS = await loadExcelJS();
   const wb = new ExcelJS.Workbook();
   wb.creator = 'FP 도우미';
   wb.created = new Date();
@@ -567,21 +557,14 @@ export const exportAllExcelNew = async (projectData, projectName) => {
 
   // 다운로드
   const buf = await wb.xlsx.writeBuffer();
-  const blob = new Blob([buf], {
+  saveAs(new Blob([buf], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-  });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `${projectName}_전체산출물.xlsx`;
-  a.click();
-  URL.revokeObjectURL(url);
+  }), `${projectName}_전체산출물.xlsx`);
 };
 
 
 // FP산정표만 단독 내보내기
 export const exportFPExcel = async (fpList, projectInfo, method = 'both') => {
-  const ExcelJS = await loadExcelJS();
   const wb = new ExcelJS.Workbook();
 
   if (method === 'simple' || method === 'both') {
@@ -592,13 +575,96 @@ export const exportFPExcel = async (fpList, projectInfo, method = 'both') => {
   }
 
   const buf = await wb.xlsx.writeBuffer();
-  const blob = new Blob([buf], {
+  saveAs(new Blob([buf], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  }), `FP산정표_${projectInfo.systemName || ''}.xlsx`);
+};
+
+
+// ════════════════════════════════════════════════════════════════
+// 개발비 산출서 내보내기 (공식 양식)
+// ════════════════════════════════════════════════════════════════
+export const exportCostExcel = async (data) => {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('SW재개발비 산정');
+
+  ws.columns = [
+    { width: 2 }, { width: 28 }, { width: 50 },
+    { width: 18 }, { width: 18 },
+  ];
+
+  const fmt = (n) => typeof n === 'number' ? n.toLocaleString('ko-KR') : n;
+
+  // 제목
+  ws.mergeCells('A1:E1');
+  applyCell(ws.getCell('A1'),
+    `「${data.projectName}」 소프트웨어 재개발비 산정`,
+    { bold: true, sz: 13, bg: C.SUMMARY, border: false }
+  );
+  ws.getRow(1).height = 24;
+
+  ws.mergeCells('A2:E2');
+  applyCell(ws.getCell('A2'),
+    `산정일자: ${new Date().toLocaleDateString('ko-KR')}  |  산정방법: ${data.method === 'standard' ? '정통법' : '간이법'}`,
+    { sz: 9, align: 'left', border: false }
+  );
+
+  const sections = [
+    { title: '① 기능점수(FP) 산출', rows: [
+      ['총 기능점수',    `${data.method === 'standard' ? '정통법' : '간이법'} 기준`, `${data.totalFP} FP`, ''],
+      ['신규개발 FP',    '', `${data.fpSummary.newDev} FP`, ''],
+      ['기능변경 FP',    '', `${data.fpSummary.changed} FP`, ''],
+      ['기능삭제',       '', '측정 비대상', ''],
+    ]},
+    { title: '② 보정전 재개발원가', rows: [
+      ['기능점수당 단가', '행안부 고시 기준', `${data.fpUnitPrice.toLocaleString()}원/FP`, ''],
+      ['보정전 재개발원가', '= 총 FP × 단가', '', fmt(data.preCorrectionCost) + '원'],
+    ]},
+    { title: '③ 보정계수', rows: [
+      ['① 규모 보정계수',   '= 0.4057×(log(FP)−7.1978)²+0.8878', data.sizeCoeff.toFixed(4), ''],
+      ['② 연계복잡성',      data.linkLabel, data.linkCoeff.toFixed(2), ''],
+      ['③ 성능 요구수준',   data.perfLabel, data.perfCoeff.toFixed(2), ''],
+      ['④ 운영환경 호환성', data.envLabel,  data.envCoeff.toFixed(2), ''],
+      ['⑤ 보안성',          data.secLabel,  data.secCoeff.toFixed(2), ''],
+      ['총 보정계수',        '① × ② × ③ × ④ × ⑤', data.totalCoeff.toFixed(4), ''],
+    ]},
+    { title: '④ 재개발비 산정', rows: [
+      ['보정후 재개발원가', '= 보정전 원가 × 총 보정계수', '', fmt(data.devCost) + '원'],
+      ['직접경비',          '', '', fmt(data.directCost) + '원'],
+      ['이윤',              `개발원가의 ${data.profitRate}%`, '', fmt(data.profit) + '원'],
+    ]},
+  ];
+
+  let row = 4;
+  sections.forEach(({ title, rows: sRows }) => {
+    ws.mergeCells(row, 2, row, 5);
+    applyCell(ws.getCell(row, 2), title, { bg: C.HEADER1, bold: true, align: 'left' });
+    ws.getRow(row).height = 18;
+    row++;
+    sRows.forEach(([label, desc, val, money]) => {
+      applyCell(ws.getCell(row, 2), label,  { bold: !!money, align: 'left' });
+      applyCell(ws.getCell(row, 3), desc,   { align: 'left', sz: 9 });
+      applyCell(ws.getCell(row, 4), val,    { align: 'center' });
+      applyCell(ws.getCell(row, 5), money,  { align: 'right', bold: !!money });
+      row++;
+    });
+    row++;
   });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `FP산정표_${projectInfo.systemName || ''}.xlsx`;
-  a.click();
-  URL.revokeObjectURL(url);
+
+  // 최종 합계
+  ws.mergeCells(row, 2, row, 4);
+  applyCell(ws.getCell(row, 2), 'SW 개발비 합계 (부가세 별도)',   { bg: C.SUMMARY, bold: true, sz: 12, align: 'left' });
+  applyCell(ws.getCell(row, 5), fmt(data.totalDevCost) + '원',   { bg: C.SUMMARY, bold: true, sz: 12, align: 'right' });
+  ws.getRow(row).height = 22;
+  row++;
+
+  ws.mergeCells(row, 2, row, 4);
+  applyCell(ws.getCell(row, 2), 'SW 개발비 합계 (부가세 포함, VAT 10%)', { bg: C.TOTAL, bold: true, sz: 12, align: 'left' });
+  applyCell(ws.getCell(row, 5), fmt(data.totalWithVAT) + '원',           { bg: C.TOTAL, bold: true, sz: 12, align: 'right' });
+  ws.getRow(row).height = 22;
+
+  const buf = await wb.xlsx.writeBuffer();
+  saveAs(new Blob([buf], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  }), `${data.projectName}_개발비산출서.xlsx`);
 };

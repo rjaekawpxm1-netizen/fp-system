@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import * as XLSX from 'xlsx';
-import { saveAs } from 'file-saver';
+import { exportCostExcel } from '../utils/excelExport';
 import { calcTotalFP } from '../utils/fpCalculator';
 
 // ============================================================
@@ -126,38 +125,21 @@ const CostCalculator = ({ projects }) => {
 
   // Excel 출력
   const exportExcel = () => {
-    const wb = XLSX.utils.book_new();
-    const rows = [
-      ['SW사업 개발비 산출서', '', '', ''],
-      ['프로젝트명', project.name, '', ''],
-      ['산정일자', new Date().toLocaleDateString('ko-KR'), '', ''],
-      ['', '', '', ''],
-      ['구분', '내용', '값', '금액(원)'],
-      ['총 기능점수', method === 'standard' ? '정통법' : '간이법', totalFP + ' FP', ''],
-      ['신규개발 FP', '', fpSummary.newDev + ' FP', ''],
-      ['기능변경 FP', '', fpSummary.changed + ' FP', ''],
-      ['기능점수당 단가', '2025년 기준', FP_UNIT_PRICE.toLocaleString() + '원', ''],
-      ['보정전 개발원가', '', '', preCorrectionCost.toLocaleString()],
-      ['', '', '', ''],
-      ['보정계수', '', '', ''],
-      ['① 규모 보정계수', `= 0.4057×(log(${totalFP})-7.1978)²+0.8878${totalFP < 500 ? ' (500FP 미만 → 1.28 적용)' : ''}`, sizeCoeff, ''],
-      ['② 연계복잡성', LINK_COMPLEXITY[linkIdx].label, linkCoeff, ''],
-      ['③ 성능 요구수준', PERFORMANCE[perfIdx].label, perfCoeff, ''],
-      ['④ 운영환경 호환성', ENV_COMPAT[envIdx].label, envCoeff, ''],
-      ['⑤ 보안성', SECURITY[secIdx].label, secCoeff, ''],
-      ['총 보정계수', '① × ② × ③ × ④ × ⑤', Math.round(totalCoeff * 10000) / 10000, ''],
-      ['', '', '', ''],
-      ['보정후 개발원가', '보정전 × 총보정계수', '', devCost.toLocaleString()],
-      ['이윤', `개발원가의 ${profitRate}%`, '', profit.toLocaleString()],
-      ['직접경비', '', '', Number(directCost).toLocaleString()],
-      ['SW 개발비 합계', '(부가세 별도)', '', totalDevCost.toLocaleString()],
-      ['SW 개발비 합계', '(부가세 포함, VAT 10%)', '', totalWithVAT.toLocaleString()],
-    ];
-    const ws = XLSX.utils.aoa_to_sheet(rows);
-    ws['!cols'] = [{ wch: 25 }, { wch: 50 }, { wch: 15 }, { wch: 20 }];
-    XLSX.utils.book_append_sheet(wb, ws, '개발비산출서');
-    const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-    saveAs(new Blob([buf]), project.name + '_개발비산출서.xlsx');
+    exportCostExcel({
+      projectName: project.name,
+      method,
+      totalFP,
+      fpSummary,
+      fpUnitPrice,
+      sizeCoeff, linkCoeff, perfCoeff, envCoeff, secCoeff, totalCoeff,
+      linkLabel: LINK_COMPLEXITY[linkIdx].label,
+      perfLabel: PERFORMANCE[perfIdx].label,
+      envLabel: ENV_COMPAT[envIdx].label,
+      secLabel: SECURITY[secIdx].label,
+      preCorrectionCost, devCost, profit, profitRate,
+      directCost: Number(directCost),
+      totalDevCost, totalWithVAT,
+    });
   };
 
   const sectionStyle = {
