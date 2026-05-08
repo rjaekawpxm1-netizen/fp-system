@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { exportAllExcelNew, exportFPExcel } from '../utils/excelExport';
 import { generateFunctions, generateFPList, parseDocument, parseSystemInfo } from '../utils/claudeApi';
 import { getWeight, getAvgWeight, getComplexity, getComplexityLabel, calcTotalFP, getChangePct, getFuncChangePct, getImpactFactor } from '../utils/fpCalculator';
+import { getRFPParsePrompt } from '../utils/systemPrompt';
 import mammoth from 'mammoth';
 
 const REUSE_TYPES = ['신규개발', '기능변경', '기능삭제', '수정없이재사용'];
@@ -391,6 +392,75 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
     } catch (err) {
       alert('기능정의서 파싱 오류: ' + err.message);
       setUploadedFuncFileName('');
+    } finally {
+      setLoading(false);
+      setLoadingMsg('');
+    }
+  };
+
+  // RFP(제안요청서) 업로드 → 기능요구사항 추출 → 기능목록 생성
+  const handleRFPUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = '';
+    setLoading(true);
+    setLoadingMsg('RFP 파일 읽는 중...');
+    try {
+      let text = '';
+      let imageFile = null;
+
+      if (isImageFile(file)) {
+        imageFile = file;
+      } else if (file.name.endsWith('.pdf')) {
+        text = await extractPdfText(file);
+      } else if (file.name.endsWith('.docx')) {
+        const arrayBuffer = await file.arrayBuffer();
+        const result = await mammoth.extractRawText({ arrayBuffer });
+        text = result.value;
+      } else if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+        const arrayBuffer = await file.arrayBuffer();
+        const wb = XLSX.read(arrayBuffer);
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        text = XLSX.utils.sheet_to_csv(ws);
+      } else {
+        throw new Error('HWP 파일은 PDF로 변환 후 업로드해주세요. (한글 → 다른 이름으로 저장 → PDF)');
+      }
+
+      if (!text && !imageFile) throw new Error('파일에서 텍스트를 추출할 수 없습니다.');
+
+      // 1단계: 시스템 정보 추출
+      setLoadingMsg('RFP에서 사업명/개요 추출 중...');
+      const info = await parseSystemInfo(text.slice(0, 2000), imageFile);
+      if (info.systemName) setSystemName(info.systemName);
+      if (info.overview)   setSystemOverview(info.overview);
+
+      // 2단계: 기능요구사항 추출 → 기능목록 변환
+      setLoadingMsg('RFP에서 기능요구사항 추출 중...');
+      const prompt = getRFPParsePrompt(text);
+      const response = await fetch('/api/claude', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          max_tokens: 4000,
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      });
+      const data = await response.json();
+      if (data.error) throw new Error(data.error.message || 'API 오류');
+      const resText = data.content?.map(c => c.type === 'text' ? c.text : '').join('') || '';
+      const parsed = safeParseJSON(resText);
+      const funcs = parsed.functions || [];
+
+      if (funcs.length === 0) throw new Error('기능요구사항을 추출할 수 없습니다. 텍스트 RFP인지 확인해주세요.');
+
+      const withId = funcs.map((f, i) => ({ ...f, id: Date.now() + i }));
+      setFunctions(withId);
+      saveProject({ functions: withId, systemName: info.systemName || systemName, systemOverview: info.overview || systemOverview });
+      setUploadedFuncFileName(file.name + ' (RFP)');
+      setTab('functions');
+      alert(`✅ RFP 분석 완료!\n기능요구사항 ${withId.length}개를 기능목록으로 변환했습니다.`);
+    } catch (err) {
+      alert('RFP 파싱 오류: ' + err.message);
     } finally {
       setLoading(false);
       setLoadingMsg('');
@@ -1055,7 +1125,7 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                 ⚠️ HWP 파일은 PDF로 변환 후 업로드하세요. 두 가지 용도 모두 지원합니다.
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
                 {/* 시스템개요 업로드 */}
                 <div>
                   <p style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 8 }}>📄 시스템개요 문서</p>
@@ -1084,6 +1154,21 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                     <input type="file" accept=".pdf,.docx,.xlsx,.xls,.png,.jpg,.jpeg" onChange={handleFuncDefUpload} style={{ display: 'none' }} />
                   </label>
                   <p style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>→ LV1~LV3 기능목록 자동 추출</p>
+                </div>
+
+                {/* RFP 업로드 */}
+                <div>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 8 }}>📑 제안요청서(RFP)</p>
+                  <label style={{ display: 'block', border: '2px dashed #c4b5fd', borderRadius: 10, padding: '24px 16px', textAlign: 'center', cursor: 'pointer', background: '#f5f3ff', transition: 'all 0.15s' }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#ede9fe'}
+                    onMouseLeave={e => e.currentTarget.style.background = '#f5f3ff'}
+                  >
+                    <div style={{ fontSize: 28, marginBottom: 6 }}>📑</div>
+                    <p style={{ fontWeight: 600, color: '#7c3aed', fontSize: 13 }}>RFP 업로드</p>
+                    <p style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>PDF · DOCX · HWP→PDF</p>
+                    <input type="file" accept=".pdf,.docx,.xlsx,.xls,.png,.jpg,.jpeg" onChange={handleRFPUpload} style={{ display: 'none' }} />
+                  </label>
+                  <p style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>→ 기능요구사항 추출 → 기능목록 생성</p>
                 </div>
               </div>
 
