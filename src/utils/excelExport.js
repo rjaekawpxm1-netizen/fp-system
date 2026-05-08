@@ -1,10 +1,17 @@
 /**
  * excelExport.js - ExcelJS 기반 공식 양식 Excel 생성
  * SW사업 대가산정 가이드 2025 기준
- * npm install exceljs file-saver
  */
-import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
+
+// ExcelJS를 실행 시점에 동적 로드 (번들에서 분리)
+let _ExcelJS = null;
+const getExcelJS = async () => {
+  if (_ExcelJS) return _ExcelJS;
+  const mod = await import('exceljs');
+  _ExcelJS = mod.default || mod;
+  return _ExcelJS;
+};
 
 const C = {
   HEADER1: 'FFFF99', TOTAL: 'C5D9F1',
@@ -235,6 +242,7 @@ function buildGeneric(wb, name, headers, rows, widths=[]) {
 // 공개 API
 // ════════════════════════════════════════════════════════════════
 export const exportAllExcelNew = async (projectData, projectName) => {
+  const ExcelJS = await getExcelJS();
   const wb = new ExcelJS.Workbook();
   const { functions=[], fpList=[], screenList=[], reqList=[],
     crudMatrix={}, ifList=[], wbsList=[], traceList=[],
@@ -283,6 +291,7 @@ export const exportAllExcelNew = async (projectData, projectName) => {
 };
 
 export const exportFPExcel = async (fpList, info, method='both') => {
+  const ExcelJS = await getExcelJS();
   const wb = new ExcelJS.Workbook();
   if (method==='simple'||method==='both') buildSimple(wb,fpList,info);
   if (method==='standard'||method==='both') buildStandard(wb,fpList,info);
@@ -290,6 +299,7 @@ export const exportFPExcel = async (fpList, info, method='both') => {
 };
 
 export const exportCostExcel = async (data) => {
+  const ExcelJS = await getExcelJS();
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('SW재개발비 산정');
   ws.columns = [{width:2},{width:28},{width:50},{width:18},{width:18}];
@@ -354,6 +364,7 @@ export const exportCostExcel = async (data) => {
 };
 
 export const exportGenericExcel = async (sheetName, headers, rows, colWidths=[], projectName='') => {
+  const ExcelJS = await getExcelJS();
   const wb = new ExcelJS.Workbook();
   buildGeneric(wb, sheetName, headers, rows, colWidths);
   await dl(wb, `${projectName}_${sheetName}.xlsx`);

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import * as XLSX from 'xlsx';
 import { generateFunctions, generateFPList, parseDocument, parseSystemInfo } from '../utils/claudeApi';
 import { getWeight, getAvgWeight, getComplexity, getComplexityLabel, calcTotalFP, getChangePct, getFuncChangePct, getImpactFactor } from '../utils/fpCalculator';
 import { getRFPParsePrompt } from '../utils/systemPrompt';
