@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { generateFunctions, generateFPList, parseDocument, parseSystemInfo } from '../utils/claudeApi';
 import { getWeight, getAvgWeight, getComplexity, getComplexityLabel, calcTotalFP, getChangePct, getFuncChangePct, getImpactFactor } from '../utils/fpCalculator';
-import { getRFPParsePrompt } from '../utils/systemPrompt';
+import { getRFPParsePrompt, getValidationPrompt } from '../utils/systemPrompt';
 import mammoth from 'mammoth';
 
 const REUSE_TYPES = ['신규개발', '기능변경', '기능삭제', '수정없이재사용'];
@@ -167,6 +167,12 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
   const [reverseTarget, setReverseTarget] = useState('');
   const [reverseUnitPrice, setReverseUnitPrice] = useState(605784);
   const [reverseCoeff, setReverseCoeff] = useState(1.0);
+
+  // 요구사항 검증 state
+  const [rfpText, setRfpText] = useState(project?.rfpText || '');
+  const [validationResult, setValidationResult] = useState(project?.validationResult || null);
+  const [validationLoading, setValidationLoading] = useState(false);
+  const [showValidationPanel, setShowValidationPanel] = useState(false);
 
   // ============================================================
   // 4. FP 검증 기능 (강화버전)
@@ -435,7 +441,9 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
         throw new Error('HWP 파일은 PDF로 변환 후 업로드해주세요. (한글 → 다른 이름으로 저장 → PDF)');
       }
 
-      if (!text && !imageFile) throw new Error('파일에서 텍스트를 추출할 수 없습니다.');
+      // RFP 텍스트 저장 (검증 탭에서 바로 쓸 수 있도록)
+      setRfpText(text.slice(0, 8000));
+      saveProject({ rfpText: text.slice(0, 8000) });
 
       // 1단계: 시스템 정보 추출
       setLoadingMsg('RFP에서 사업명/개요 추출 중...');
@@ -1234,9 +1242,215 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
               >
                 🔄 예산 역산
               </button>
+              <button
+                onClick={() => setShowValidationPanel(!showValidationPanel)}
+                style={{ background: showValidationPanel ? '#f0fdf4' : '#f8fafc', color: showValidationPanel ? '#16a34a' : '#374151', border: `1px solid ${showValidationPanel ? '#86efac' : '#d1d5db'}`, borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}
+              >
+                ✅ 요구사항 검증
+              </button>
               <button onClick={handleGenerateFP} style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>AI FP 산정 →</button>
             </div>
           </div>
+
+          {/* 요구사항 검증 패널 */}
+          {showValidationPanel && (
+            <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 12, padding: '18px 20px', marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                <div>
+                  <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#166534' }}>✅ 요구사항 검증</p>
+                  <p style={{ margin: '3px 0 0', fontSize: 11, color: '#16a34a' }}>RFP/요구사항 대비 기능목록이 올바르게 작성됐는지 AI가 검증합니다</p>
+                </div>
+                {validationResult && (
+                  <button
+                    onClick={async () => {
+                      const { exportGenericExcel } = await import('../utils/excelExport');
+                      const rows = (validationResult.coverage?.items || []).map(item => ({
+                        '요구사항': item.req, '반영여부': item.status,
+                        '관련기능': (item.functions || []).join(', '), '비고': item.comment || '',
+                      }));
+                      await exportGenericExcel('요구사항검증', ['요구사항','반영여부','관련기능','비고'], rows, [35,10,50,30], project.name);
+                    }}
+                    style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                  >📥 검증 리포트 Excel</button>
+                )}
+              </div>
+
+              {/* 요구사항 입력 */}
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#166534' }}>
+                    📄 요구사항 / RFP 입력
+                    <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 400, marginLeft: 6 }}>(RFP 업로드 시 자동 입력 · 직접 입력도 가능)</span>
+                  </label>
+                  {rfpText && <span style={{ fontSize: 11, color: '#16a34a', fontWeight: 600 }}>✅ {rfpText.length.toLocaleString()}자</span>}
+                </div>
+                <textarea
+                  value={rfpText}
+                  onChange={e => { setRfpText(e.target.value); saveProject({ rfpText: e.target.value }); }}
+                  placeholder={`요구사항을 직접 입력하거나 RFP 텍스트를 붙여넣으세요.\n\n예) FR-001: 출입신청 등록 - 외부인이 출입을 신청할 수 있어야 한다\n    FR-002: 출입승인 처리 - 담당자가 신청을 승인/반려할 수 있어야 한다`}
+                  rows={5}
+                  style={{ width: '100%', padding: '10px 12px', fontSize: 12, border: '1px solid #86efac', borderRadius: 8, outline: 'none', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit', background: '#fff' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: validationResult ? 16 : 0 }}>
+                <button
+                  onClick={async () => {
+                    if (!rfpText.trim()) return alert('요구사항을 먼저 입력해주세요.');
+                    if (functions.length === 0) return alert('기능목록을 먼저 생성해주세요.');
+                    setValidationLoading(true);
+                    try {
+                      const prompt = getValidationPrompt(rfpText, functions, fpList);
+                      const response = await fetch('/api/claude', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ max_tokens: 4000, messages: [{ role: 'user', content: prompt }] }),
+                      });
+                      const data = await response.json();
+                      if (data.error) throw new Error(data.error.message || 'API 오류');
+                      const text = data.content?.map(c => c.type === 'text' ? c.text : '').join('') || '';
+                      const result = safeParseJSON(text);
+                      setValidationResult(result);
+                      saveProject({ validationResult: result, rfpText });
+                    } catch (err) {
+                      alert('검증 오류: ' + err.message);
+                    } finally {
+                      setValidationLoading(false);
+                    }
+                  }}
+                  disabled={validationLoading || !rfpText.trim() || functions.length === 0}
+                  style={{ background: validationLoading ? '#e5e7eb' : '#16a34a', color: validationLoading ? '#9ca3af' : '#fff', border: 'none', borderRadius: 8, padding: '9px 22px', fontSize: 13, fontWeight: 700, cursor: validationLoading ? 'not-allowed' : 'pointer' }}
+                >
+                  {validationLoading ? '⚙️ AI 검증 중...' : '🔍 AI 검증 실행'}
+                </button>
+                <span style={{ fontSize: 12, color: '#6b7280' }}>기능목록 {functions.length}개 기준 검증</span>
+              </div>
+
+              {/* 검증 결과 */}
+              {validationResult && (() => {
+                const score = validationResult.coverage?.score || 0;
+                const scoreColor = score >= 80 ? '#16a34a' : score >= 60 ? '#d97706' : '#dc2626';
+                return (
+                  <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #d1fae5', overflow: 'hidden' }}>
+                    {/* 종합 점수 */}
+                    <div style={{ padding: '16px 20px', background: score >= 80 ? '#f0fdf4' : score >= 60 ? '#fffbeb' : '#fef2f2', display: 'flex', alignItems: 'center', gap: 20, borderBottom: '1px solid #e5e7eb' }}>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: 42, fontWeight: 900, color: scoreColor, lineHeight: 1 }}>{score}</div>
+                        <div style={{ fontSize: 12, color: scoreColor }}>/ 100점</div>
+                      </div>
+                      <div>
+                        <p style={{ margin: '0 0 4px', fontSize: 14, fontWeight: 700, color: '#1f2937' }}>
+                          {score >= 80 ? '✅ 요구사항이 잘 반영됐습니다' : score >= 60 ? '⚠️ 일부 요구사항이 미반영됐습니다' : '❌ 요구사항 반영이 부족합니다'}
+                        </p>
+                        <p style={{ margin: 0, fontSize: 12, color: '#374151' }}>{validationResult.summary}</p>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
+                      {/* 공통기능 */}
+                      <div style={{ padding: '14px 16px', borderBottom: '1px solid #f3f4f6', borderRight: '1px solid #f3f4f6' }}>
+                        <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700 }}>🔧 공통기능</p>
+                        {[['사용자관리', validationResult.commonCheck?.userMgmt], ['권한관리', validationResult.commonCheck?.authMgmt], ['시스템관리', validationResult.commonCheck?.sysMgmt]].map(([label, ok]) => (
+                          <div key={label} style={{ display: 'flex', gap: 6, fontSize: 12, padding: '3px 0' }}>
+                            <span>{ok ? '✅' : '❌'}</span>
+                            <span style={{ color: ok ? '#16a34a' : '#dc2626' }}>{label}</span>
+                          </div>
+                        ))}
+                      </div>
+                      {/* 데이터 기능 */}
+                      <div style={{ padding: '14px 16px', borderBottom: '1px solid #f3f4f6' }}>
+                        <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700 }}>🗄️ 데이터 기능</p>
+                        <div style={{ display: 'flex', gap: 10, marginBottom: 6 }}>
+                          {[['ILF', validationResult.dataCheck?.ilfCount || 0, 3], ['EIF', validationResult.dataCheck?.eifCount || 0, 0]].map(([t, cnt, min]) => (
+                            <div key={t} style={{ textAlign: 'center', padding: '6px 12px', background: cnt >= min ? '#f0fdf4' : '#fef2f2', borderRadius: 6 }}>
+                              <div style={{ fontSize: 18, fontWeight: 800, color: cnt >= min ? '#16a34a' : '#dc2626' }}>{cnt}</div>
+                              <div style={{ fontSize: 10, color: '#6b7280' }}>{t}</div>
+                            </div>
+                          ))}
+                        </div>
+                        {(validationResult.dataCheck?.issues || []).map((issue, i) => (
+                          <p key={i} style={{ margin: '2px 0', fontSize: 11, color: '#dc2626' }}>⚠️ {issue}</p>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* 요구사항 커버리지 */}
+                    <div style={{ padding: '14px 16px', borderBottom: '1px solid #f3f4f6' }}>
+                      <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700 }}>
+                        📋 요구사항 반영 현황
+                        <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 400, marginLeft: 6 }}>
+                          ({(validationResult.coverage?.items || []).filter(i => i.status === '✅').length}/{(validationResult.coverage?.items || []).length} 반영)
+                        </span>
+                      </p>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 240, overflowY: 'auto' }}>
+                        {(validationResult.coverage?.items || []).map((item, i) => (
+                          <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 10px', background: item.status === '✅' ? '#f0fdf4' : item.status === '⚠️' ? '#fffbeb' : '#fef2f2', borderRadius: 6, fontSize: 12 }}>
+                            <span style={{ flexShrink: 0 }}>{item.status}</span>
+                            <div>
+                              <span style={{ fontWeight: 600 }}>{item.req}</span>
+                              {item.functions?.length > 0 && <span style={{ color: '#6b7280', marginLeft: 6 }}>→ {item.functions.join(', ')}</span>}
+                              {item.comment && <p style={{ margin: '2px 0 0', color: '#dc2626', fontSize: 11 }}>{item.comment}</p>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* CRUD 누락 */}
+                    {(validationResult.crudCheck || []).filter(c => c.missing?.length > 0).length > 0 && (
+                      <div style={{ padding: '14px 16px', borderBottom: '1px solid #f3f4f6' }}>
+                        <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700 }}>⚠️ CRUD 누락</p>
+                        {(validationResult.crudCheck || []).filter(c => c.missing?.length > 0).map((c, i) => (
+                          <div key={i} style={{ display: 'flex', gap: 10, padding: '5px 8px', background: '#fffbeb', borderRadius: 6, fontSize: 12, marginBottom: 4 }}>
+                            <span style={{ fontWeight: 600, color: '#92400e', minWidth: 100 }}>{c.lv2}</span>
+                            <span style={{ color: '#dc2626' }}>누락: {c.missing?.join(', ')}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* 누락 기능 추천 */}
+                    {(validationResult.suggestions || []).length > 0 && (
+                      <div style={{ padding: '14px 16px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                          <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>💡 누락 기능 추천 ({validationResult.suggestions.length}개)</p>
+                          <button
+                            onClick={() => {
+                              const ok = window.confirm(`추천 기능 ${validationResult.suggestions.length}개를 기능목록에 추가하시겠습니까?`);
+                              if (!ok) return;
+                              const newFuncs = validationResult.suggestions.map((s, i) => ({ ...s, id: Date.now() + i }));
+                              const merged = [...functions, ...newFuncs];
+                              setFunctions(merged);
+                              saveProject({ functions: merged });
+                              alert(`✅ ${newFuncs.length}개 기능이 추가됐습니다.`);
+                            }}
+                            style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                          >전체 추가</button>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          {(validationResult.suggestions || []).map((s, i) => (
+                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: '#eff6ff', borderRadius: 6, fontSize: 12 }}>
+                              <span style={{ color: '#1e40af', fontWeight: 600 }}>{s.lv1} › {s.lv2} › {s.lv3}</span>
+                              <span style={{ color: '#6b7280', fontSize: 11, marginLeft: 'auto' }}>{s.reason}</span>
+                              <button
+                                onClick={() => {
+                                  const newFunc = { ...s, id: Date.now() + i };
+                                  const merged = [...functions, newFunc];
+                                  setFunctions(merged);
+                                  saveProject({ functions: merged });
+                                }}
+                                style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: 4, padding: '3px 8px', fontSize: 11, cursor: 'pointer', flexShrink: 0 }}
+                              >추가</button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
 
           {/* 예산 역산 패널 */}
           {showReversePanel && (

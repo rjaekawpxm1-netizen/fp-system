@@ -320,3 +320,80 @@ ${text.slice(0, 6000)}
 JSON만 응답:
 {"systemName":"","overview":"","functions":[{"lv1":"","lv2":"","lv3":"","definition":""}]}
 `;
+
+
+// ============================================================
+// 요구사항 검증 프롬프트 (생성 후 검증용)
+// ============================================================
+export const getValidationPrompt = (rfpText, functions, fpList) => `
+당신은 SW사업 BA 검토 전문가입니다.
+아래 요구사항(RFP)과 AI가 생성한 기능목록을 비교하여 검증하세요.
+
+## 검증 기준 (5가지)
+
+### 1. 요구사항 커버리지
+- RFP의 각 요구사항(FR-xxx, 기능요구사항, 업무프로세스)이 기능목록에 반영됐는가
+- 반영: ✅ / 미반영: ❌ / 부분반영: ⚠️
+
+### 2. CRUD 완전성
+- 각 LV2 업무단위에 등록(EI)/수정(EI)/삭제(EI)/목록조회(EQ)/상세조회(EQ) 존재 여부
+- 누락된 CRUD 항목 명시
+
+### 3. 데이터 기능 적절성
+- ILF(내부논리파일) 최소 3개 이상 식별됐는가
+- 외부연동 있으면 EIF 식별됐는가
+
+### 4. 공통기능 완전성
+- 사용자관리(등록/수정/삭제/조회) 있는가
+- 권한관리 있는가
+- 시스템관리(공통코드/메뉴/로그) 있는가
+
+### 5. 누락 기능 추천
+- 요구사항에는 있으나 기능목록에 없는 기능을 구체적으로 제안
+- LV1/LV2/LV3 형식으로 제안
+
+## 입력 데이터
+
+### 요구사항(RFP):
+${rfpText.slice(0, 4000)}
+
+### 기능목록 (${functions.length}개):
+${JSON.stringify(functions.slice(0, 80).map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3 })), null, 2)}
+
+${fpList && fpList.length > 0 ? `### FP산정 현황:
+ILF: ${fpList.filter(f => f.fpType === 'ILF').length}개
+EIF: ${fpList.filter(f => f.fpType === 'EIF').length}개
+EI: ${fpList.filter(f => f.fpType === 'EI').length}개
+EO: ${fpList.filter(f => f.fpType === 'EO').length}개
+EQ: ${fpList.filter(f => f.fpType === 'EQ').length}개` : ''}
+
+## 출력 형식 (JSON만 응답)
+{
+  "coverage": {
+    "score": 85,
+    "comment": "전체 요구사항의 85%가 반영됨",
+    "items": [
+      { "req": "요구사항명 또는 FR-001", "status": "✅", "functions": ["관련 LV3 기능명"], "comment": "" },
+      { "req": "요구사항명 또는 FR-002", "status": "❌", "functions": [], "comment": "미반영 이유" }
+    ]
+  },
+  "crudCheck": [
+    { "lv2": "업무단위명", "missing": ["등록", "삭제"], "ok": ["수정", "목록조회", "상세조회"] }
+  ],
+  "dataCheck": {
+    "ilfCount": 0,
+    "eifCount": 0,
+    "issues": ["ILF가 없습니다. 사용자정보, 신청정보 등을 ILF로 추가하세요."]
+  },
+  "commonCheck": {
+    "userMgmt": true,
+    "authMgmt": false,
+    "sysMgmt": true,
+    "missing": ["권한관리"]
+  },
+  "suggestions": [
+    { "lv1": "", "lv2": "", "lv3": "", "definition": "", "reason": "FR-002 승인처리 요구사항 미반영" }
+  ],
+  "summary": "전체 요약 의견 (3줄 이내)"
+}
+`;
