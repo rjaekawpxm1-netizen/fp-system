@@ -293,7 +293,16 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
 
   const extractPdfText = async (file) => {
     const pdfjsLib = await import('pdfjs-dist');
-    pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
+    // 설치된 버전과 일치하는 worker 사용 (버전 하드코딩 제거)
+    try {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+        'pdfjs-dist/build/pdf.worker.min.mjs',
+        import.meta.url
+      ).toString();
+    } catch {
+      // fallback: worker 없이 실행 (느리지만 동작함)
+      pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+    }
     const arrayBuffer = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
     let text = '';
