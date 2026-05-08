@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { exportCostExcel } from '../utils/excelExport';
 import { calcTotalFP } from '../utils/fpCalculator';
 
 // ============================================================
@@ -124,22 +123,27 @@ const CostCalculator = ({ projects }) => {
   const fmt = (n) => n.toLocaleString('ko-KR') + '원';
 
   // Excel 출력
-  const exportExcel = () => {
-    exportCostExcel({
-      projectName: project.name,
-      method,
-      totalFP,
-      fpSummary,
-      fpUnitPrice,
-      sizeCoeff, linkCoeff, perfCoeff, envCoeff, secCoeff, totalCoeff,
-      linkLabel: LINK_COMPLEXITY[linkIdx].label,
-      perfLabel: PERFORMANCE[perfIdx].label,
-      envLabel: ENV_COMPAT[envIdx].label,
-      secLabel: SECURITY[secIdx].label,
-      preCorrectionCost, devCost, profit, profitRate,
-      directCost: Number(directCost),
-      totalDevCost, totalWithVAT,
-    });
+  const exportExcel = async () => {
+    try {
+      const { exportCostExcel } = await import('../utils/excelExport');
+      await exportCostExcel({
+        projectName: project.name,
+        method,
+        totalFP,
+        fpSummary,
+        fpUnitPrice,
+        sizeCoeff, linkCoeff, perfCoeff, envCoeff, secCoeff, totalCoeff,
+        linkLabel: LINK_COMPLEXITY[linkIdx].label,
+        perfLabel: PERFORMANCE[perfIdx].label,
+        envLabel: ENV_COMPAT[envIdx].label,
+        secLabel: SECURITY[secIdx].label,
+        preCorrectionCost, devCost, profit, profitRate,
+        directCost: Number(directCost),
+        totalDevCost, totalWithVAT,
+      });
+    } catch (err) {
+      alert('Excel 출력 오류: ' + err.message);
+    }
   };
 
   const sectionStyle = {

@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { exportAllExcelNew, exportFPExcel } from '../utils/excelExport';
 import { generateFunctions, generateFPList, parseDocument, parseSystemInfo } from '../utils/claudeApi';
 import { getWeight, getAvgWeight, getComplexity, getComplexityLabel, calcTotalFP, getChangePct, getFuncChangePct, getImpactFactor } from '../utils/fpCalculator';
 import { getRFPParsePrompt } from '../utils/systemPrompt';
@@ -628,6 +627,7 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
       return;
     }
     try {
+      const { exportAllExcelNew } = await import('../utils/excelExport');
       await exportAllExcelNew({
         functions, fpList, screenList, reqList,
         crudMatrix, ifList, wbsList, traceList, tcList, asisList,
@@ -641,6 +641,7 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
   const exportExcel = async () => {
     if (!fpList.length) { alert('FP 산정 데이터가 없습니다.'); return; }
     try {
+      const { exportFPExcel } = await import('../utils/excelExport');
       await exportFPExcel(fpList, { systemName, projectName: project.name }, 'both');
     } catch (err) {
       alert('Excel 출력 오류: ' + err.message);
