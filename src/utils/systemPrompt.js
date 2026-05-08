@@ -397,3 +397,132 @@ EQ: ${fpList.filter(f => f.fpType === 'EQ').length}개` : ''}
   "summary": "전체 요약 의견 (3줄 이내)"
 }
 `;
+
+
+// ============================================================
+// Phase 1-1: ❌ 요구사항 재생성 프롬프트
+// ============================================================
+export const getRegenFromReqPrompt = (failedReqs, systemInfo, existingFunctions) => `
+당신은 SW사업 BA 전문가입니다.
+아래 미반영 요구사항들을 LV1/LV2/LV3 기능목록으로 변환하세요.
+
+## 규칙
+1. 각 요구사항을 CRUD 패턴으로 분해 (등록/수정/삭제/목록조회/상세조회)
+2. 기존 기능목록과 중복되지 않는 기능만 생성
+3. LV1/LV2는 기존 구조에 맞춰서 생성 (새 LV1 최소화)
+4. definition: "~을 ~한다" (15자 이내)
+
+## 시스템 정보
+${systemInfo}
+
+## 기존 기능목록 LV2 목록 (중복 방지용)
+${[...new Set(existingFunctions.map(f => f.lv2))].join(', ')}
+
+## 미반영 요구사항 (이것들을 기능으로 변환)
+${failedReqs.map((r, i) => `${i+1}. ${r.req}${r.comment ? ` (${r.comment})` : ''}`).join('\n')}
+
+JSON만 응답:
+{"functions":[{"lv1":"","lv2":"","lv3":"","definition":"","fromReq":"원본 요구사항명"}]}
+`;
+
+
+// ============================================================
+// Phase 1-2: 기능 품질 검증 프롬프트
+// ============================================================
+export const getQualityCheckPrompt = (functions) => `
+당신은 SW사업 BA 품질 검토 전문가입니다.
+아래 기능목록의 품질을 검증하세요.
+
+## 검증 항목
+1. 모호한 기능명: "관리", "처리", "운영" 등 단독 사용 → 구체화 필요
+2. definition 누락 또는 불명확: 비어있거나 "~한다" 형식 미준수
+3. LV2 CRUD 불완전: 등록/수정/삭제/조회 중 2개 이상 누락
+4. 중복 기능명: 동일하거나 매우 유사한 LV3명
+5. LV1/LV2 구조 이상: LV2가 1개 기능만 가진 경우
+
+## 기능목록
+${JSON.stringify(functions.slice(0, 100).map(f => ({
+  id: f.id, lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, definition: f.definition
+})))}
+
+JSON만 응답:
+{
+  "qualityScore": 85,
+  "issues": [
+    {
+      "type": "모호한기능명|definition누락|CRUD불완전|중복기능|구조이상",
+      "severity": "error|warning|info",
+      "lv2": "",
+      "lv3": "",
+      "message": "",
+      "suggestion": ""
+    }
+  ],
+  "crudGaps": [
+    {
+      "lv2": "",
+      "missing": ["등록","삭제"],
+      "existing": ["수정","목록조회","상세조회"]
+    }
+  ],
+  "summary": "전체 품질 요약 (2줄 이내)"
+}
+`;
+
+
+// ============================================================
+// Phase 1-3: FP 산정 역검증 프롬프트
+// ============================================================
+export const getFPValidationPrompt = (fpList, totalFP, devCost) => `
+당신은 SW사업 FP 검토 전문가입니다.
+아래 FP 산정 결과를 역검증하세요.
+
+## 검증 기준
+1. ILF 적정성: 트랜잭션(EI/EO/EQ) 수 대비 ILF가 너무 적으면 오류
+   - 기준: EI 10개당 ILF 최소 1개 이상
+2. EIF 확인: 인터페이스 관련 기능 있는데 EIF 없으면 경고
+3. FP 유형 비율: EQ가 전체 80% 이상이면 검토 필요 (조회만 너무 많음)
+4. 개발비 적정성: FP당 단가 기준 ± 30% 이탈 시 경고
+5. 복잡도 분포: High가 전혀 없거나 90% 이상이면 검토 필요
+
+## FP 산정 현황
+총 FP: ${totalFP}
+개발비: ${devCost ? devCost.toLocaleString() + '원' : '미산정'}
+
+유형별:
+${['ILF','EIF','EI','EO','EQ'].map(t => {
+  const items = fpList.filter(f => f.fpType === t);
+  return `- ${t}: ${items.length}개`;
+}).join('\n')}
+
+복잡도별:
+${fpList.reduce((acc, f) => {
+  const c = f.complexity || 'A';
+  acc[c] = (acc[c] || 0) + 1;
+  return acc;
+}, {})}
+
+## FP 목록 (샘플)
+${JSON.stringify(fpList.slice(0, 30).map(f => ({
+  lv3: f.lv3, fpType: f.fpType, ftr: f.ftr, det: f.det, reuseType: f.reuseType
+})))}
+
+JSON만 응답:
+{
+  "fpScore": 90,
+  "issues": [
+    {
+      "type": "ILF부족|EIF누락|FP비율이상|개발비이탈|복잡도편중",
+      "severity": "error|warning|info",
+      "message": "",
+      "suggestion": ""
+    }
+  ],
+  "stats": {
+    "ilfRatio": "EI 대비 ILF 비율",
+    "eqRatio": "EQ 비율 %",
+    "highRatio": "High 복잡도 비율 %"
+  },
+  "summary": "FP 산정 품질 요약"
+}
+`;

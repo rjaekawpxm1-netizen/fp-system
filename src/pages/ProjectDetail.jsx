@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { generateFunctions, generateFPList, parseDocument, parseSystemInfo } from '../utils/claudeApi';
 import { getWeight, getAvgWeight, getComplexity, getComplexityLabel, calcTotalFP, getChangePct, getFuncChangePct, getImpactFactor } from '../utils/fpCalculator';
-import { getRFPParsePrompt, getValidationPrompt } from '../utils/systemPrompt';
+import { getRFPParsePrompt, getValidationPrompt, getRegenFromReqPrompt, getQualityCheckPrompt, getFPValidationPrompt } from '../utils/systemPrompt';
 import mammoth from 'mammoth';
 
 const REUSE_TYPES = ['신규개발', '기능변경', '기능삭제', '수정없이재사용'];
@@ -173,6 +173,13 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
   const [validationResult, setValidationResult] = useState(project?.validationResult || null);
   const [validationLoading, setValidationLoading] = useState(false);
   const [showValidationPanel, setShowValidationPanel] = useState(false);
+  // 기능 품질 검증 state
+  const [qualityResult, setQualityResult] = useState(project?.qualityResult || null);
+  const [qualityLoading, setQualityLoading] = useState(false);
+  const [showQualityPanel, setShowQualityPanel] = useState(false);
+  // FP 역검증 state
+  const [fpValidResult, setFpValidResult] = useState(project?.fpValidResult || null);
+  const [fpValidLoading, setFpValidLoading] = useState(false);
 
   // ============================================================
   // 4. FP 검증 기능 (강화버전)
@@ -1243,6 +1250,12 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                 🔄 예산 역산
               </button>
               <button
+                onClick={() => setShowQualityPanel(!showQualityPanel)}
+                style={{ background: showQualityPanel ? '#f5f3ff' : '#f8fafc', color: showQualityPanel ? '#7c3aed' : '#374151', border: `1px solid ${showQualityPanel ? '#c4b5fd' : '#d1d5db'}`, borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}
+              >
+                🔬 품질 검증
+              </button>
+              <button
                 onClick={() => setShowValidationPanel(!showValidationPanel)}
                 style={{ background: showValidationPanel ? '#f0fdf4' : '#f8fafc', color: showValidationPanel ? '#16a34a' : '#374151', border: `1px solid ${showValidationPanel ? '#86efac' : '#d1d5db'}`, borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}
               >
@@ -1376,21 +1389,90 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
 
                     {/* 요구사항 커버리지 */}
                     <div style={{ padding: '14px 16px', borderBottom: '1px solid #f3f4f6' }}>
-                      <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700 }}>
-                        📋 요구사항 반영 현황
-                        <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 400, marginLeft: 6 }}>
-                          ({(validationResult.coverage?.items || []).filter(i => i.status === '✅').length}/{(validationResult.coverage?.items || []).length} 반영)
-                        </span>
-                      </p>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>
+                          📋 요구사항 반영 현황
+                          <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 400, marginLeft: 6 }}>
+                            ({(validationResult.coverage?.items || []).filter(i => i.status === '✅').length}/{(validationResult.coverage?.items || []).length} 반영)
+                          </span>
+                        </p>
+                        {/* ❌ 미반영 항목 일괄 재생성 버튼 */}
+                        {(validationResult.coverage?.items || []).filter(i => i.status === '❌').length > 0 && (
+                          <button
+                            onClick={async () => {
+                              const failedItems = (validationResult.coverage?.items || []).filter(i => i.status === '❌');
+                              const ok = window.confirm(`미반영 요구사항 ${failedItems.length}개를 기능으로 변환하여 추가하시겠습니까?`);
+                              if (!ok) return;
+                              setValidationLoading(true);
+                              try {
+                                const prompt = getRegenFromReqPrompt(failedItems, systemInfo, functions);
+                                const response = await fetch('/api/claude', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ max_tokens: 3000, messages: [{ role: 'user', content: prompt }] }),
+                                });
+                                const data = await response.json();
+                                const text = data.content?.map(c => c.type === 'text' ? c.text : '').join('') || '';
+                                const parsed = safeParseJSON(text);
+                                const newFuncs = (parsed.functions || []).map((f, i) => ({ ...f, id: Date.now() + i }));
+                                // 중복 제거
+                                const existingLV3 = new Set(functions.map(f => f.lv3));
+                                const unique = newFuncs.filter(f => !existingLV3.has(f.lv3));
+                                const merged = [...functions, ...unique];
+                                setFunctions(merged);
+                                saveProject({ functions: merged });
+                                alert(`✅ ${unique.length}개 기능이 추가됐습니다.\n(총 ${merged.length}개)`);
+                              } catch (err) {
+                                alert('재생성 오류: ' + err.message);
+                              } finally {
+                                setValidationLoading(false);
+                              }
+                            }}
+                            style={{ background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                          >
+                            ❌ 미반영 {(validationResult.coverage?.items || []).filter(i => i.status === '❌').length}개 재생성
+                          </button>
+                        )}
+                      </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 240, overflowY: 'auto' }}>
                         {(validationResult.coverage?.items || []).map((item, i) => (
                           <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 10px', background: item.status === '✅' ? '#f0fdf4' : item.status === '⚠️' ? '#fffbeb' : '#fef2f2', borderRadius: 6, fontSize: 12 }}>
                             <span style={{ flexShrink: 0 }}>{item.status}</span>
-                            <div>
+                            <div style={{ flex: 1 }}>
                               <span style={{ fontWeight: 600 }}>{item.req}</span>
                               {item.functions?.length > 0 && <span style={{ color: '#6b7280', marginLeft: 6 }}>→ {item.functions.join(', ')}</span>}
                               {item.comment && <p style={{ margin: '2px 0 0', color: '#dc2626', fontSize: 11 }}>{item.comment}</p>}
                             </div>
+                            {/* 개별 재생성 버튼 */}
+                            {item.status === '❌' && (
+                              <button
+                                onClick={async () => {
+                                  setValidationLoading(true);
+                                  try {
+                                    const prompt = getRegenFromReqPrompt([item], systemInfo, functions);
+                                    const response = await fetch('/api/claude', {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ max_tokens: 1500, messages: [{ role: 'user', content: prompt }] }),
+                                    });
+                                    const data = await response.json();
+                                    const text = data.content?.map(c => c.type === 'text' ? c.text : '').join('') || '';
+                                    const parsed = safeParseJSON(text);
+                                    const newFuncs = (parsed.functions || []).map((f, j) => ({ ...f, id: Date.now() + j }));
+                                    const existingLV3 = new Set(functions.map(f => f.lv3));
+                                    const unique = newFuncs.filter(f => !existingLV3.has(f.lv3));
+                                    const merged = [...functions, ...unique];
+                                    setFunctions(merged);
+                                    saveProject({ functions: merged });
+                                  } catch (err) {
+                                    alert('재생성 오류: ' + err.message);
+                                  } finally {
+                                    setValidationLoading(false);
+                                  }
+                                }}
+                                style={{ background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, padding: '2px 8px', fontSize: 10, cursor: 'pointer', flexShrink: 0 }}
+                              >재생성</button>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -1675,15 +1757,118 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
               })()}
             </div>
           )}
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead>
-                <tr style={{ background: '#f8fafc' }}>
-                  {['LV1', 'LV2', 'LV3', '기능 정의', '삭제'].map((h) => (
-                    <th key={h} style={{ ...cellStyle, fontWeight: 600, textAlign: 'left', color: '#374151', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
+          )}
+
+          {/* 🔬 기능 품질 검증 패널 */}
+          {showQualityPanel && (
+            <div style={{ background: '#f5f3ff', border: '1px solid #c4b5fd', borderRadius: 12, padding: '18px 20px', marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                <div>
+                  <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#5b21b6' }}>🔬 기능 품질 검증</p>
+                  <p style={{ margin: '3px 0 0', fontSize: 11, color: '#7c3aed' }}>기능명 모호성, CRUD 완전성, 중복 기능 등을 AI가 자동 검증합니다</p>
+                </div>
+                <button
+                  onClick={async () => {
+                    if (functions.length === 0) return alert('기능목록을 먼저 생성해주세요.');
+                    setQualityLoading(true);
+                    try {
+                      const prompt = getQualityCheckPrompt(functions);
+                      const response = await fetch('/api/claude', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ max_tokens: 3000, messages: [{ role: 'user', content: prompt }] }),
+                      });
+                      const data = await response.json();
+                      if (data.error) throw new Error(data.error.message || 'API 오류');
+                      const text = data.content?.map(c => c.type === 'text' ? c.text : '').join('') || '';
+                      const result = safeParseJSON(text);
+                      setQualityResult(result);
+                      saveProject({ qualityResult: result });
+                    } catch (err) {
+                      alert('품질 검증 오류: ' + err.message);
+                    } finally {
+                      setQualityLoading(false);
+                    }
+                  }}
+                  disabled={qualityLoading}
+                  style={{ background: qualityLoading ? '#e5e7eb' : '#7c3aed', color: qualityLoading ? '#9ca3af' : '#fff', border: 'none', borderRadius: 8, padding: '8px 18px', fontSize: 13, fontWeight: 700, cursor: qualityLoading ? 'not-allowed' : 'pointer' }}
+                >
+                  {qualityLoading ? '⚙️ 검증 중...' : '🔬 품질 검증 실행'}
+                </button>
+              </div>
+
+              {qualityResult && (() => {
+                const score = qualityResult.qualityScore || 0;
+                const errors = (qualityResult.issues || []).filter(i => i.severity === 'error');
+                const warnings = (qualityResult.issues || []).filter(i => i.severity === 'warning');
+                const infos = (qualityResult.issues || []).filter(i => i.severity === 'info');
+                return (
+                  <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #ddd6fe', overflow: 'hidden' }}>
+                    {/* 점수 */}
+                    <div style={{ padding: '14px 18px', background: score >= 80 ? '#f5f3ff' : score >= 60 ? '#fffbeb' : '#fef2f2', display: 'flex', alignItems: 'center', gap: 20, borderBottom: '1px solid #e5e7eb' }}>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: 40, fontWeight: 900, color: score >= 80 ? '#7c3aed' : score >= 60 ? '#d97706' : '#dc2626', lineHeight: 1 }}>{score}</div>
+                        <div style={{ fontSize: 11, color: '#6b7280' }}>품질 점수</div>
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', gap: 12, marginBottom: 6 }}>
+                          {[['오류', errors.length, '#dc2626'], ['경고', warnings.length, '#d97706'], ['정보', infos.length, '#2563eb']].map(([label, cnt, color]) => (
+                            <span key={label} style={{ fontSize: 12, fontWeight: 600, color, background: color + '15', padding: '2px 8px', borderRadius: 10 }}>{label} {cnt}</span>
+                          ))}
+                        </div>
+                        <p style={{ margin: 0, fontSize: 12, color: '#374151' }}>{qualityResult.summary}</p>
+                      </div>
+                    </div>
+
+                    {/* 이슈 목록 */}
+                    {(qualityResult.issues || []).length > 0 && (
+                      <div style={{ padding: '12px 16px', borderBottom: '1px solid #f3f4f6', maxHeight: 220, overflowY: 'auto' }}>
+                        <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700 }}>🔍 발견된 이슈</p>
+                        {(qualityResult.issues || []).map((issue, i) => (
+                          <div key={i} style={{ display: 'flex', gap: 8, padding: '6px 10px', background: issue.severity === 'error' ? '#fef2f2' : issue.severity === 'warning' ? '#fffbeb' : '#eff6ff', borderRadius: 6, marginBottom: 4, fontSize: 12 }}>
+                            <span style={{ flexShrink: 0 }}>{issue.severity === 'error' ? '❌' : issue.severity === 'warning' ? '⚠️' : 'ℹ️'}</span>
+                            <div>
+                              <span style={{ fontWeight: 600, color: '#374151' }}>{issue.lv2} {issue.lv3 ? `› ${issue.lv3}` : ''}</span>
+                              <p style={{ margin: '2px 0 0', color: '#6b7280' }}>{issue.message}</p>
+                              {issue.suggestion && <p style={{ margin: '2px 0 0', color: '#2563eb' }}>💡 {issue.suggestion}</p>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* CRUD 갭 */}
+                    {(qualityResult.crudGaps || []).filter(g => g.missing?.length > 0).length > 0 && (
+                      <div style={{ padding: '12px 16px' }}>
+                        <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700 }}>⚠️ CRUD 불완전 업무단위</p>
+                        {(qualityResult.crudGaps || []).filter(g => g.missing?.length > 0).map((g, i) => (
+                          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', background: '#fffbeb', borderRadius: 6, marginBottom: 4, fontSize: 12 }}>
+                            <span style={{ fontWeight: 600, color: '#92400e', minWidth: 120 }}>{g.lv2}</span>
+                            <span style={{ color: '#dc2626' }}>누락: {g.missing?.join(', ')}</span>
+                            <button
+                              onClick={async () => {
+                                setQualityLoading(true);
+                                try {
+                                  const missingFuncs = g.missing.map(m => ({ lv1: functions.find(f => f.lv2 === g.lv2)?.lv1 || '', lv2: g.lv2, lv3: `${g.lv2} ${m}`, definition: `${g.lv2} 정보를 ${m}한다` }));
+                                  const withId = missingFuncs.map((f, j) => ({ ...f, id: Date.now() + j }));
+                                  const merged = [...functions, ...withId];
+                                  setFunctions(merged);
+                                  saveProject({ functions: merged });
+                                } finally {
+                                  setQualityLoading(false);
+                                }
+                              }}
+                              style={{ background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 4, padding: '2px 8px', fontSize: 11, cursor: 'pointer', marginLeft: 'auto', flexShrink: 0 }}
+                            >자동 추가</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
               <tbody>
                 {functions.map((f) => (
                   <tr key={f.id}>
@@ -1727,10 +1912,69 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
               >
                 {showValidation ? '검증 닫기' : '🔍 FP 검증'}
               </button>
+              <button
+                onClick={async () => {
+                  if (fpList.length === 0) return alert('FP 산정을 먼저 실행해주세요.');
+                  setFpValidLoading(true);
+                  try {
+                    const totalFPVal = Number(stdSummary.newDev) + Number(stdSummary.changed);
+                    const prompt = getFPValidationPrompt(fpList, totalFPVal, null);
+                    const response = await fetch('/api/claude', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ max_tokens: 2000, messages: [{ role: 'user', content: prompt }] }),
+                    });
+                    const data = await response.json();
+                    if (data.error) throw new Error(data.error.message || 'API 오류');
+                    const text = data.content?.map(c => c.type === 'text' ? c.text : '').join('') || '';
+                    const result = safeParseJSON(text);
+                    setFpValidResult(result);
+                    saveProject({ fpValidResult: result });
+                  } catch (err) {
+                    alert('FP 역검증 오류: ' + err.message);
+                  } finally {
+                    setFpValidLoading(false);
+                  }
+                }}
+                disabled={fpValidLoading}
+                style={{ background: fpValidLoading ? '#e5e7eb' : '#f0fdf4', color: fpValidLoading ? '#9ca3af' : '#16a34a', border: '1px solid #86efac', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: fpValidLoading ? 'not-allowed' : 'pointer' }}
+              >
+                {fpValidLoading ? '⚙️ 역검증 중...' : '🔁 FP 역검증'}
+              </button>
               <button onClick={addFPRow} style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>+ 행 추가</button>
               <button onClick={exportExcel} style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>📥 Excel 출력</button>
             </div>
           </div>
+
+          {/* FP 역검증 결과 */}
+          {fpValidResult && (
+            <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 12, padding: '16px 20px', marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 32, fontWeight: 900, color: fpValidResult.fpScore >= 80 ? '#16a34a' : fpValidResult.fpScore >= 60 ? '#d97706' : '#dc2626', lineHeight: 1 }}>{fpValidResult.fpScore}</div>
+                    <div style={{ fontSize: 10, color: '#6b7280' }}>FP 품질</div>
+                  </div>
+                  <div>
+                    <p style={{ margin: '0 0 4px', fontSize: 13, fontWeight: 700, color: '#166534' }}>🔁 FP 역검증 결과</p>
+                    <p style={{ margin: 0, fontSize: 12, color: '#374151' }}>{fpValidResult.summary}</p>
+                  </div>
+                </div>
+                <button onClick={() => { setFpValidResult(null); saveProject({ fpValidResult: null }); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', fontSize: 18 }}>✕</button>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {(fpValidResult.issues || []).map((issue, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 8, padding: '8px 12px', background: issue.severity === 'error' ? '#fef2f2' : issue.severity === 'warning' ? '#fffbeb' : '#eff6ff', borderRadius: 8, fontSize: 12 }}>
+                    <span>{issue.severity === 'error' ? '❌' : issue.severity === 'warning' ? '⚠️' : 'ℹ️'}</span>
+                    <div>
+                      <span style={{ fontWeight: 600 }}>[{issue.type}]</span> {issue.message}
+                      {issue.suggestion && <p style={{ margin: '2px 0 0', color: '#2563eb' }}>💡 {issue.suggestion}</p>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* 검증 결과 */}
           {showValidation && (() => {
