@@ -500,25 +500,41 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
       const parsed = safeParseJSON(resText);
       let funcs = parsed.functions || [];
 
-      // 후처리: LV3에서 영어 코드(FR-xxx, CNR-xxx 등) 제거
+      // 후처리: LV3에서 영어 코드 제거 + 컨설팅/행정 기능 필터링
       funcs = funcs
-        .filter(f => f.lv3 && f.lv1 && f.lv2) // 필수값 없는 행 제거
+        .filter(f => f.lv3 && f.lv1 && f.lv2)
         .map(f => ({
           ...f,
-          // LV3에서 "FR-001-C: " 같은 코드 접두사 제거
           lv3: f.lv3
-            .replace(/^[A-Z]{2,}-\d+[-\w]*:\s*/i, '')  // FR-001-C: 제거
-            .replace(/^[A-Z]{2,}-\d+\s*/i, '')           // FR-001 제거
+            .replace(/^[A-Z]{2,}-\d+[-\w]*:\s*/i, '')
+            .replace(/^[A-Z]{2,}-\d+\s*/i, '')
             .trim(),
-          // definition 없으면 기본값
           definition: f.definition || `${f.lv3}을 처리한다`,
         }))
-        // CNR(컨설팅), ISP 과업 등 SW기능 아닌 것 제외
-        .filter(f => !f.lv3.match(/^(CNR|ISP|분석|조사|도출|수립|검토|계획|전략|방안)/))
-        // LV3 빈 것 제외
+        // 컨설팅/행정 과업 제외 (구축할 SW 기능이 아닌 것)
+        .filter(f => {
+          const lv1 = f.lv1 || '';
+          const lv2 = f.lv2 || '';
+          const lv3 = f.lv3 || '';
+          const combined = `${lv1} ${lv2} ${lv3}`;
+          // 제외 키워드
+          const excludePatterns = [
+            /ISP수립|전략수립|계획수립|방안수립/,
+            /현황분석|환경분석|기술분석|법령분석/,
+            /제안서|평가기준|제출서류|입찰/,
+            /컨설팅|용역|사업관리|WBS수립/,
+            /^(분석|조사|연구|검토|수립|도출)$/,
+          ];
+          return !excludePatterns.some(p => p.test(combined));
+        })
         .filter(f => f.lv3.trim().length > 0);
 
-      if (funcs.length === 0) throw new Error('SW 기능요구사항을 추출할 수 없습니다.\nRFP에 FR-xxx 형태의 기능요구사항이 있는지 확인해주세요.');
+      if (funcs.length === 0) throw new Error(
+        'SW 기능요구사항을 추출할 수 없습니다.\n\n' +
+        '이 RFP는 컨설팅/ISP 용역일 수 있습니다.\n' +
+        '구축할 시스템의 기능요구사항(FR-xxx)이 포함된 부분만\n' +
+        '복사해서 직접 입력해주세요.'
+      );
 
       const withId = funcs.map((f, i) => ({ ...f, id: Date.now() + i }));
       setFunctions(withId);
