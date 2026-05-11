@@ -495,9 +495,27 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
       if (data.error) throw new Error(data.error.message || 'API 오류');
       const resText = data.content?.map(c => c.type === 'text' ? c.text : '').join('') || '';
       const parsed = safeParseJSON(resText);
-      const funcs = parsed.functions || [];
+      let funcs = parsed.functions || [];
 
-      if (funcs.length === 0) throw new Error('기능요구사항을 추출할 수 없습니다. 텍스트 RFP인지 확인해주세요.');
+      // 후처리: LV3에서 영어 코드(FR-xxx, CNR-xxx 등) 제거
+      funcs = funcs
+        .filter(f => f.lv3 && f.lv1 && f.lv2) // 필수값 없는 행 제거
+        .map(f => ({
+          ...f,
+          // LV3에서 "FR-001-C: " 같은 코드 접두사 제거
+          lv3: f.lv3
+            .replace(/^[A-Z]{2,}-\d+[-\w]*:\s*/i, '')  // FR-001-C: 제거
+            .replace(/^[A-Z]{2,}-\d+\s*/i, '')           // FR-001 제거
+            .trim(),
+          // definition 없으면 기본값
+          definition: f.definition || `${f.lv3}을 처리한다`,
+        }))
+        // CNR(컨설팅), ISP 과업 등 SW기능 아닌 것 제외
+        .filter(f => !f.lv3.match(/^(CNR|ISP|분석|조사|도출|수립|검토|계획|전략|방안)/))
+        // LV3 빈 것 제외
+        .filter(f => f.lv3.trim().length > 0);
+
+      if (funcs.length === 0) throw new Error('SW 기능요구사항을 추출할 수 없습니다.\nRFP에 FR-xxx 형태의 기능요구사항이 있는지 확인해주세요.');
 
       const withId = funcs.map((f, i) => ({ ...f, id: Date.now() + i }));
       setFunctions(withId);
