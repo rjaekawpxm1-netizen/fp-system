@@ -1,528 +1,118 @@
 /* eslint-disable no-useless-escape */
 
-// FP 산정 핵심 규칙 (공통)
-const FP_CORE = `당신은 SW사업 대가산정 FP 전문가입니다. IFPUG CPM 4.3.1 / ISO 20926 / 행안부 대가산정가이드 2025 기준.
+// ── 공통 상수 ────────────────────────────────────────────────
+const FP_CORE = `SW사업 FP전문가. IFPUG CPM 4.3.1 기준.
+EI=등록/수정/삭제/승인/업로드 EO=통계/보고서/집계 EQ=조회/검색/다운로드
+ILF=내부유지데이터그룹 EIF=외부참조데이터그룹`;
 
-## FP 5가지 유형 정의
+const FP_WEIGHTS = `EI:L=3,A=4,H=6 EO:L=4,A=5,H=7 EQ:L=3,A=4,H=6 ILF:L=7,A=10,H=15 EIF:L=5,A=7,H=10
+간이법: EI=4.0 EO=5.2 EQ=3.9 ILF=7.5 EIF=5.4`;
 
-### 트랜잭션 기능 (화면/처리 단위)
-EI(외부입력): 데이터 생성/수정/삭제. 예) 등록, 수정, 삭제, 저장, 승인, 업로드, 배치처리
-EO(외부출력): 계산/통계/파생데이터 포함 출력. 예) 통계, 그래프, 보고서, 집계현황, 계산결과표시
-EQ(외부조회): 계산 없이 DB 데이터를 그대로 출력. 예) 목록조회, 상세조회, 검색, 다운로드, 로그인
-
-### 데이터 기능 (논리적 데이터 그룹 단위 - 화면 아님!)
-ILF(내부논리파일): 시스템 내부에서 유지/관리되는 논리적 데이터 그룹
-  - 식별 기준: ERD의 주요 엔티티(테이블 그룹) 기준으로 식별
-  - 예) 사용자정보, 신청정보, 이력정보, 기준코드정보, 권한정보, 메시지정보
-  - 주의: 화면이 아닌 데이터 논리그룹! 등록/수정/삭제 기능이 있는 데이터는 ILF
-  - 공통 ILF: 사용자관리, 권한관리, 공통코드, 메뉴정보, 접속로그
-
-EIF(외부연계파일): 타 시스템에서 유지되고 우리 시스템이 참조만 하는 외부 데이터
-  - 식별 기준: 연동/인터페이스 대상 외부시스템의 데이터
-  - 예) 인사시스템의 조직/인원정보, 결재시스템의 결재정보, 타 정보체계 연동데이터
-  - 주의: 우리 시스템이 데이터를 수정하면 EIF 아님 (그건 ILF)
-
-## 중요: ILF/EIF는 반드시 포함해야 함!
-- 모든 시스템은 데이터를 저장/관리하므로 ILF가 반드시 존재
-- 외부연동이 있으면 EIF 존재
-- 트랜잭션(EI/EO/EQ)만 있고 ILF/EIF가 없으면 오류!
-
-## 제외 항목
-- 단순 코드/공통코드 데이터는 ILF로 산정하지 않음 (단, 코드관리 기능 자체는 EI/EQ)
-- 로그아웃, 임시저장 중간단계 등 단독 트랜잭션 불가 항목
-- 페이지 네비게이션, 화면전환만 하는 기능`;
-
-// FP 가중치 테이블
-const FP_WEIGHTS = `## 복잡도 가중치
-트랜잭션(EI/EO/EQ): FTR=참조파일수, DET=데이터요소수
-ILF/EIF: RET=레코드서브그룹수, DET=데이터요소수
-
-EI: L(FTR0-1/DET1-4)=3, L(FTR0-1/DET5-15)=3, A(FTR0-1/DET16+)=4, A(FTR2/DET1-4)=3, A(FTR2/DET5-15)=4, H(FTR2/DET16+)=6, H(FTR3+/DET1-4)=4, H(FTR3+/DET5-15)=6, H(FTR3+/DET16+)=6
-EO: L=4, A=5, H=7 (FTR/DET 기준 EI와 유사하나 범위 다름)
-EQ: L=3, A=4, H=6
-ILF: L(RET1/DET1-19)=7, A(RET1/DET20-50)=10, H(RET1/DET51+또는RET2-5)=15
-EIF: L(RET1/DET1-19)=5, A(RET1/DET20-50)=7, H=10
-
-간이법 평균가중치: EI=4.0, EO=5.2, EQ=3.9, ILF=7.5, EIF=5.4`;
-
-// ============================================================
-// Few-shot 예시 (공식 산정양식 실제 데이터 기반)
-// ============================================================
-const FEW_SHOT_EXAMPLES = `
-## 실제 FP 산정 예시 (공식 산정양식 기준)
-
-### 예시1: 회의실관리 시스템 (정통법)
-| 어플리케이션 | 세부업무 | 단위프로세스명 | FP유형 | FTR | DET | 복잡도 | 가중치 |
-|---|---|---|---|---|---|---|---|
-| 총무시스템 | 회의실관리 | 회의실 사용신청 정보(외부) | EIF | 10 | 40 | H | 10 |
-| 총무시스템 | 회의실관리 | 회의실 사용실적 정보 | ILF | 1 | 22 | L | 7 |
-| 총무시스템 | 회의실관리 | 회의실 정보 | ILF | 4 | 22 | A | 10 |
-| 회계시스템 | 회의실대여 | 회의실대여 비용정보(외부) | EIF | 1 | 13 | L | 5 |
-| 총무시스템 | 회의실관리 | 회의실 신청 등록 | EI | 1 | 27 | A | 4 |
-| 총무시스템 | 회의실관리 | 회의실 신청 수정 | EI | 1 | 6 | L | 3 |
-| 총무시스템 | 회의실관리 | 회의실 신청 삭제 | EI | 2 | 33 | H | 6 |
-| 총무시스템 | 회의실관리 | 회의실 대여료 계산 | EO | 2 | 7 | A | 5 |
-| 총무시스템 | 회의실관리 | 회의실 신청 조회 | EQ | 1 | 44 | A | 4 |
-
-### 예시2: 출입관리 시스템 기능목록 (LV1~LV3 구조)
-LV1: 출입관리
-  LV2: 출입신청관리
-    LV3: 출입신청 등록 (외부인/방문자 출입 신청 정보를 등록한다)
-    LV3: 출입신청 수정 (등록된 출입신청 정보를 수정한다)
-    LV3: 출입신청 삭제 (등록된 출입신청 정보를 삭제한다)
-    LV3: 출입신청 목록조회 (출입신청 목록을 조건별로 조회한다)
-    LV3: 출입신청 상세조회 (출입신청 건별 상세 정보를 조회한다)
-    LV3: 출입신청 승인처리 (출입신청에 대한 승인/반려 처리를 한다)
-  LV2: 출입이력관리
-    LV3: 출입이력 조회 (출입자별, 기간별 출입이력을 조회한다)
-    LV3: 출입이력 통계 (출입현황을 집계하여 통계를 제공한다)
-    LV3: 출입증 발급 (승인된 출입신청에 대해 출입증을 발급한다)
-  LV2: 출입구역관리
-    LV3: 출입구역 등록 (출입 가능 구역 정보를 등록한다)
-    LV3: 출입구역 수정 (출입구역 정보를 수정한다)
-    LV3: 출입구역 조회 (등록된 출입구역 목록을 조회한다)
-
-LV1: 사용자관리
-  LV2: 사용자계정관리
-    LV3: 사용자 등록 (시스템 사용자 계정을 등록한다)
-    LV3: 사용자 수정 (사용자 정보를 수정한다)
-    LV3: 사용자 삭제 (사용자 계정을 삭제(비활성화)한다)
-    LV3: 사용자 목록조회 (등록된 사용자 목록을 조회한다)
-    LV3: 사용자 상세조회 (사용자별 상세정보를 조회한다)
-  LV2: 권한관리
-    LV3: 권한 등록 (사용자별 메뉴/기능 접근권한을 등록한다)
-    LV3: 권한 수정 (사용자별 권한을 수정한다)
-    LV3: 권한 조회 (사용자별 권한 현황을 조회한다)
-
-LV1: 시스템관리
-  LV2: 공통코드관리
-    LV3: 공통코드 등록 (시스템 공통코드를 등록한다)
-    LV3: 공통코드 수정 (등록된 공통코드를 수정한다)
-    LV3: 공통코드 조회 (공통코드 목록을 조회한다)
-  LV2: 메뉴관리
-    LV3: 메뉴 등록 (시스템 메뉴를 등록한다)
-    LV3: 메뉴 수정 (메뉴 정보를 수정한다)
-    LV3: 메뉴 조회 (메뉴 목록 및 구조를 조회한다)
-  LV2: 로그관리
-    LV3: 접속로그 조회 (사용자 접속이력을 조회한다)
-    LV3: 변경이력 조회 (데이터 변경이력을 조회한다)
-
-### 예시3: 민원처리 시스템 기능목록
-LV1: 민원접수관리
-  LV2: 민원접수
-    LV3: 민원 신청 (민원 신청 정보를 등록한다)
-    LV3: 민원 수정 (접수된 민원 정보를 수정한다)
-    LV3: 민원 취소 (접수된 민원을 취소한다)
-    LV3: 민원 목록조회 (민원 목록을 조건별로 조회한다)
-    LV3: 민원 상세조회 (민원 건별 상세정보를 조회한다)
-  LV2: 민원처리
-    LV3: 민원 처리등록 (민원 처리결과를 등록한다)
-    LV3: 민원 처리수정 (처리결과를 수정한다)
-    LV3: 민원 처리조회 (처리현황을 조회한다)
-    LV3: 민원 처리통계 (기간별/유형별 처리통계를 제공한다)
-  LV2: 민원현황관리
-    LV3: 민원현황 조회 (전체 민원 진행현황을 조회한다)
-    LV3: 민원현황 통계 (민원 접수/처리 통계를 집계한다)
-
-### 패턴 정리
-- 단순 등록/수정/삭제: FTR 1~2, DET 4~30
-- 단순 조회(소수항목): FTR 1, DET 4~5 → L
-- 일반 조회(중간항목): FTR 1, DET 20~44 → A
-- 복잡 등록(다수항목): FTR 2, DET 27~33 → H
-- ILF 일반: FTR(RET) 1~4, DET 5~30
-- EIF 외부연계: FTR(RET) 1~10, DET 13~40
-
-### LV1~LV3 생성 규칙
-- LV1: 대분류 업무영역 (예: 출입관리, 사용자관리, 통계/현황, 시스템관리)
-- LV2: 세부 업무단위 (예: 출입신청관리, 출입이력관리)
-- LV3: 단위 기능명 (등록/수정/삭제/조회/통계 등 CRUD 패턴)
-- 반드시 LV2 하위에 등록/수정/삭제/조회 기본 CRUD 포함
-- 통계/현황/보고서는 별도 LV2로 분리
-- 시스템관리(공통코드/메뉴/권한/로그)는 항상 포함
-`;
-
-// ============================================================
-// LV1~LV3 기능목록 생성 프롬프트 (강화버전)
-// ============================================================
+// ── 기능목록 생성 ─────────────────────────────────────────────
 export const getLV123Prompt = (systemInfo, keyword) => `
 ${FP_CORE}
 JSON만 응답. 한국어.
-
 시스템: ${systemInfo}
 ${keyword ? `키워드: "${keyword}"` : ''}
-
-${keyword
-  ? `"${keyword}" 관련 기능목록. LV2 2~3개, LV2당 LV3 4~6개. 총 20개 이내.`
-  : `시스템 전체 기능목록. LV1 3~5개, LV2당 LV3 4~6개. 총 40개 이내.`
-}
-
-LV3 필수패턴: 등록(EI)/수정(EI)/삭제(EI)/목록조회(EQ)/상세조회(EQ)
-definition: "~을 ~한다" (15자 이내)
-
+${keyword ? 'LV2 2~3개, LV2당 LV3 4~6개. 총 20개 이내.' : 'LV1 3~5개, LV2당 LV3 4~6개. 총 40개 이내.'}
+LV3 필수: 등록/수정/삭제/목록조회/상세조회. definition: "~을 ~한다" 15자 이내.
 {"functions":[{"lv1":"","lv2":"","lv3":"","definition":""}]}
 `;
 
-// ============================================================
-// 시스템명+개요만으로 전체 생성하는 프롬프트
-// ============================================================
 export const getAutoGeneratePrompt = (systemName, systemOverview) => `
-당신은 공공기관 SW사업 BA(업무분석가) 전문가입니다.
-시스템명과 개요만으로 완전한 기능목록을 생성합니다.
-
+SW사업 BA전문가. JSON만 응답.
 시스템명: ${systemName}
-시스템 개요: ${systemOverview}
-
-## 단계별 수행
-1단계: 시스템 성격 파악 (출입관리/민원/인사/재무/물자 등)
-2단계: 주요 업무 영역 도출 (LV1 목록)
-3단계: 각 업무별 세부 기능 도출 (LV2, LV3)
-
-## 생성 규칙
-- LV1: 3~6개 (핵심업무 + 사용자관리 + 시스템관리)
-- LV2: LV1당 2~5개
-- LV3: LV2당 4~8개 (기본 CRUD + 업무특화 기능)
-- 공통 필수: 사용자관리, 시스템관리(공통코드/메뉴/로그)
-- 통계/현황은 별도 LV2로 구성
-
-## 응답 전 먼저 분석
-- 이 시스템의 핵심 업무는? (예: 출입자 신청/승인/이력관리)
-- 주요 이해관계자는? (예: 출입신청자, 승인담당자, 관리자)
-- 연동이 필요한 외부시스템은? (예: 인사시스템, 출입통제장비)
-
-JSON만 응답:
-{"systemAnalysis":{"mainPurpose":"","stakeholders":[],"externalSystems":[]},"functions":[{"lv1":"","lv2":"","lv3":"","definition":""}]}
+개요: ${systemOverview}
+LV1 3~5개, LV2당 4~6개 LV3, 공통필수: 사용자관리/권한관리/시스템관리
+{"functions":[{"lv1":"","lv2":"","lv3":"","definition":""}]}
 `;
 
-// FP 산정 프롬프트
+// ── FP 산정 ───────────────────────────────────────────────────
 export const getFPPrompt = (functions) => `
 ${FP_CORE}
-
 ${FP_WEIGHTS}
 
-## 산정 절차 (반드시 이 순서대로!)
-
-### 1단계: ILF 식별 (데이터 기능 - 먼저 식별!)
-기능목록에서 관리되는 주요 데이터 그룹을 ILF로 식별.
-아래 기능목록의 업무 영역을 분석하여 ILF를 먼저 도출하라.
-예시)
-- 사용자관리 업무 → ILF: "사용자정보" (RET=2, DET=15) → 복잡도 L → 가중치 7
-- 신청관리 업무 → ILF: "신청정보" (RET=3, DET=25) → 복잡도 A → 가중치 10
-- 권한관리 업무 → ILF: "권한정보" (RET=1, DET=10) → 복잡도 L → 가중치 7
-- 공통코드 업무 → ILF: "코드정보" (RET=1, DET=8) → 복잡도 L → 가중치 7
-
-### 2단계: EIF 식별 (외부연동 있는 경우)
-외부시스템 연동이나 인터페이스가 있으면 EIF로 식별.
-예시)
-- 인사시스템 조직/인원 참조 → EIF: "인사정보" (RET=2, DET=20) → A → 7
-- 타 정보체계 연동데이터 참조 → EIF: "연동체계정보" (RET=1, DET=15) → L → 5
-
-### 3단계: 트랜잭션 기능 식별 (EI/EO/EQ)
-각 LV3 기능을 EI/EO/EQ로 분류.
-
-## 실제 산정 사례
-기능목록: 출입관리 시스템
-
-[ILF 먼저]
-lv1: 출입관리, lv2: "(데이터)", lv3: "출입신청 정보 (ILF)", definition: "출입신청 데이터를 내부에서 유지관리", fpType: ILF, ftr: 3, det: 20, reuseType: 신규개발
-lv1: 체계운영, lv2: "(데이터)", lv3: "사용자 정보 (ILF)", definition: "사용자 계정 데이터를 내부에서 유지관리", fpType: ILF, ftr: 2, det: 15, reuseType: 신규개발
-lv1: 체계운영, lv2: "(데이터)", lv3: "권한 정보 (ILF)", definition: "권한/역할 데이터를 내부에서 유지관리", fpType: ILF, ftr: 1, det: 10, reuseType: 신규개발
-
-[EIF - 외부연동 있는 경우]
-lv1: 인터페이스, lv2: "(외부연계)", lv3: "인사시스템 조직정보 (EIF)", definition: "인사시스템의 조직/인원 데이터 참조", fpType: EIF, ftr: 2, det: 18, reuseType: 신규개발
-
-[트랜잭션]
-lv1: 출입관리, lv2: 출입신청관리, lv3: 출입신청 등록, fpType: EI, ftr: 2, det: 20, reuseType: 신규개발
-lv1: 출입관리, lv2: 출입신청관리, lv3: 출입신청 수정, fpType: EI, ftr: 2, det: 20, reuseType: 신규개발
-lv1: 출입관리, lv2: 출입신청관리, lv3: 출입신청 삭제, fpType: EI, ftr: 1, det: 5, reuseType: 신규개발
-lv1: 출입관리, lv2: 출입신청관리, lv3: 출입신청 목록조회, fpType: EQ, ftr: 1, det: 15, reuseType: 신규개발
-lv1: 출입관리, lv2: 출입통계, lv3: 출입현황 통계, fpType: EO, ftr: 3, det: 20, reuseType: 신규개발
-
-## 주의사항
-1. ILF/EIF는 반드시 포함! (없으면 오류)
-2. ILF lv2는 "(데이터)"로, EIF lv2는 "(외부연계)"로 표시
-3. ILF/EIF의 ftr 필드는 RET(레코드서브그룹수)로 사용
-4. ILF: 최소 3개 이상 (사용자정보, 권한정보, 주요업무데이터 등)
-5. 통계/집계는 EO, 단순조회는 EQ
-6. 로그인은 EQ, 접속로그기록 있으면 EO
-
-## 산정할 기능목록
-${JSON.stringify(functions, null, 2)}
-
-위 기능목록에서:
-1. ILF를 먼저 식별하여 fpList 앞부분에 배치
-2. EIF가 있으면 ILF 다음에 배치
-3. 나머지 트랜잭션 기능(EI/EO/EQ) 배치
-
+산정순서: 1)ILF먼저(업무당1개이상) 2)EIF(외부연동) 3)EI/EO/EQ
+ILF lv2="(데이터)", EIF lv2="(외부연계)"
+EI복잡도: FTR≤1→L, FTR=2/DET≤4→L, FTR=2/DET5-15→A, FTR=2/DET16+→H, FTR3+/DET5+→H
 JSON만 응답:
-{"fpList":[{"lv1":"","lv2":"","lv3":"","definition":"","fpType":"ILF또는EIF또는EI또는EO또는EQ","ftr":1,"det":10,"reuseType":"신규개발"}]}
+${JSON.stringify(functions.slice(0,30))}
+
+{"fpList":[{"lv1":"","lv2":"","lv3":"","definition":"","fpType":"ILF","ftr":1,"det":10,"reuseType":"신규개발"}]}
 `;
 
-// 기능정의서 파싱 프롬프트
+// ── 파싱 ─────────────────────────────────────────────────────
 export const getParsePrompt = (text) => `
-SW기능정의서에서 LV1/LV2/LV3/기능정의 추출.
-규칙: 병합셀=위행값사용, LV2=세부업무, LV3=단위기능명, 잘린글자=문맥완성, 중복제거.
-JSON만 응답:
-
+SW기능정의서에서 LV1/LV2/LV3/기능정의 추출. 병합셀=위행값. JSON만:
 ${text}
-
 {"functions":[{"lv1":"","lv2":"","lv3":"","definition":""}]}
 `;
 
-// 이미지 기반 기능정의서 파싱
 export const getParseImagePrompt = () => `
-이미지는 SW기능정의서입니다. 표구조인식하여 모든행 추출.
-LV1=최상위분류(왼쪽열), LV2=업무분류(2번째열), LV3=단위기능명(3번째열), 기능정의=설명(오른쪽열).
-병합셀=해당범위모든행에동일값적용. 흐린글자=문맥추론완성. 중복제거.
-JSON만 응답:
+이미지는 SW기능정의서. 표구조인식, LV1/LV2/LV3/기능정의 추출. 병합셀처리. JSON만:
 {"functions":[{"lv1":"","lv2":"","lv3":"","definition":""}]}
 `;
 
-// 시스템 개요 파싱
 export const getSystemInfoPrompt = (text) => `
-아래 문서에서 시스템 정보 추출. JSON만 응답:
+아래 문서에서 시스템 정보 추출. JSON만:
 ${text}
 {"systemName":"","overview":"","mainFunctions":[],"relatedOrgs":[],"keywords":[]}
 `;
 
-// 이미지 기반 시스템 개요 파싱
 export const getSystemInfoImagePrompt = () => `
-이미지는 시스템개요 문서. 시스템명/개요/주요기능/관련기관/업무키워드 추출. JSON만 응답:
+이미지에서 시스템명/개요/주요기능/관련기관/키워드 추출. JSON만:
 {"systemName":"","overview":"","mainFunctions":[],"relatedOrgs":[],"keywords":[]}
 `;
 
-
-// ============================================================
-// RFP(제안요청서) 파싱 프롬프트
-// ============================================================
+// ── RFP 파싱 ─────────────────────────────────────────────────
 export const getRFPParsePrompt = (text) => `
-당신은 SW사업 BA 전문가입니다.
-아래 제안요청서(RFP) 텍스트에서 기능요구사항을 추출하여 LV1~LV3 기능목록으로 변환하세요.
-
-## 추출 규칙
-1. 기능요구사항(FR-xxx, CSR-xxx, 요구사항 번호 등)을 찾아 추출
-2. 요구사항이 없으면 "사업범위", "구축범위", "과업내용" 등에서 업무기능 도출
-3. 추출한 요구사항을 SW 기능목록(LV1/LV2/LV3)으로 변환
-4. LV1: 대분류(업무영역), LV2: 중분류(업무단위), LV3: 단위기능(CRUD 패턴 적용)
-5. 각 요구사항 → 등록/수정/삭제/조회 등 CRUD로 분해
-6. 공통기능 필수 포함: 사용자관리, 권한관리, 시스템관리
-7. definition: "~을 ~한다" (20자 이내)
-
-## 변환 예시
-요구사항: "과제 신청 및 관리 기능"
-→ LV1:과제관리 / LV2:과제신청관리 / LV3:과제 신청 등록 → "과제 신청 정보를 등록한다"
-→ LV1:과제관리 / LV2:과제신청관리 / LV3:과제 신청 수정 → "등록된 과제 신청을 수정한다"
-→ LV1:과제관리 / LV2:과제신청관리 / LV3:과제 신청 목록조회 → "과제 신청 목록을 조회한다"
-→ LV1:과제관리 / LV2:과제신청관리 / LV3:과제 신청 상세조회 → "과제 신청 상세정보를 조회한다"
-
-## RFP 텍스트 (앞 6000자)
-${text.slice(0, 6000)}
-
-JSON만 응답:
+SW사업 BA전문가. RFP에서 기능요구사항 추출→LV1/LV2/LV3 변환. JSON만.
+규칙: FR-xxx→CRUD패턴분해, 공통기능포함(사용자/권한/시스템관리)
+${text.slice(0, 3000)}
 {"systemName":"","overview":"","functions":[{"lv1":"","lv2":"","lv3":"","definition":""}]}
 `;
 
+// ── 요구사항 검증 (Tier1 최적화: 입력 최소화) ────────────────
+export const getValidationPrompt = (rfpText, functions) => {
+  // RFP 핵심만 1000자
+  const rfp = rfpText.slice(0, 1000);
+  // 기능목록 lv2>lv3 형식으로 최대 40개
+  const funcs = functions.slice(0, 40).map(f => `${f.lv2}>${f.lv3}`).join('\n');
+  return `BA검토전문가. JSON만.
+RFP: ${rfp}
+기능(${functions.length}개): ${funcs}
+검증: 요구사항반영여부/CRUD누락/공통기능/누락기능추천
+{"coverage":{"score":0,"items":[{"req":"","status":"✅","functions":[],"comment":""}]},"crudCheck":[{"lv2":"","missing":[],"ok":[]}],"commonCheck":{"userMgmt":true,"authMgmt":true,"sysMgmt":true},"suggestions":[{"lv1":"","lv2":"","lv3":"","definition":"","reason":""}],"summary":""}`;
+};
 
-// ============================================================
-// 요구사항 검증 프롬프트 (생성 후 검증용)
-// ============================================================
-export const getValidationPrompt = (rfpText, functions, fpList) => `
-당신은 SW사업 BA 검토 전문가입니다.
-아래 요구사항(RFP)과 AI가 생성한 기능목록을 비교하여 검증하세요.
+// ── 기능 품질 검증 (Tier1 최적화) ────────────────────────────
+export const getQualityCheckPrompt = (functions) => {
+  const funcs = functions.slice(0, 40).map(f => `${f.lv2}|${f.lv3}`).join('\n');
+  return `BA품질검토. JSON만.
+기능(${functions.length}개): ${funcs}
+검증: 모호기능명/definition누락/CRUD불완전/중복
+{"qualityScore":85,"issues":[{"type":"모호한기능명","severity":"warning","lv2":"","lv3":"","message":"","suggestion":""}],"crudGaps":[{"lv2":"","missing":[],"existing":[]}],"summary":""}`;
+};
 
-## 검증 기준 (5가지)
+// ── FP 역검증 (Tier1 최적화) ─────────────────────────────────
+export const getFPValidationPrompt = (fpList, totalFP) => {
+  const byType = ['ILF','EIF','EI','EO','EQ']
+    .map(t => `${t}:${fpList.filter(f=>f.fpType===t).length}`)
+    .join(' ');
+  return `FP검토전문가. JSON만.
+총FP:${totalFP} 유형:${byType}
+검증: ILF적정성/EQ비율/복잡도분포/EIF누락
+{"fpScore":90,"issues":[{"type":"ILF부족","severity":"error","message":"","suggestion":""}],"summary":""}`;
+};
 
-### 1. 요구사항 커버리지
-- RFP의 각 요구사항(FR-xxx, 기능요구사항, 업무프로세스)이 기능목록에 반영됐는가
-- 반영: ✅ / 미반영: ❌ / 부분반영: ⚠️
-
-### 2. CRUD 완전성
-- 각 LV2 업무단위에 등록(EI)/수정(EI)/삭제(EI)/목록조회(EQ)/상세조회(EQ) 존재 여부
-- 누락된 CRUD 항목 명시
-
-### 3. 데이터 기능 적절성
-- ILF(내부논리파일) 최소 3개 이상 식별됐는가
-- 외부연동 있으면 EIF 식별됐는가
-
-### 4. 공통기능 완전성
-- 사용자관리(등록/수정/삭제/조회) 있는가
-- 권한관리 있는가
-- 시스템관리(공통코드/메뉴/로그) 있는가
-
-### 5. 누락 기능 추천
-- 요구사항에는 있으나 기능목록에 없는 기능을 구체적으로 제안
-- LV1/LV2/LV3 형식으로 제안
-
-## 입력 데이터
-
-### 요구사항(RFP):
-${rfpText.slice(0, 4000)}
-
-### 기능목록 (${functions.length}개):
-${JSON.stringify(functions.slice(0, 80).map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3 })), null, 2)}
-
-${fpList && fpList.length > 0 ? `### FP산정 현황:
-ILF: ${fpList.filter(f => f.fpType === 'ILF').length}개
-EIF: ${fpList.filter(f => f.fpType === 'EIF').length}개
-EI: ${fpList.filter(f => f.fpType === 'EI').length}개
-EO: ${fpList.filter(f => f.fpType === 'EO').length}개
-EQ: ${fpList.filter(f => f.fpType === 'EQ').length}개` : ''}
-
-## 출력 형식 (JSON만 응답)
-{
-  "coverage": {
-    "score": 85,
-    "comment": "전체 요구사항의 85%가 반영됨",
-    "items": [
-      { "req": "요구사항명 또는 FR-001", "status": "✅", "functions": ["관련 LV3 기능명"], "comment": "" },
-      { "req": "요구사항명 또는 FR-002", "status": "❌", "functions": [], "comment": "미반영 이유" }
-    ]
-  },
-  "crudCheck": [
-    { "lv2": "업무단위명", "missing": ["등록", "삭제"], "ok": ["수정", "목록조회", "상세조회"] }
-  ],
-  "dataCheck": {
-    "ilfCount": 0,
-    "eifCount": 0,
-    "issues": ["ILF가 없습니다. 사용자정보, 신청정보 등을 ILF로 추가하세요."]
-  },
-  "commonCheck": {
-    "userMgmt": true,
-    "authMgmt": false,
-    "sysMgmt": true,
-    "missing": ["권한관리"]
-  },
-  "suggestions": [
-    { "lv1": "", "lv2": "", "lv3": "", "definition": "", "reason": "FR-002 승인처리 요구사항 미반영" }
-  ],
-  "summary": "전체 요약 의견 (3줄 이내)"
-}
-`;
-
-
-// ============================================================
-// Phase 1-1: ❌ 요구사항 재생성 프롬프트
-// ============================================================
-export const getRegenFromReqPrompt = (failedReqs, systemInfo, existingFunctions) => `
-당신은 SW사업 BA 전문가입니다.
-아래 미반영 요구사항들을 LV1/LV2/LV3 기능목록으로 변환하세요.
-
-## 규칙
-1. 각 요구사항을 CRUD 패턴으로 분해 (등록/수정/삭제/목록조회/상세조회)
-2. 기존 기능목록과 중복되지 않는 기능만 생성
-3. LV1/LV2는 기존 구조에 맞춰서 생성 (새 LV1 최소화)
-4. definition: "~을 ~한다" (15자 이내)
-
-## 시스템 정보
-${systemInfo}
-
-## 기존 기능목록 LV2 목록 (중복 방지용)
-${[...new Set(existingFunctions.map(f => f.lv2))].join(', ')}
-
-## 미반영 요구사항 (이것들을 기능으로 변환)
-${failedReqs.map((r, i) => `${i+1}. ${r.req}${r.comment ? ` (${r.comment})` : ''}`).join('\n')}
-
-JSON만 응답:
-{"functions":[{"lv1":"","lv2":"","lv3":"","definition":"","fromReq":"원본 요구사항명"}]}
-`;
-
-
-// ============================================================
-// Phase 1-2: 기능 품질 검증 프롬프트
-// ============================================================
-export const getQualityCheckPrompt = (functions) => `
-당신은 SW사업 BA 품질 검토 전문가입니다.
-아래 기능목록의 품질을 검증하세요.
-
-## 검증 항목
-1. 모호한 기능명: "관리", "처리", "운영" 등 단독 사용 → 구체화 필요
-2. definition 누락 또는 불명확: 비어있거나 "~한다" 형식 미준수
-3. LV2 CRUD 불완전: 등록/수정/삭제/조회 중 2개 이상 누락
-4. 중복 기능명: 동일하거나 매우 유사한 LV3명
-5. LV1/LV2 구조 이상: LV2가 1개 기능만 가진 경우
-
-## 기능목록
-${JSON.stringify(functions.slice(0, 100).map(f => ({
-  id: f.id, lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, definition: f.definition
-})))}
-
-JSON만 응답:
-{
-  "qualityScore": 85,
-  "issues": [
-    {
-      "type": "모호한기능명|definition누락|CRUD불완전|중복기능|구조이상",
-      "severity": "error|warning|info",
-      "lv2": "",
-      "lv3": "",
-      "message": "",
-      "suggestion": ""
-    }
-  ],
-  "crudGaps": [
-    {
-      "lv2": "",
-      "missing": ["등록","삭제"],
-      "existing": ["수정","목록조회","상세조회"]
-    }
-  ],
-  "summary": "전체 품질 요약 (2줄 이내)"
-}
-`;
-
-
-// ============================================================
-// Phase 1-3: FP 산정 역검증 프롬프트
-// ============================================================
-export const getFPValidationPrompt = (fpList, totalFP, devCost) => `
-당신은 SW사업 FP 검토 전문가입니다.
-아래 FP 산정 결과를 역검증하세요.
-
-## 검증 기준
-1. ILF 적정성: 트랜잭션(EI/EO/EQ) 수 대비 ILF가 너무 적으면 오류
-   - 기준: EI 10개당 ILF 최소 1개 이상
-2. EIF 확인: 인터페이스 관련 기능 있는데 EIF 없으면 경고
-3. FP 유형 비율: EQ가 전체 80% 이상이면 검토 필요 (조회만 너무 많음)
-4. 개발비 적정성: FP당 단가 기준 ± 30% 이탈 시 경고
-5. 복잡도 분포: High가 전혀 없거나 90% 이상이면 검토 필요
-
-## FP 산정 현황
-총 FP: ${totalFP}
-개발비: ${devCost ? devCost.toLocaleString() + '원' : '미산정'}
-
-유형별:
-${['ILF','EIF','EI','EO','EQ'].map(t => {
-  const items = fpList.filter(f => f.fpType === t);
-  return `- ${t}: ${items.length}개`;
-}).join('\n')}
-
-복잡도별:
-${fpList.reduce((acc, f) => {
-  const c = f.complexity || 'A';
-  acc[c] = (acc[c] || 0) + 1;
-  return acc;
-}, {})}
-
-## FP 목록 (샘플)
-${JSON.stringify(fpList.slice(0, 30).map(f => ({
-  lv3: f.lv3, fpType: f.fpType, ftr: f.ftr, det: f.det, reuseType: f.reuseType
-})))}
-
-JSON만 응답:
-{
-  "fpScore": 90,
-  "issues": [
-    {
-      "type": "ILF부족|EIF누락|FP비율이상|개발비이탈|복잡도편중",
-      "severity": "error|warning|info",
-      "message": "",
-      "suggestion": ""
-    }
-  ],
-  "stats": {
-    "ilfRatio": "EI 대비 ILF 비율",
-    "eqRatio": "EQ 비율 %",
-    "highRatio": "High 복잡도 비율 %"
-  },
-  "summary": "FP 산정 품질 요약"
-}
-`;
+// ── ❌ 요구사항 재생성 (Tier1 최적화) ───────────────────────
+export const getRegenFromReqPrompt = (failedReqs, systemInfo, existingFunctions) => {
+  const existingLV2 = [...new Set(existingFunctions.map(f => f.lv2))].slice(0, 20).join(',');
+  const reqs = failedReqs.slice(0, 5).map((r, i) => `${i+1}.${r.req}`).join('\n');
+  return `BA전문가. JSON만.
+시스템:${systemInfo}
+기존LV2:${existingLV2}
+미반영요구사항→LV1/LV2/LV3변환(CRUD패턴,중복제외):
+${reqs}
+{"functions":[{"lv1":"","lv2":"","lv3":"","definition":"","fromReq":""}]}`;
+};

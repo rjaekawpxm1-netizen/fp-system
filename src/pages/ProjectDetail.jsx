@@ -465,7 +465,7 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          max_tokens: 4000,
+          max_tokens: 2000,
           messages: [{ role: 'user', content: prompt }],
         }),
       });
@@ -1312,19 +1312,33 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                     if (!rfpText.trim()) return alert('요구사항을 먼저 입력해주세요.');
                     if (functions.length === 0) return alert('기능목록을 먼저 생성해주세요.');
                     setValidationLoading(true);
-                    try {
-                      const prompt = getValidationPrompt(rfpText, functions, fpList);
-                      const response = await fetch('/api/claude', {
+
+                    const callClaude = async (prompt, maxTokens = 1500) => {
+                      const res = await fetch('/api/claude', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ max_tokens: 4000, messages: [{ role: 'user', content: prompt }] }),
+                        body: JSON.stringify({ max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] }),
                       });
-                      const data = await response.json();
+                      const data = await res.json();
                       if (data.error) throw new Error(data.error.message || 'API 오류');
-                      const text = data.content?.map(c => c.type === 'text' ? c.text : '').join('') || '';
-                      const result = safeParseJSON(text);
-                      setValidationResult(result);
-                      saveProject({ validationResult: result, rfpText });
+                      return data.content?.map(c => c.type === 'text' ? c.text : '').join('') || '';
+                    };
+                    const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+                    try {
+                      // 1단계: 요구사항 커버리지 (1500토큰)
+                      const text1 = await callClaude(getValidationPrompt(rfpText, functions, fpList), 1500);
+                      const result1 = safeParseJSON(text1);
+                      setValidationResult(result1);
+                      saveProject({ validationResult: result1, rfpText });
+
+                      // 2단계: 품질 검증 (8초 딜레이 후 1000토큰)
+                      await sleep(8000);
+                      const text2 = await callClaude(getQualityCheckPrompt(functions), 1000);
+                      const result2 = safeParseJSON(text2);
+                      setQualityResult(result2);
+                      setShowQualityPanel(true);
+                      saveProject({ qualityResult: result2 });
                     } catch (err) {
                       alert('검증 오류: ' + err.message);
                     } finally {
@@ -1334,9 +1348,9 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                   disabled={validationLoading || !rfpText.trim() || functions.length === 0}
                   style={{ background: validationLoading ? '#e5e7eb' : '#16a34a', color: validationLoading ? '#9ca3af' : '#fff', border: 'none', borderRadius: 8, padding: '9px 22px', fontSize: 13, fontWeight: 700, cursor: validationLoading ? 'not-allowed' : 'pointer' }}
                 >
-                  {validationLoading ? '⚙️ AI 검증 중...' : '🔍 AI 검증 실행'}
+                  {validationLoading ? '⚙️ AI 검증 중... (요구사항+품질 순차 실행)' : '🔍 AI 검증 실행'}
                 </button>
-                <span style={{ fontSize: 12, color: '#6b7280' }}>기능목록 {functions.length}개 기준 검증</span>
+                <span style={{ fontSize: 12, color: '#6b7280' }}>기능목록 {functions.length}개 · 2단계 순차 검증</span>
               </div>
 
               {/* 검증 결과 */}
@@ -1409,7 +1423,7 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                                 const response = await fetch('/api/claude', {
                                   method: 'POST',
                                   headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({ max_tokens: 3000, messages: [{ role: 'user', content: prompt }] }),
+                                  body: JSON.stringify({ max_tokens: 1500, messages: [{ role: 'user', content: prompt }] }),
                                 });
                                 const data = await response.json();
                                 const text = data.content?.map(c => c.type === 'text' ? c.text : '').join('') || '';
@@ -1776,7 +1790,7 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                       const response = await fetch('/api/claude', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ max_tokens: 3000, messages: [{ role: 'user', content: prompt }] }),
+                        body: JSON.stringify({ max_tokens: 1500, messages: [{ role: 'user', content: prompt }] }),
                       });
                       const data = await response.json();
                       if (data.error) throw new Error(data.error.message || 'API 오류');
@@ -1922,7 +1936,7 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                     const response = await fetch('/api/claude', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ max_tokens: 2000, messages: [{ role: 'user', content: prompt }] }),
+                      body: JSON.stringify({ max_tokens: 1000, messages: [{ role: 'user', content: prompt }] }),
                     });
                     const data = await response.json();
                     if (data.error) throw new Error(data.error.message || 'API 오류');

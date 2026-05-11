@@ -45,7 +45,7 @@ const safeParseJSON = (text) => {
 };
 
 // 텍스트 API 호출
-const callClaude = async (content, maxTokens = 4000) => {
+const callClaude = async (content, maxTokens = 2000) => {
   const response = await fetch('/api/claude', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -118,7 +118,7 @@ const truncateText = (text, maxLen = 3000) => {
 // ============================================================
 export const generateFunctions = async (systemInfo, keyword) => {
   const prompt = getLV123Prompt(systemInfo, keyword);
-  const result = await callClaude(prompt, 2500);
+  const result = await callClaude(prompt, 2000);
   return result.functions || [];
 };
 
@@ -129,7 +129,7 @@ export const generateFPList = async (functions) => {
   const CHUNK = 25;
   if (functions.length <= CHUNK) {
     const prompt = getFPPrompt(functions);
-    const result = await callClaude(prompt, 3000);
+    const result = await callClaude(prompt, 2000);
     return result.fpList || [];
   }
 
@@ -137,7 +137,7 @@ export const generateFPList = async (functions) => {
   for (let i = 0; i < functions.length; i += CHUNK) {
     const chunk = functions.slice(i, i + CHUNK);
     const prompt = getFPPrompt(chunk);
-    const result = await callClaude(prompt, 3000);
+    const result = await callClaude(prompt, 2000);
     allFP = [...allFP, ...(result.fpList || [])];
   }
   return allFP;
@@ -149,16 +149,16 @@ export const generateFPList = async (functions) => {
 export const parseDocument = async (text, imageFile = null) => {
   if (imageFile) {
     const prompt = getParseImagePrompt();
-    const result = await callClaudeWithImage(prompt, imageFile, 4000);
+    const result = await callClaudeWithImage(prompt, imageFile, 2000);
     return result.functions || [];
   }
 
-  const MAX_CHUNK = 3000;
+  const MAX_CHUNK = 2000;
   if (!text || text.length === 0) throw new Error('파일에서 텍스트를 추출할 수 없습니다.');
 
   if (text.length <= MAX_CHUNK) {
     const prompt = getParsePrompt(truncateText(text, MAX_CHUNK));
-    const result = await callClaude(prompt, 4000);
+    const result = await callClaude(prompt, 2000);
     return result.functions || [];
   }
 
@@ -172,7 +172,7 @@ export const parseDocument = async (text, imageFile = null) => {
   for (const chunk of chunks.slice(0, 3)) {
     try {
       const prompt = getParsePrompt(chunk);
-      const result = await callClaude(prompt, 4000);
+      const result = await callClaude(prompt, 2000);
       allFunctions = [...allFunctions, ...(result.functions || [])];
     } catch (e) {
       console.warn('청크 파싱 실패:', e.message);
