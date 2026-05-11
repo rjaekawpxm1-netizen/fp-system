@@ -27,36 +27,58 @@ const COMPLEXITY_COLORS = {
 // 강화된 JSON 파싱 헬퍼 (잘림 방지)
 // ============================================================
 const safeParseJSON = (text) => {
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start === -1 || end === -1) throw new Error('JSON을 찾을 수 없습니다.');
+  // 마크다운 제거
+  let clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
 
-  // 1차 시도: 전체 파싱
-  try {
-    return JSON.parse(text.slice(start, end + 1));
-  } catch (e1) {
-    // 2차 시도: 배열 마지막 완전한 객체까지
-    const jsonStr = text.slice(start, end + 1);
-    const lastComma = jsonStr.lastIndexOf('},');
-    if (lastComma > 0) {
-      const fixed = jsonStr.slice(0, lastComma + 1) + ']}';
-      try {
-        return JSON.parse(fixed);
-      } catch (e2) {
-        // 3차 시도: 백틱/마크다운 제거
-        const clean = text
-          .replace(/```json/g, '').replace(/```/g, '')
-          .replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ')
-          .trim();
-        const s2 = clean.indexOf('{');
-        const e2end = clean.lastIndexOf('}');
-        if (s2 !== -1 && e2end !== -1) {
-          return JSON.parse(clean.slice(s2, e2end + 1));
-        }
+  // 1차: 그대로 파싱
+  try { return JSON.parse(clean); } catch (e1) {}
+
+  // JSON 시작점 찾기
+  const start = clean.indexOf('{');
+  if (start === -1) throw new Error('JSON을 찾을 수 없습니다.');
+  clean = clean.slice(start);
+
+  // 2차: 끝에서부터 } 찾아서 파싱 시도
+  let end = clean.length;
+  while (end > 0) {
+    const candidate = clean.slice(0, end);
+    const lastBrace = candidate.lastIndexOf('}');
+    if (lastBrace === -1) break;
+    try {
+      return JSON.parse(candidate.slice(0, lastBrace + 1));
+    } catch (e) {
+      end = lastBrace;
+    }
+  }
+
+  // 3차: 잘린 배열 복구 - 마지막 완전한 객체 }까지 자르고 닫기
+  const tryFix = (str) => {
+    // 열린 배열/객체 카운트
+    let depth = 0;
+    let lastCompleteObj = -1;
+    for (let i = 0; i < str.length; i++) {
+      if (str[i] === '{') depth++;
+      if (str[i] === '}') {
+        depth--;
+        if (depth === 1) lastCompleteObj = i; // 최상위 배열 안의 완전한 객체
       }
     }
-    throw new Error('JSON 파싱 실패: ' + e1.message);
-  }
+    if (lastCompleteObj > 0) {
+      // 마지막 완전한 객체 뒤에 ]} 붙이기
+      const truncated = str.slice(0, lastCompleteObj + 1);
+      // 열린 배열 닫기
+      const opens = (truncated.match(/\[/g) || []).length;
+      const closes = (truncated.match(/\]/g) || []).length;
+      const suffix = ']'.repeat(Math.max(0, opens - closes)) + '}';
+      try { return JSON.parse(truncated + suffix); } catch (e) {}
+    }
+    return null;
+  };
+
+  const fixed = tryFix(clean);
+  if (fixed) return fixed;
+
+  throw new Error('JSON 파싱 실패 (응답이 잘렸습니다)');
 };
 
 // FTR 변경률 = FTR변경량 / FTR전체 × 100
@@ -1328,14 +1350,25 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                     try {
                       // 1단계: 요구사항 커버리지 (1500토큰)
                       const text1 = await callClaude(getValidationPrompt(rfpText, functions, fpList), 1500);
-                      const result1 = safeParseJSON(text1);
+                      let result1;
+                      try {
+                        result1 = safeParseJSON(text1);
+                      } catch (e) {
+                        // JSON 완전히 파싱 실패 시 기본 구조로
+                        result1 = { coverage: { score: 0, items: [] }, crudCheck: [], commonCheck: { userMgmt: false, authMgmt: false, sysMgmt: false }, suggestions: [], summary: '응답이 잘려 일부 결과만 표시됩니다. 기능 수를 줄이거나 다시 시도해주세요.' };
+                      }
                       setValidationResult(result1);
                       saveProject({ validationResult: result1, rfpText });
 
                       // 2단계: 품질 검증 (8초 딜레이 후 1000토큰)
                       await sleep(8000);
                       const text2 = await callClaude(getQualityCheckPrompt(functions), 1000);
-                      const result2 = safeParseJSON(text2);
+                      let result2;
+                      try {
+                        result2 = safeParseJSON(text2);
+                      } catch (e) {
+                        result2 = { qualityScore: 0, issues: [], crudGaps: [], summary: '품질 검증 응답이 잘렸습니다.' };
+                      }
                       setQualityResult(result2);
                       setShowQualityPanel(true);
                       saveProject({ qualityResult: result2 });
