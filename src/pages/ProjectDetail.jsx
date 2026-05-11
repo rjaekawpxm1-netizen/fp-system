@@ -500,7 +500,7 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
       const parsed = safeParseJSON(resText);
       let funcs = parsed.functions || [];
 
-      // 후처리: LV3에서 영어 코드 제거 + 컨설팅/행정 기능 필터링
+      // 후처리: LV3에서 영어 코드 제거
       funcs = funcs
         .filter(f => f.lv3 && f.lv1 && f.lv2)
         .map(f => ({
@@ -511,29 +511,11 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
             .trim(),
           definition: f.definition || `${f.lv3}을 처리한다`,
         }))
-        // 컨설팅/행정 과업 제외 (구축할 SW 기능이 아닌 것)
-        .filter(f => {
-          const lv1 = f.lv1 || '';
-          const lv2 = f.lv2 || '';
-          const lv3 = f.lv3 || '';
-          const combined = `${lv1} ${lv2} ${lv3}`;
-          // 제외 키워드
-          const excludePatterns = [
-            /ISP수립|전략수립|계획수립|방안수립/,
-            /현황분석|환경분석|기술분석|법령분석/,
-            /제안서|평가기준|제출서류|입찰/,
-            /컨설팅|용역|사업관리|WBS수립/,
-            /^(분석|조사|연구|검토|수립|도출)$/,
-          ];
-          return !excludePatterns.some(p => p.test(combined));
-        })
         .filter(f => f.lv3.trim().length > 0);
 
       if (funcs.length === 0) throw new Error(
-        'SW 기능요구사항을 추출할 수 없습니다.\n\n' +
-        '이 RFP는 컨설팅/ISP 용역일 수 있습니다.\n' +
-        '구축할 시스템의 기능요구사항(FR-xxx)이 포함된 부분만\n' +
-        '복사해서 직접 입력해주세요.'
+        'SW 기능요구사항을 추출할 수 없습니다.\n' +
+        'RFP에 기능요구사항(FR-xxx) 부분만 복사해서 직접 입력해주세요.'
       );
 
       const withId = funcs.map((f, i) => ({ ...f, id: Date.now() + i }));
@@ -1049,244 +1031,243 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
     </div>
   );
 
+  const S = {
+    wrap: { display:'flex', minHeight:'100vh', background:'#f5f4f0', fontFamily:"'Pretendard', -apple-system, 'Malgun Gothic', sans-serif" },
+    sidebar: { width:200, flexShrink:0, background:'#111318', display:'flex', flexDirection:'column', position:'sticky', top:0, height:'100vh', overflowY:'auto' },
+    sidebarLogo: { padding:'18px 16px 14px', borderBottom:'1px solid rgba(255,255,255,0.06)' },
+    sidebarSection: { padding:'14px 10px 6px' },
+    sidebarLabel: { color:'#4b5563', fontSize:9, fontWeight:700, letterSpacing:'0.8px', textTransform:'uppercase', padding:'0 8px', marginBottom:4, display:'block' },
+    navItem: (active) => ({ display:'flex', alignItems:'center', gap:8, padding:'7px 8px', borderRadius:6, cursor:'pointer', color: active?'#93b4fd':'#6b7280', fontSize:12, fontWeight: active?600:400, background: active?'rgba(59,108,248,0.12)':'transparent', marginBottom:1 }),
+    navDot: (active) => ({ width:5, height:5, borderRadius:'50%', background: active?'#3b6cf8':'currentColor', opacity: active?1:0.4, flexShrink:0 }),
+    main: { flex:1, display:'flex', flexDirection:'column', minWidth:0 },
+    topbar: { background:'#fff', borderBottom:'1px solid #e5e7eb', padding:'0 24px', height:50, display:'flex', alignItems:'center', justifyContent:'space-between', position:'sticky', top:0, zIndex:50 },
+    breadcrumb: { display:'flex', alignItems:'center', gap:6, fontSize:12 },
+    tabbar: { background:'#fff', borderBottom:'1px solid #e5e7eb', padding:'0 24px', display:'flex', alignItems:'center', overflowX:'auto' },
+    tab: (active, disabled) => ({ display:'flex', alignItems:'center', gap:5, padding:'11px 14px', fontSize:12, fontWeight: active?600:400, color: active?'#111827': disabled?'#d1d5db':'#9ca3af', cursor: disabled?'not-allowed':'pointer', borderBottom: active?'2px solid #111827':'2px solid transparent', whiteSpace:'nowrap', flexShrink:0, marginBottom:-1, background:'none', border:'none', borderBottomStyle:'solid', borderBottomWidth:2, borderBottomColor: active?'#111827':'transparent', opacity: disabled?0.4:1 }),
+    tabCount: (active) => ({ background: active?'#111827':'#f3f4f6', color: active?'#fff':'#6b7280', fontSize:10, padding:'1px 5px', borderRadius:8, fontWeight:600 }),
+    content: { padding:'20px 24px', flex:1 },
+    card: { background:'#fff', border:'1px solid #e5e7eb', borderRadius:12, padding:'20px 22px', marginBottom:14 },
+    label: { fontSize:10, fontWeight:700, color:'#6b7280', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:5, display:'flex', alignItems:'center', gap:3 },
+    input: { width:'100%', padding:'8px 11px', border:'1px solid #e5e7eb', borderRadius:7, fontSize:13, color:'#111827', background:'#fafafa', outline:'none', boxSizing:'border-box' },
+    textarea: { width:'100%', padding:'9px 11px', border:'1px solid #e5e7eb', borderRadius:7, fontSize:13, color:'#111827', background:'#fafafa', outline:'none', resize:'vertical', fontFamily:'inherit', boxSizing:'border-box' },
+    btnPrimary: { background:'#111827', color:'#fff', border:'none', borderRadius:7, padding:'8px 16px', fontSize:12, fontWeight:600, cursor:'pointer', display:'flex', alignItems:'center', gap:6 },
+    btnSecondary: { background:'#fff', color:'#374151', border:'1px solid #e5e7eb', borderRadius:7, padding:'8px 14px', fontSize:12, fontWeight:500, cursor:'pointer', display:'flex', alignItems:'center', gap:5 },
+    btnSuccess: { background:'#16a34a', color:'#fff', border:'none', borderRadius:7, padding:'8px 14px', fontSize:12, fontWeight:600, cursor:'pointer', display:'flex', alignItems:'center', gap:5 },
+    lv1Badge: { background:'#f3f4f6', color:'#6b7280', padding:'2px 7px', borderRadius:4, fontSize:10, fontWeight:600, whiteSpace:'nowrap' },
+    statusDot: { width:6, height:6, borderRadius:'50%', background:'#22c55e', display:'inline-block' },
+    th: { padding:'8px 12px', textAlign:'left', fontSize:10, fontWeight:600, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'0.4px', borderBottom:'1px solid #e5e7eb', background:'#fafafa', whiteSpace:'nowrap' },
+    td: { padding:'8px 12px', borderBottom:'1px solid #f3f4f6', fontSize:12, color:'#374151', verticalAlign:'middle' },
+  };
+
+  const inputStyle = S.input;
+  const cellStyle  = S.td;
+
+  const TAB_LABELS = [
+    {key:'setup',        label:'시스템개요'},
+    {key:'functions',    label:'기능목록',   count:functions.length},
+    {key:'fp',           label:'FP산정표',   count:fpList.length},
+    {key:'screens',      label:'화면목록',   count:screenList.length, disabled:true},
+    {key:'requirements', label:'요구사항',   count:reqList.length, disabled:true},
+    {key:'crud',         label:'CRUD',       disabled:true},
+    {key:'interface',    label:'인터페이스', count:ifList.length, disabled:true},
+    {key:'wbs',          label:'WBS',        count:wbsList.length, disabled:true},
+    {key:'traceability', label:'추적표',     count:traceList.length, disabled:true},
+    {key:'testcase',     label:'테스트',     count:tcList.length, disabled:true},
+    {key:'asis',         label:'AS-IS/TO-BE',disabled:true},
+  ];
+
   return (
-    <div style={{ maxWidth: 1800, margin: '0 auto', padding: '24px 16px' }}>
-      {/* 헤더 */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button onClick={() => navigate('/')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', fontSize: 20 }}>←</button>
-          <div>
-            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>{project.name}</h2>
-            <div style={{ display: 'flex', align: 'center', gap: 8, marginTop: 4 }}>
-              <span style={{ fontSize: 11, color: '#9ca3af' }}>
-                💾 자동저장됨 · {new Date(project.updatedAt || project.createdAt).toLocaleString('ko-KR')}
-              </span>
+    <div style={S.wrap}>
+
+      {/* ── 사이드바 ── */}
+      <div style={S.sidebar}>
+        <div style={S.sidebarLogo}>
+          <div style={{display:'flex',alignItems:'center',gap:9}}>
+            <div style={{width:30,height:30,background:'#3b6cf8',borderRadius:7,display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:800,color:'#fff'}}>BA</div>
+            <div>
+              <div style={{color:'#fff',fontSize:13,fontWeight:700}}>BA 도우미</div>
+              <div style={{color:'#4b5563',fontSize:9,letterSpacing:'0.5px',textTransform:'uppercase',marginTop:1}}>CAS IT Consulting</div>
             </div>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          <div style={{ background: '#f0f4ff', border: '1px solid #c7d2fe', borderRadius: 8, padding: '6px 12px', fontSize: 12 }}>
-            <div style={{ fontWeight: 700, color: '#3730a3', marginBottom: 4 }}>정통법</div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <span style={{ background: '#fce7f3', color: '#9d174d', padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>신규 {stdSummary.newDev} FP</span>
-              <span style={{ background: '#dbeafe', color: '#1e40af', padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>변경 {stdSummary.changed} FP</span>
-            </div>
+        <div style={S.sidebarSection}>
+          <span style={S.sidebarLabel}>현재 프로젝트</span>
+          <div style={S.navItem(true)}>
+            <div style={S.navDot(true)}/>
+            <span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:11}}>{project.name}</span>
           </div>
-          <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, padding: '6px 12px', fontSize: 12 }}>
-            <div style={{ fontWeight: 700, color: '#166534', marginBottom: 4 }}>간이법</div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <span style={{ background: '#fce7f3', color: '#9d174d', padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>신규 {simpleSummary.newDev} FP</span>
-              <span style={{ background: '#dbeafe', color: '#1e40af', padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>변경 {simpleSummary.changed} FP</span>
-            </div>
+        </div>
+        <div style={S.sidebarSection}>
+          <span style={S.sidebarLabel}>이동</span>
+          <div style={S.navItem(false)} onClick={()=>navigate('/')}>
+            <div style={S.navDot(false)}/>
+            <span>← 목록으로</span>
           </div>
-          <button onClick={exportExcel} style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-            Excel 출력
-          </button>
-          <button onClick={exportAllExcel} style={{ background: '#0891b2', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-            📦 전체 출력
-          </button>
-          <button onClick={() => navigate('/project/' + id + '/cost')} style={{ background: '#7e22ce', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-            💰 개발비 산출
-          </button>
+          <div style={S.navItem(false)} onClick={()=>navigate('/project/'+id+'/cost')}>
+            <div style={S.navDot(false)}/>
+            <span>💰 개발비 산출</span>
+          </div>
+        </div>
+        {fpList.length > 0 && (
+          <div style={{margin:'auto 0 0',padding:'12px',borderTop:'1px solid rgba(255,255,255,0.06)'}}>
+            <div style={{fontSize:9,color:'#4b5563',fontWeight:700,letterSpacing:'0.8px',textTransform:'uppercase',marginBottom:6}}>FP 요약</div>
+            {[['정통법 신규',stdSummary.newDev+' FP'],['정통법 변경',stdSummary.changed+' FP'],['간이법 신규',simpleSummary.newDev+' FP']].map(([l,v])=>(
+              <div key={l} style={{display:'flex',justifyContent:'space-between',fontSize:10,color:'#6b7280',padding:'2px 0'}}>
+                <span>{l}</span><span style={{color:'#9ca3af',fontWeight:600}}>{v}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{padding:'11px 12px',borderTop:'1px solid rgba(255,255,255,0.06)',marginTop:fpList.length>0?0:'auto'}}>
+          <div style={{display:'flex',alignItems:'center',gap:5,fontSize:10,color:'#4b5563'}}>
+            <span style={S.statusDot}/><span>API 연결됨</span>
+          </div>
         </div>
       </div>
 
-      {/* 탭 - 스크롤 가능 */}
-      <div style={{ position: 'relative', marginBottom: 24 }}>
-        <div style={{ display: 'flex', overflowX: 'auto', borderBottom: '2px solid #e5e7eb', scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-          {[
-            { key: 'setup', label: '① 시스템개요', icon: '📋' },
-            { key: 'functions', label: '② 기능목록', icon: '📝', count: functions.length },
-            { key: 'fp', label: '③ FP산정표', icon: '📊', count: fpList.length },
-            { key: 'screens', label: '④ 화면목록', icon: '🖥️', count: screenList.length },
-            { key: 'requirements', label: '⑤ 요구사항', icon: '📌', count: reqList.length },
-            { key: 'crud', label: '⑥ CRUD', icon: '🗃️' },
-            { key: 'interface', label: '⑦ 인터페이스', icon: '🔗', count: ifList.length },
-            { key: 'wbs', label: '⑧ WBS', icon: '📅', count: wbsList.length },
-            { key: 'traceability', label: '⑨ 추적표', icon: '🔎', count: traceList.length },
-            { key: 'testcase', label: '⑩ 테스트', icon: '🧪', count: tcList.length },
-            { key: 'asis', label: '⑪ AS-IS/TO-BE', icon: '🔄' },
-          ].map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              style={{
-                padding: '8px 14px', fontSize: 12, fontWeight: 600, border: 'none',
-                background: 'none', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
-                borderBottom: tab === t.key ? '2px solid #2563eb' : '2px solid transparent',
-                color: tab === t.key ? '#2563eb' : '#6b7280', marginBottom: -2,
-                display: 'flex', alignItems: 'center', gap: 4,
-              }}
-            >
-              <span>{t.icon}</span>
-              <span>{t.label}</span>
-              {t.count > 0 && (
-                <span style={{ background: tab === t.key ? '#2563eb' : '#e5e7eb', color: tab === t.key ? '#fff' : '#6b7280', borderRadius: 10, padding: '0 5px', fontSize: 10, fontWeight: 700 }}>
-                  {t.count}
-                </span>
-              )}
+      {/* ── 메인 ── */}
+      <div style={S.main}>
+        {/* 상단 바 */}
+        <div style={S.topbar}>
+          <div style={S.breadcrumb}>
+            <span style={{color:'#9ca3af',cursor:'pointer'}} onClick={()=>navigate('/')}>프로젝트</span>
+            <span style={{color:'#d1d5db'}}>/</span>
+            <span style={{color:'#111827',fontWeight:600}}>{project.name}</span>
+          </div>
+          <div style={{display:'flex',alignItems:'center',gap:8}}>
+            {loading && <span style={{fontSize:11,color:'#3b6cf8',fontWeight:600}}>⚙️ {loadingMsg||'처리 중...'}</span>}
+            <div style={{display:'flex',alignItems:'center',gap:4,fontSize:11,color:'#9ca3af'}}>
+              <span style={S.statusDot}/><span>저장됨</span>
+            </div>
+            <button onClick={exportAllExcel} style={S.btnPrimary}>📥 전체 Excel</button>
+          </div>
+        </div>
+
+        {/* 탭 바 */}
+        <div style={S.tabbar}>
+          {TAB_LABELS.map(t=>(
+            <button key={t.key} onClick={()=>!t.disabled&&setTab(t.key)}
+              style={{...S.tab(tab===t.key, t.disabled), borderBottom:`2px solid ${tab===t.key?'#111827':'transparent'}`}}>
+              {t.label}
+              {t.count!=null&&t.count>0&&<span style={S.tabCount(tab===t.key)}>{t.count}</span>}
             </button>
           ))}
         </div>
-      </div>
 
-      {/* 로딩 */}
-      {loading && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999 }}>
-          <div style={{ background: '#fff', borderRadius: 12, padding: '32px 48px', textAlign: 'center' }}>
-            <div style={{ fontSize: 36, marginBottom: 16 }}>⚙️</div>
-            <p style={{ fontWeight: 600, fontSize: 16, marginBottom: 8 }}>{loadingMsg}</p>
-            <p style={{ color: '#6b7280', fontSize: 13 }}>잠시만 기다려주세요...</p>
+        {/* 로딩 오버레이 */}
+        {loading && (
+          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <div style={{background:'#fff',borderRadius:14,padding:'28px 36px',textAlign:'center',maxWidth:320}}>
+              <div style={{fontSize:28,marginBottom:12}}>⚙️</div>
+              <div style={{fontSize:14,fontWeight:700,color:'#111827',marginBottom:6}}>AI 처리 중</div>
+              <div style={{fontSize:13,color:'#6b7280'}}>{loadingMsg||'잠시만 기다려주세요...'}</div>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* ① 시스템 개요 */}
-      {tab === 'setup' && (
+        {/* 콘텐츠 */}
+        <div style={S.content}>
+{tab === 'setup' && (
         <div>
-          <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
-            {[
-              { key: 'direct', label: '✏️ 직접 입력' },
-              { key: 'file', label: '📁 파일 업로드' },
-            ].map((m) => (
-              <button key={m.key} onClick={() => setInputMethod(m.key)} style={{ padding: '8px 18px', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer', background: inputMethod === m.key ? '#2563eb' : '#f3f4f6', color: inputMethod === m.key ? '#fff' : '#374151', border: 'none' }}>
+          {/* 입력 방식 선택 */}
+          <div style={{ display:'flex', gap:8, marginBottom:20 }}>
+            {[{key:'direct',label:'✏️ 직접 입력'},{key:'file',label:'📁 파일 업로드'}].map(m=>(
+              <button key={m.key} onClick={()=>setInputMethod(m.key)} style={{ padding:'7px 16px', borderRadius:7, fontSize:12, fontWeight:600, cursor:'pointer', background: inputMethod===m.key?'#111827':'#fff', color: inputMethod===m.key?'#fff':'#374151', border: inputMethod===m.key?'none':'1px solid #e5e7eb' }}>
                 {m.label}
               </button>
             ))}
           </div>
 
           {inputMethod === 'direct' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 700 }}>
-              {[
-                { label: '시스템명 *', value: systemName, setter: setSystemName, placeholder: '예) 민통선출입체계', required: true },
-                { label: '시스템 개요 *', value: systemOverview, setter: setSystemOverview, placeholder: '예) 군인, 민간인, 영농인 등의 민통선 출입자에 대한 통제체계 구축', multi: true, required: true },
-                { label: '주요기능', value: mainFunctions, setter: setMainFunctions, placeholder: '예) 출입관리, 출입체계 (없어도 자동 생성 가능)' },
-                { label: '관련기관', value: relatedOrgs, setter: setRelatedOrgs, placeholder: '예) 국방부, 국방전산정보원 (없어도 자동 생성 가능)' },
-              ].map((item) => (
-                <div key={item.label}>
-                  <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>
-                    {item.label}
-                    {item.required && <span style={{ color: '#ef4444', marginLeft: 4, fontSize: 11 }}>필수</span>}
-                  </label>
-                  {item.multi ? (
-                    <textarea value={item.value} onChange={(e) => item.setter(e.target.value)} placeholder={item.placeholder} rows={3} style={{ ...inputStyle, resize: 'vertical' }} />
-                  ) : (
-                    <input value={item.value} onChange={(e) => item.setter(e.target.value)} placeholder={item.placeholder} style={inputStyle} />
-                  )}
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14, maxWidth:820 }}>
+              {/* 왼쪽 */}
+              <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+                <div style={S.card}>
+                  <div style={{ marginBottom:12 }}>
+                    <div style={S.label}><span style={{width:4,height:4,borderRadius:'50%',background:'#ef4444',display:'inline-block'}}/>시스템명</div>
+                    <input value={systemName} onChange={e=>setSystemName(e.target.value)} style={S.input} />
+                  </div>
+                  <div style={{ marginBottom:12 }}>
+                    <div style={S.label}><span style={{width:4,height:4,borderRadius:'50%',background:'#ef4444',display:'inline-block'}}/>시스템 개요</div>
+                    <textarea value={systemOverview} onChange={e=>setSystemOverview(e.target.value)} rows={4} style={S.textarea} />
+                  </div>
+                  <div style={{ marginBottom:12 }}>
+                    <div style={S.label}>주요기능</div>
+                    <input value={mainFunctions} onChange={e=>setMainFunctions(e.target.value)} style={S.input} />
+                  </div>
+                  <div>
+                    <div style={S.label}>관련기관</div>
+                    <input value={relatedOrgs} onChange={e=>setRelatedOrgs(e.target.value)} style={S.input} />
+                  </div>
                 </div>
-              ))}
-
-              {/* 안내 박스 */}
-              <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#166534' }}>
-                💡 <strong>시스템명 + 개요</strong>만 입력해도 AI가 주요기능·관련기관·LV1~LV3 전체를 자동 생성합니다.<br />
-                키워드를 입력하면 해당 업무 중심으로 더 정확하게 생성됩니다.
               </div>
 
-              <div>
-                <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>
-                  키워드 입력 <span style={{ color: '#6b7280', fontWeight: 400 }}>(선택 · 쉼표로 구분하면 여러 키워드 한번에 생성)</span>
-                </label>
-                <div style={{ display: 'flex', gap: 10 }}>
-                  <input value={keyword} onChange={(e) => setKeyword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleGenerateFunctions()} placeholder="예: 출입신청, 출입이력, 출입구역관리 (비워두면 AI가 자동 추론)" style={{ ...inputStyle, flex: 1 }} />
-                  <button onClick={handleGenerateFunctions} disabled={!systemName.trim() || !systemOverview.trim()} style={{ background: (!systemName.trim() || !systemOverview.trim()) ? '#e5e7eb' : '#2563eb', color: (!systemName.trim() || !systemOverview.trim()) ? '#9ca3af' : '#fff', border: 'none', borderRadius: 8, padding: '8px 20px', fontSize: 14, fontWeight: 600, cursor: (!systemName.trim() || !systemOverview.trim()) ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}>
-                    AI 기능목록 생성
+              {/* 오른쪽 */}
+              <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+                <div style={S.card}>
+                  <div style={{ background:'#f8faff', border:'1px solid #dbeafe', borderRadius:7, padding:'9px 12px', marginBottom:14, fontSize:12, color:'#3b82f6', lineHeight:1.5 }}>
+                    💡 시스템명 + 개요만 입력해도 AI가 전체 기능목록을 자동 생성합니다.
+                  </div>
+                  <div style={S.label}>키워드 <span style={{fontWeight:400,color:'#9ca3af',textTransform:'none',letterSpacing:0}}>(선택 · 쉼표 구분)</span></div>
+                  <input value={keyword} onChange={e=>setKeyword(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleGenerateFunctions()} style={{...S.input,marginBottom:10}} />
+                  <div style={{ display:'flex', flexWrap:'wrap', gap:5, marginBottom:14 }}>
+                    {['현황분석','과제관리','로드맵','출입관리','사용자관리','시스템관리'].map(kw=>(
+                      <button key={kw} onClick={()=>setKeyword(prev=>prev?prev+', '+kw:kw)} style={{ padding:'3px 10px', borderRadius:20, fontSize:11, background:'#f3f4f6', color:'#374151', border:'1px solid #e5e7eb', cursor:'pointer' }}>{kw}</button>
+                    ))}
+                  </div>
+                  <button onClick={handleGenerateFunctions} disabled={!systemName.trim()||!systemOverview.trim()}
+                    style={{ width:'100%', padding:'10px', background: (!systemName.trim()||!systemOverview.trim())?'#e5e7eb':'#111827', color: (!systemName.trim()||!systemOverview.trim())?'#9ca3af':'#fff', border:'none', borderRadius:8, fontSize:13, fontWeight:700, cursor: (!systemName.trim()||!systemOverview.trim())?'not-allowed':'pointer' }}>
+                    ✦ AI 기능목록 생성
                   </button>
-                </div>
-                <p style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
-                  시스템명과 개요만 입력 → 버튼 클릭하면 AI가 전체 기능목록 자동 생성
-                </p>
-                <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-                  {['연동계획', '연동운영', '연동관제', '체계운영', '체계관리', '출입관리', '민원관리', '사용자관리'].map((kw) => (
-                    <button key={kw} onClick={() => setKeyword(prev => prev ? prev + ', ' + kw : kw)} style={{ padding: '4px 12px', borderRadius: 20, fontSize: 12, background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', cursor: 'pointer' }}>{kw}</button>
-                  ))}
                 </div>
               </div>
             </div>
           )}
 
           {inputMethod === 'file' && (
-            <div style={{ maxWidth: 600 }}>
-              <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 12, color: '#92400e' }}>
-                ⚠️ HWP 파일은 PDF로 변환 후 업로드하세요. 두 가지 용도 모두 지원합니다.
+            <div style={{ maxWidth:680 }}>
+              <div style={{ background:'#fffbeb', border:'1px solid #fde68a', borderRadius:7, padding:'9px 13px', marginBottom:14, fontSize:12, color:'#92400e' }}>
+                ⚠️ HWP 파일은 PDF로 변환 후 업로드하세요.
+              </div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12, marginBottom:16 }}>
+                {[
+                  {label:'시스템개요 문서', color:'#2563eb', bg:'#eff6ff', border:'#93c5fd', icon:'📄', desc:'시스템명 · 개요 · 키워드 자동 추출', handler:handleFileUpload},
+                  {label:'기능정의서',     color:'#16a34a', bg:'#f0fdf4', border:'#86efac', icon:'📋', desc:'LV1~LV3 기능목록 자동 추출', handler:handleFuncDefUpload},
+                  {label:'제안요청서(RFP)',color:'#7c3aed', bg:'#faf5ff', border:'#c4b5fd', icon:'📑', desc:'기능요구사항 추출 → 기능목록 생성', handler:handleRFPUpload},
+                ].map(c=>(
+                  <div key={c.label}>
+                    <div style={{fontSize:11,fontWeight:600,color:'#374151',marginBottom:7}}>{c.icon} {c.label}</div>
+                    <label style={{display:'block',border:`1.5px dashed ${c.border}`,borderRadius:9,padding:'20px 12px',textAlign:'center',cursor:'pointer',background:c.bg}}>
+                      <div style={{fontSize:22,marginBottom:6}}>{c.icon}</div>
+                      <div style={{fontSize:12,fontWeight:600,color:c.color,marginBottom:3}}>업로드</div>
+                      <div style={{fontSize:10,color:'#9ca3af'}}>PDF · DOCX · Excel · 이미지</div>
+                      <input type="file" accept=".pdf,.docx,.xlsx,.xls,.png,.jpg,.jpeg" onChange={c.handler} style={{display:'none'}} />
+                    </label>
+                    <div style={{fontSize:10,color:'#9ca3af',marginTop:5}}>→ {c.desc}</div>
+                  </div>
+                ))}
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
-                {/* 시스템개요 업로드 */}
-                <div>
-                  <p style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 8 }}>📄 시스템개요 문서</p>
-                  <label style={{ display: 'block', border: '2px dashed #93c5fd', borderRadius: 10, padding: '24px 16px', textAlign: 'center', cursor: 'pointer', background: '#eff6ff', transition: 'all 0.15s' }}
-                    onMouseEnter={e => e.currentTarget.style.background = '#dbeafe'}
-                    onMouseLeave={e => e.currentTarget.style.background = '#eff6ff'}
-                  >
-                    <div style={{ fontSize: 28, marginBottom: 6 }}>📄</div>
-                    <p style={{ fontWeight: 600, color: '#2563eb', fontSize: 13 }}>시스템개요 업로드</p>
-                    <p style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>PDF · DOCX · Excel · 이미지</p>
-                    <input type="file" accept=".pdf,.docx,.xlsx,.xls,.png,.jpg,.jpeg" onChange={handleFileUpload} style={{ display: 'none' }} />
-                  </label>
-                  <p style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>→ 시스템명/개요/키워드 자동 추출</p>
-                </div>
-
-                {/* 기능정의서 업로드 */}
-                <div>
-                  <p style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 8 }}>📋 기능정의서</p>
-                  <label style={{ display: 'block', border: '2px dashed #86efac', borderRadius: 10, padding: '24px 16px', textAlign: 'center', cursor: 'pointer', background: '#f0fdf4', transition: 'all 0.15s' }}
-                    onMouseEnter={e => e.currentTarget.style.background = '#dcfce7'}
-                    onMouseLeave={e => e.currentTarget.style.background = '#f0fdf4'}
-                  >
-                    <div style={{ fontSize: 28, marginBottom: 6 }}>📋</div>
-                    <p style={{ fontWeight: 600, color: '#16a34a', fontSize: 13 }}>기능정의서 업로드</p>
-                    <p style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>PDF · DOCX · Excel · 이미지</p>
-                    <input type="file" accept=".pdf,.docx,.xlsx,.xls,.png,.jpg,.jpeg" onChange={handleFuncDefUpload} style={{ display: 'none' }} />
-                  </label>
-                  <p style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>→ LV1~LV3 기능목록 자동 추출</p>
-                </div>
-
-                {/* RFP 업로드 */}
-                <div>
-                  <p style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 8 }}>📑 제안요청서(RFP)</p>
-                  <label style={{ display: 'block', border: '2px dashed #c4b5fd', borderRadius: 10, padding: '24px 16px', textAlign: 'center', cursor: 'pointer', background: '#f5f3ff', transition: 'all 0.15s' }}
-                    onMouseEnter={e => e.currentTarget.style.background = '#ede9fe'}
-                    onMouseLeave={e => e.currentTarget.style.background = '#f5f3ff'}
-                  >
-                    <div style={{ fontSize: 28, marginBottom: 6 }}>📑</div>
-                    <p style={{ fontWeight: 600, color: '#7c3aed', fontSize: 13 }}>RFP 업로드</p>
-                    <p style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>PDF · DOCX · HWP→PDF</p>
-                    <input type="file" accept=".pdf,.docx,.xlsx,.xls,.png,.jpg,.jpeg" onChange={handleRFPUpload} style={{ display: 'none' }} />
-                  </label>
-                  <p style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>→ 기능요구사항 추출 → 기능목록 생성</p>
-                </div>
-              </div>
-
-              {/* 업로드 결과 */}
-              {uploadedFileName && (
-                <div style={{ padding: '10px 14px', background: '#f0fdf4', borderRadius: 8, border: '1px solid #86efac', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  <span>📎</span>
-                  <span style={{ fontSize: 13, fontWeight: 500, color: '#16a34a' }}>{uploadedFileName}</span>
-                  <span style={{ fontSize: 12, color: '#6b7280', marginLeft: 'auto' }}>
-                    {(systemName || systemOverview) ? '✅ 분석 완료' : '⏳ 분석 중...'}
-                  </span>
+              {(uploadedFileName||uploadedFuncFileName) && (
+                <div style={{display:'flex',flexDirection:'column',gap:5,marginBottom:12}}>
+                  {uploadedFileName && <div style={{padding:'8px 12px',background:'#f0fdf4',borderRadius:7,border:'1px solid #86efac',display:'flex',alignItems:'center',gap:7,fontSize:12}}>
+                    <span>📎</span><span style={{color:'#16a34a',fontWeight:500}}>{uploadedFileName}</span>
+                    <span style={{marginLeft:'auto',fontSize:11,color:'#6b7280'}}>{(systemName||systemOverview)?'✅ 분석 완료':'⏳ 분석 중...'}</span>
+                  </div>}
+                  {uploadedFuncFileName && <div style={{padding:'8px 12px',background:'#f0fdf4',borderRadius:7,border:'1px solid #86efac',display:'flex',alignItems:'center',gap:7,fontSize:12}}>
+                    <span>📎</span><span style={{color:'#16a34a',fontWeight:500}}>{uploadedFuncFileName}</span>
+                    <span style={{marginLeft:'auto',fontSize:11,color:'#6b7280'}}>✅ 추출 완료</span>
+                  </div>}
                 </div>
               )}
 
-              {uploadedFuncFileName && (
-                <div style={{ padding: '10px 14px', background: '#f0fdf4', borderRadius: 8, border: '1px solid #86efac', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  <span>📎</span>
-                  <span style={{ fontSize: 13, fontWeight: 500, color: '#16a34a' }}>{uploadedFuncFileName}</span>
-                  <span style={{ fontSize: 12, color: '#6b7280', marginLeft: 'auto' }}>✅ 기능목록 추출 완료</span>
-                </div>
-              )}
-
-              {/* 파싱 완료 후 추가 생성 */}
-              {(systemName || systemOverview) && (
-                <div style={{ padding: 16, background: '#f0fdf4', borderRadius: 8, border: '1px solid #86efac' }}>
-                  <p style={{ fontWeight: 600, color: '#166534', marginBottom: 8, fontSize: 13 }}>✅ 시스템 정보 추출 완료</p>
-                  {systemName && <p style={{ fontSize: 12, color: '#374151', marginBottom: 4 }}>시스템명: <strong>{systemName}</strong></p>}
-                  {mainFunctions && <p style={{ fontSize: 12, color: '#374151', marginBottom: 8 }}>주요기능: {mainFunctions}</p>}
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="키워드 추가 입력 (선택)" style={{ ...inputStyle, flex: 1, fontSize: 12 }} />
-                    <button onClick={handleGenerateFunctions} style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                      AI 기능목록 생성
-                    </button>
+              {(systemName||systemOverview) && (
+                <div style={S.card}>
+                  <div style={{fontSize:12,fontWeight:600,color:'#16a34a',marginBottom:8}}>✅ 시스템 정보 추출 완료</div>
+                  {systemName && <div style={{fontSize:12,color:'#374151',marginBottom:4}}>시스템명: <strong>{systemName}</strong></div>}
+                  <div style={{display:'flex',gap:8}}>
+                    <input value={keyword} onChange={e=>setKeyword(e.target.value)} placeholder="키워드 추가 입력 (선택)" style={{...S.input,flex:1,fontSize:12}} />
+                    <button onClick={handleGenerateFunctions} style={{...S.btnPrimary,whiteSpace:'nowrap'}}>✦ 기능목록 생성</button>
                   </div>
                 </div>
               )}
@@ -1295,7 +1276,6 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
         </div>
       )}
 
-      {/* ② 기능 목록 */}
       {tab === 'functions' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -1665,299 +1645,6 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
               )}
             </div>
           )}
-            <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 12, padding: '18px 20px', marginBottom: 16 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                <div>
-                  <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#166534' }}>✅ 요구사항 검증</p>
-                  <p style={{ margin: '3px 0 0', fontSize: 11, color: '#16a34a' }}>RFP/요구사항 대비 기능목록이 올바르게 작성됐는지 AI가 검증합니다</p>
-                </div>
-                {validationResult && (
-                  <button
-                    onClick={async () => {
-                      const { exportGenericExcel } = await import('../utils/excelExport');
-                      const rows = (validationResult.coverage?.items || []).map(item => ({
-                        '요구사항': item.req, '반영여부': item.status,
-                        '관련기능': (item.functions || []).join(', '), '비고': item.comment || '',
-                      }));
-                      await exportGenericExcel('요구사항검증', ['요구사항','반영여부','관련기능','비고'], rows, [35,10,50,30], project.name);
-                    }}
-                    style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
-                  >📥 검증 리포트 Excel</button>
-                )}
-              </div>
-
-              {/* 요구사항 입력 */}
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: '#166534' }}>
-                    📄 요구사항 / RFP 입력
-                    <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 400, marginLeft: 6 }}>(RFP 업로드 시 자동 입력 · 직접 입력도 가능)</span>
-                  </label>
-                  {rfpText && <span style={{ fontSize: 11, color: '#16a34a', fontWeight: 600 }}>✅ {rfpText.length.toLocaleString()}자</span>}
-                </div>
-                <textarea
-                  value={rfpText}
-                  onChange={e => { setRfpText(e.target.value); saveProject({ rfpText: e.target.value }); }}
-                  placeholder={`요구사항을 직접 입력하거나 RFP 텍스트를 붙여넣으세요.\n\n예) FR-001: 출입신청 등록 - 외부인이 출입을 신청할 수 있어야 한다\n    FR-002: 출입승인 처리 - 담당자가 신청을 승인/반려할 수 있어야 한다`}
-                  rows={5}
-                  style={{ width: '100%', padding: '10px 12px', fontSize: 12, border: '1px solid #86efac', borderRadius: 8, outline: 'none', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit', background: '#fff' }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: validationResult ? 16 : 0 }}>
-                <button
-                  onClick={async () => {
-                    if (!rfpText.trim()) return alert('요구사항을 먼저 입력해주세요.');
-                    if (functions.length === 0) return alert('기능목록을 먼저 생성해주세요.');
-                    setValidationLoading(true);
-
-                    const callClaude = async (prompt, maxTokens = 1500) => {
-                      const res = await fetch('/api/claude', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] }),
-                      });
-                      const data = await res.json();
-                      if (data.error) throw new Error(data.error.message || 'API 오류');
-                      return data.content?.map(c => c.type === 'text' ? c.text : '').join('') || '';
-                    };
-                    const sleep = ms => new Promise(r => setTimeout(r, ms));
-
-                    try {
-                      // 1단계: 요구사항 커버리지 (1500토큰)
-                      const text1 = await callClaude(getValidationPrompt(rfpText, functions, fpList), 1500);
-                      let result1;
-                      try {
-                        result1 = safeParseJSON(text1);
-                      } catch (e) {
-                        // JSON 완전히 파싱 실패 시 기본 구조로
-                        result1 = { coverage: { score: 0, items: [] }, crudCheck: [], commonCheck: { userMgmt: false, authMgmt: false, sysMgmt: false }, suggestions: [], summary: '응답이 잘려 일부 결과만 표시됩니다. 기능 수를 줄이거나 다시 시도해주세요.' };
-                      }
-                      setValidationResult(result1);
-                      saveProject({ validationResult: result1, rfpText });
-
-                      // 2단계: 품질 검증 (8초 딜레이 후 1000토큰)
-                      await sleep(8000);
-                      const text2 = await callClaude(getQualityCheckPrompt(functions), 1000);
-                      let result2;
-                      try {
-                        result2 = safeParseJSON(text2);
-                      } catch (e) {
-                        result2 = { qualityScore: 0, issues: [], crudGaps: [], summary: '품질 검증 응답이 잘렸습니다.' };
-                      }
-                      setQualityResult(result2);
-                      setShowQualityPanel(true);
-                      saveProject({ qualityResult: result2 });
-                    } catch (err) {
-                      alert('검증 오류: ' + err.message);
-                    } finally {
-                      setValidationLoading(false);
-                    }
-                  }}
-                  disabled={validationLoading || !rfpText.trim() || functions.length === 0}
-                  style={{ background: validationLoading ? '#e5e7eb' : '#16a34a', color: validationLoading ? '#9ca3af' : '#fff', border: 'none', borderRadius: 8, padding: '9px 22px', fontSize: 13, fontWeight: 700, cursor: validationLoading ? 'not-allowed' : 'pointer' }}
-                >
-                  {validationLoading ? '⚙️ AI 검증 중... (요구사항+품질 순차 실행)' : '🔍 AI 검증 실행'}
-                </button>
-                <span style={{ fontSize: 12, color: '#6b7280' }}>기능목록 {functions.length}개 · 2단계 순차 검증</span>
-              </div>
-
-              {/* 검증 결과 */}
-              {validationResult && (() => {
-                const score = validationResult.coverage?.score || 0;
-                const scoreColor = score >= 80 ? '#16a34a' : score >= 60 ? '#d97706' : '#dc2626';
-                return (
-                  <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #d1fae5', overflow: 'hidden' }}>
-                    {/* 종합 점수 */}
-                    <div style={{ padding: '16px 20px', background: score >= 80 ? '#f0fdf4' : score >= 60 ? '#fffbeb' : '#fef2f2', display: 'flex', alignItems: 'center', gap: 20, borderBottom: '1px solid #e5e7eb' }}>
-                      <div style={{ textAlign: 'center' }}>
-                        <div style={{ fontSize: 42, fontWeight: 900, color: scoreColor, lineHeight: 1 }}>{score}</div>
-                        <div style={{ fontSize: 12, color: scoreColor }}>/ 100점</div>
-                      </div>
-                      <div>
-                        <p style={{ margin: '0 0 4px', fontSize: 14, fontWeight: 700, color: '#1f2937' }}>
-                          {score >= 80 ? '✅ 요구사항이 잘 반영됐습니다' : score >= 60 ? '⚠️ 일부 요구사항이 미반영됐습니다' : '❌ 요구사항 반영이 부족합니다'}
-                        </p>
-                        <p style={{ margin: 0, fontSize: 12, color: '#374151' }}>{validationResult.summary}</p>
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
-                      {/* 공통기능 */}
-                      <div style={{ padding: '14px 16px', borderBottom: '1px solid #f3f4f6', borderRight: '1px solid #f3f4f6' }}>
-                        <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700 }}>🔧 공통기능</p>
-                        {[['사용자관리', validationResult.commonCheck?.userMgmt], ['권한관리', validationResult.commonCheck?.authMgmt], ['시스템관리', validationResult.commonCheck?.sysMgmt]].map(([label, ok]) => (
-                          <div key={label} style={{ display: 'flex', gap: 6, fontSize: 12, padding: '3px 0' }}>
-                            <span>{ok ? '✅' : '❌'}</span>
-                            <span style={{ color: ok ? '#16a34a' : '#dc2626' }}>{label}</span>
-                          </div>
-                        ))}
-                      </div>
-                      {/* 데이터 기능 */}
-                      <div style={{ padding: '14px 16px', borderBottom: '1px solid #f3f4f6' }}>
-                        <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700 }}>🗄️ 데이터 기능</p>
-                        <div style={{ display: 'flex', gap: 10, marginBottom: 6 }}>
-                          {[['ILF', validationResult.dataCheck?.ilfCount || 0, 3], ['EIF', validationResult.dataCheck?.eifCount || 0, 0]].map(([t, cnt, min]) => (
-                            <div key={t} style={{ textAlign: 'center', padding: '6px 12px', background: cnt >= min ? '#f0fdf4' : '#fef2f2', borderRadius: 6 }}>
-                              <div style={{ fontSize: 18, fontWeight: 800, color: cnt >= min ? '#16a34a' : '#dc2626' }}>{cnt}</div>
-                              <div style={{ fontSize: 10, color: '#6b7280' }}>{t}</div>
-                            </div>
-                          ))}
-                        </div>
-                        {(validationResult.dataCheck?.issues || []).map((issue, i) => (
-                          <p key={i} style={{ margin: '2px 0', fontSize: 11, color: '#dc2626' }}>⚠️ {issue}</p>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* 요구사항 커버리지 */}
-                    <div style={{ padding: '14px 16px', borderBottom: '1px solid #f3f4f6' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                        <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>
-                          📋 요구사항 반영 현황
-                          <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 400, marginLeft: 6 }}>
-                            ({(validationResult.coverage?.items || []).filter(i => i.status === '✅').length}/{(validationResult.coverage?.items || []).length} 반영)
-                          </span>
-                        </p>
-                        {/* ❌ 미반영 항목 일괄 재생성 버튼 */}
-                        {(validationResult.coverage?.items || []).filter(i => i.status === '❌').length > 0 && (
-                          <button
-                            onClick={async () => {
-                              const failedItems = (validationResult.coverage?.items || []).filter(i => i.status === '❌');
-                              const ok = window.confirm(`미반영 요구사항 ${failedItems.length}개를 기능으로 변환하여 추가하시겠습니까?`);
-                              if (!ok) return;
-                              setValidationLoading(true);
-                              try {
-                                const prompt = getRegenFromReqPrompt(failedItems, systemInfo, functions);
-                                const response = await fetch('/api/claude', {
-                                  method: 'POST',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({ max_tokens: 1500, messages: [{ role: 'user', content: prompt }] }),
-                                });
-                                const data = await response.json();
-                                const text = data.content?.map(c => c.type === 'text' ? c.text : '').join('') || '';
-                                const parsed = safeParseJSON(text);
-                                const newFuncs = (parsed.functions || []).map((f, i) => ({ ...f, id: Date.now() + i }));
-                                // 중복 제거
-                                const existingLV3 = new Set(functions.map(f => f.lv3));
-                                const unique = newFuncs.filter(f => !existingLV3.has(f.lv3));
-                                const merged = [...functions, ...unique];
-                                setFunctions(merged);
-                                saveProject({ functions: merged });
-                                alert(`✅ ${unique.length}개 기능이 추가됐습니다.\n(총 ${merged.length}개)`);
-                              } catch (err) {
-                                alert('재생성 오류: ' + err.message);
-                              } finally {
-                                setValidationLoading(false);
-                              }
-                            }}
-                            style={{ background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
-                          >
-                            ❌ 미반영 {(validationResult.coverage?.items || []).filter(i => i.status === '❌').length}개 재생성
-                          </button>
-                        )}
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 240, overflowY: 'auto' }}>
-                        {(validationResult.coverage?.items || []).map((item, i) => (
-                          <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 10px', background: item.status === '✅' ? '#f0fdf4' : item.status === '⚠️' ? '#fffbeb' : '#fef2f2', borderRadius: 6, fontSize: 12 }}>
-                            <span style={{ flexShrink: 0 }}>{item.status}</span>
-                            <div style={{ flex: 1 }}>
-                              <span style={{ fontWeight: 600 }}>{item.req}</span>
-                              {item.functions?.length > 0 && <span style={{ color: '#6b7280', marginLeft: 6 }}>→ {item.functions.join(', ')}</span>}
-                              {item.comment && <p style={{ margin: '2px 0 0', color: '#dc2626', fontSize: 11 }}>{item.comment}</p>}
-                            </div>
-                            {/* 개별 재생성 버튼 */}
-                            {item.status === '❌' && (
-                              <button
-                                onClick={async () => {
-                                  setValidationLoading(true);
-                                  try {
-                                    const prompt = getRegenFromReqPrompt([item], systemInfo, functions);
-                                    const response = await fetch('/api/claude', {
-                                      method: 'POST',
-                                      headers: { 'Content-Type': 'application/json' },
-                                      body: JSON.stringify({ max_tokens: 1500, messages: [{ role: 'user', content: prompt }] }),
-                                    });
-                                    const data = await response.json();
-                                    const text = data.content?.map(c => c.type === 'text' ? c.text : '').join('') || '';
-                                    const parsed = safeParseJSON(text);
-                                    const newFuncs = (parsed.functions || []).map((f, j) => ({ ...f, id: Date.now() + j }));
-                                    const existingLV3 = new Set(functions.map(f => f.lv3));
-                                    const unique = newFuncs.filter(f => !existingLV3.has(f.lv3));
-                                    const merged = [...functions, ...unique];
-                                    setFunctions(merged);
-                                    saveProject({ functions: merged });
-                                  } catch (err) {
-                                    alert('재생성 오류: ' + err.message);
-                                  } finally {
-                                    setValidationLoading(false);
-                                  }
-                                }}
-                                style={{ background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, padding: '2px 8px', fontSize: 10, cursor: 'pointer', flexShrink: 0 }}
-                              >재생성</button>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* CRUD 누락 */}
-                    {(validationResult.crudCheck || []).filter(c => c.missing?.length > 0).length > 0 && (
-                      <div style={{ padding: '14px 16px', borderBottom: '1px solid #f3f4f6' }}>
-                        <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700 }}>⚠️ CRUD 누락</p>
-                        {(validationResult.crudCheck || []).filter(c => c.missing?.length > 0).map((c, i) => (
-                          <div key={i} style={{ display: 'flex', gap: 10, padding: '5px 8px', background: '#fffbeb', borderRadius: 6, fontSize: 12, marginBottom: 4 }}>
-                            <span style={{ fontWeight: 600, color: '#92400e', minWidth: 100 }}>{c.lv2}</span>
-                            <span style={{ color: '#dc2626' }}>누락: {c.missing?.join(', ')}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* 누락 기능 추천 */}
-                    {(validationResult.suggestions || []).length > 0 && (
-                      <div style={{ padding: '14px 16px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                          <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>💡 누락 기능 추천 ({validationResult.suggestions.length}개)</p>
-                          <button
-                            onClick={() => {
-                              const ok = window.confirm(`추천 기능 ${validationResult.suggestions.length}개를 기능목록에 추가하시겠습니까?`);
-                              if (!ok) return;
-                              const newFuncs = validationResult.suggestions.map((s, i) => ({ ...s, id: Date.now() + i }));
-                              const merged = [...functions, ...newFuncs];
-                              setFunctions(merged);
-                              saveProject({ functions: merged });
-                              alert(`✅ ${newFuncs.length}개 기능이 추가됐습니다.`);
-                            }}
-                            style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
-                          >전체 추가</button>
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          {(validationResult.suggestions || []).map((s, i) => (
-                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: '#eff6ff', borderRadius: 6, fontSize: 12 }}>
-                              <span style={{ color: '#1e40af', fontWeight: 600 }}>{s.lv1} › {s.lv2} › {s.lv3}</span>
-                              <span style={{ color: '#6b7280', fontSize: 11, marginLeft: 'auto' }}>{s.reason}</span>
-                              <button
-                                onClick={() => {
-                                  const newFunc = { ...s, id: Date.now() + i };
-                                  const merged = [...functions, newFunc];
-                                  setFunctions(merged);
-                                  saveProject({ functions: merged });
-                                }}
-                                style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: 4, padding: '3px 8px', fontSize: 11, cursor: 'pointer', flexShrink: 0 }}
-                              >추가</button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-            </div>
-          )}
-
-          {/* 예산 역산 패널 */}
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
@@ -3296,7 +2983,7 @@ JSON만 응답:
             </div>
           )}
         </div>
-      )}
+      </div>
     </div>
   );
 };
