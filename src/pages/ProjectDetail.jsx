@@ -1076,6 +1076,8 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
   return (
     <div style={S.wrap}>
 
+    <div style={S.wrap}>
+
       {/* ── 사이드바 ── */}
       <div style={S.sidebar}>
         <div style={S.sidebarLogo}>
@@ -1163,8 +1165,13 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
         )}
 
         {/* 콘텐츠 */}
-        <div style={S.content}>
-{tab === 'setup' && (
+
+      {/* ── 메인 콘텐츠 ── */}
+      <div style={{flex:1, display:'flex', flexDirection:'column', minWidth:0, overflowY:'auto'}}>
+
+        {/* 탭 콘텐츠 */}
+        <div style={{flex:1, padding:'20px 24px'}}>
+          {tab === 'setup' && (
         <div>
           {/* 입력 방식 선택 */}
           <div style={{ display:'flex', gap:8, marginBottom:20 }}>
@@ -1272,8 +1279,7 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
           )}
         </div>
       )}
-
-      {tab === 'functions' && (
+                {tab === 'functions' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <p style={{ fontSize: 14, color: '#6b7280', margin: 0 }}>총 {functions.length}개 기능 · 셀 클릭하여 수정 가능</p>
@@ -1672,9 +1678,7 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
           </div>
         </div>
       )}
-
-      {/* ③ FP 산정표 */}
-      {tab === 'fp' && (
+                {tab === 'fp' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -1933,8 +1937,7 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
           </div>
         </div>
       )}
-      {/* ④ 화면 목록 */}
-      {tab === 'screens' && (
+                {tab === 'screens' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <div>
@@ -2018,8 +2021,7 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
           )}
         </div>
       )}
-      {/* ⑤ 요구사항 정의서 */}
-      {tab === 'requirements' && (
+                {tab === 'requirements' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
@@ -2120,9 +2122,7 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
           )}
         </div>
       )}
-
-      {/* ⑥ CRUD 분석 */}
-      {tab === 'crud' && (
+                {tab === 'crud' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -2243,9 +2243,7 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
           )}
         </div>
       )}
-
-      {/* ⑦ 인터페이스 정의서 */}
-      {tab === 'interface' && (
+                {tab === 'interface' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <p style={{ fontSize: 14, color: '#6b7280', margin: 0 }}>총 {ifList.length}개 인터페이스 · EIF 기반 자동 생성</p>
@@ -2373,9 +2371,7 @@ JSON만 응답:
           )}
         </div>
       )}
-
-      {/* ⑧ WBS */}
-      {tab === 'wbs' && (
+                {tab === 'wbs' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <p style={{ fontSize: 14, color: '#6b7280', margin: 0 }}>총 {wbsList.length}개 작업 · 기능목록 기반 개발 일정 자동 생성</p>
@@ -2523,8 +2519,7 @@ JSON만 응답:
           )}
         </div>
       )}
-      {/* ⑨ 요구사항 추적표 */}
-      {tab === 'traceability' && (
+                {tab === 'traceability' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <div>
@@ -2661,9 +2656,7 @@ JSON만 응답:
           )}
         </div>
       )}
-
-      {/* ⑩ 테스트케이스 */}
-      {tab === 'testcase' && (
+                {tab === 'testcase' && (
         <div>
           <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16 }}>
             <div>
@@ -2810,8 +2803,7 @@ JSON만 응답:
           )}
         </div>
       )}
-      {/* ⑪ AS-IS / TO-BE */}
-      {tab === 'asis' && (
+                {tab === 'asis' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <div>
@@ -2979,10 +2971,13 @@ JSON만 응답:
               })}
             </div>
           )}
+      </div>
+      )}
         </div>
       </div>
     </div>
-    </div>
+  </div>
+</div>
   );
 };
 
