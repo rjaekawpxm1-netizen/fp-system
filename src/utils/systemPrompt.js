@@ -142,3 +142,74 @@ export const getRegenFromReqPrompt = (failedReqs, systemInfo, existingFunctions)
 ${reqs}
 {"functions":[{"lv1":"","lv2":"","lv3":"","definition":"","fromReq":""}]}`;
 };
+
+// ── ISP 정보화전략계획서 생성 ─────────────────────────────────
+export const getISPDraftPrompt = (section, rfpText, systemName, overview, functions) => {
+  const funcSample = functions.slice(0, 30).map(f => `${f.lv1} > ${f.lv2} > ${f.lv3}`).join('\n');
+  const rfpSnippet = rfpText.slice(0, 1500);
+
+  const sectionPrompts = {
+    executive: `
+SW사업 ISP 전문가. JSON만 응답. 한국어.
+아래 정보를 바탕으로 정보화전략계획서의 "경영진 요약(Executive Summary)" 섹션을 작성하라.
+
+시스템명: ${systemName}
+개요: ${overview}
+RFP 주요내용: ${rfpSnippet}
+
+{"title":"경영진 요약","content":"300자 이내 경영진 요약","keyPoints":["핵심포인트1","핵심포인트2","핵심포인트3"],"investmentValue":"투자 가치 및 기대효과 1문장"}
+`,
+    background: `
+SW사업 ISP 전문가. JSON만 응답. 한국어.
+아래 정보를 바탕으로 정보화전략계획서의 "사업 배경 및 목적" 섹션을 작성하라.
+
+시스템명: ${systemName}
+개요: ${overview}
+RFP 주요내용: ${rfpSnippet}
+
+{"title":"사업 배경 및 목적","background":"사업추진 배경 200자","purpose":"사업 목적 200자","goals":["목표1","목표2","목표3"],"scope":"사업 범위 설명"}
+`,
+    asIs: `
+SW사업 ISP 전문가. JSON만 응답. 한국어.
+아래 정보를 바탕으로 정보화전략계획서의 "현황 분석(AS-IS)" 섹션을 작성하라.
+
+시스템명: ${systemName}
+RFP 주요내용: ${rfpSnippet}
+
+{"title":"현황 분석","currentStatus":"현재 업무 처리 현황 200자","problems":["문제점1","문제점2","문제점3","문제점4"],"limitations":"현재 시스템의 한계 150자","improvementNeeds":"개선 필요사항 150자"}
+`,
+    toBe: `
+SW사업 ISP 전문가. JSON만 응답. 한국어.
+아래 정보를 바탕으로 정보화전략계획서의 "목표 시스템(TO-BE)" 섹션을 작성하라.
+
+시스템명: ${systemName}
+개요: ${overview}
+주요기능(상위 30개):
+${funcSample}
+
+{"title":"목표 시스템(TO-BE)","vision":"목표 시스템 비전 1문장","architecture":"시스템 아키텍처 설명 200자","coreFeatures":["핵심기능1","핵심기능2","핵심기능3","핵심기능4","핵심기능5"],"expectedEffects":["기대효과1","기대효과2","기대효과3"],"technicalStack":"활용 기술스택 및 플랫폼"}
+`,
+    requirements: `
+SW사업 ISP 전문가. JSON만 응답. 한국어.
+아래 기능목록을 바탕으로 정보화전략계획서의 "기능 요구사항 정의" 섹션을 작성하라.
+
+시스템명: ${systemName}
+기능목록:
+${funcSample}
+
+{"title":"기능 요구사항 정의","summary":"기능 요구사항 개요 150자","functionalAreas":[{"area":"업무영역명","description":"영역 설명","keyFunctions":["주요기능1","주요기능2"]}],"nonFunctional":["비기능요구사항1","비기능요구사항2","비기능요구사항3"]}
+`,
+    implementation: `
+SW사업 ISP 전문가. JSON만 응답. 한국어.
+아래 정보를 바탕으로 정보화전략계획서의 "구현 전략 및 추진 로드맵" 섹션을 작성하라.
+
+시스템명: ${systemName}
+개요: ${overview}
+기능수: ${functions.length}개
+
+{"title":"구현 전략 및 추진 로드맵","strategy":"구현 전략 200자","phases":[{"phase":"1단계","period":"1~3개월","tasks":["과제1","과제2"],"deliverables":["산출물1"]},{"phase":"2단계","period":"4~6개월","tasks":["과제1","과제2"],"deliverables":["산출물1"]},{"phase":"3단계","period":"7~9개월","tasks":["과제1","과제2"],"deliverables":["산출물1"]}],"risks":["리스크1","리스크2","리스크3"],"successFactors":["성공요인1","성공요인2"]}
+`,
+  };
+
+  return sectionPrompts[section] || sectionPrompts.background;
+};

@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
-import { generateFunctions, generateFPList, parseDocument, parseSystemInfo } from '../utils/claudeApi';
+import { generateFunctions, generateFPList, parseDocument, parseSystemInfo, generateISPSection, parseRFPLarge } from '../utils/claudeApi';
 import { getWeight, getAvgWeight, getComplexity, getComplexityLabel, calcTotalFP, getChangePct, getFuncChangePct, getImpactFactor } from '../utils/fpCalculator';
-import { getRFPParsePrompt, getValidationPrompt, getRegenFromReqPrompt, getQualityCheckPrompt, getFPValidationPrompt } from '../utils/systemPrompt';
+import { getRFPParsePrompt, getValidationPrompt, getRegenFromReqPrompt, getQualityCheckPrompt, getFPValidationPrompt, getISPDraftPrompt } from '../utils/systemPrompt';
 import mammoth from 'mammoth';
 
 const REUSE_TYPES = ['신규개발', '기능변경', '기능삭제', '수정없이재사용'];
@@ -195,6 +195,11 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
   const [validationResult, setValidationResult] = useState(project?.validationResult || null);
   const [validationLoading, setValidationLoading] = useState(false);
   const [showValidationPanel, setShowValidationPanel] = useState(false);
+  // ISP 정보화전략계획서 state
+  const [ispDraft, setIspDraft] = useState(project?.ispDraft || null);
+  const [ispLoading, setIspLoading] = useState(false);
+  const [ispLoadingSection, setIspLoadingSection] = useState("");
+  const [ispEditMode, setIspEditMode] = useState(false);
   // 기능 품질 검증 state
   const [qualityResult, setQualityResult] = useState(project?.qualityResult || null);
   const [qualityLoading, setQualityLoading] = useState(false);
@@ -473,9 +478,10 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
         throw new Error('HWP 파일은 PDF로 변환 후 업로드해주세요. (한글 → 다른 이름으로 저장 → PDF)');
       }
 
-      // RFP 텍스트 저장 (검증 탭에서 바로 쓸 수 있도록)
-      setRfpText(text.slice(0, 8000));
-      saveProject({ rfpText: text.slice(0, 8000) });
+      // RFP 전체 텍스트 저장 (최대 15000자, ISP 계획서 생성에도 활용)
+      const rfpFull = text.slice(0, 15000);
+      setRfpText(rfpFull);
+      saveProject({ rfpText: rfpFull });
 
       // 1단계: 시스템 정보 추출
       setLoadingMsg('RFP에서 사업명/개요 추출 중...');
@@ -483,22 +489,28 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
       if (info.systemName) setSystemName(info.systemName);
       if (info.overview)   setSystemOverview(info.overview);
 
-      // 2단계: 기능요구사항 추출 → 기능목록 변환
-      setLoadingMsg('RFP에서 기능요구사항 추출 중...');
-      const prompt = getRFPParsePrompt(text);
-      const response = await fetch('/api/claude', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          max_tokens: 2000,
-          messages: [{ role: 'user', content: prompt }],
-        }),
-      });
-      const data = await response.json();
-      if (data.error) throw new Error(data.error.message || 'API 오류');
-      const resText = data.content?.map(c => c.type === 'text' ? c.text : '').join('') || '';
-      const parsed = safeParseJSON(resText);
-      let funcs = parsed.functions || [];
+      // 2단계: 대용량 RFP 청크 처리 (3000자 제한 우회)
+      let funcs = [];
+      if (text.length > 3000) {
+        setLoadingMsg(`RFP 분석 중... (대용량 문서 청크 처리)`);
+        const parsed = await parseRFPLarge(text);
+        funcs = parsed.functions || [];
+        if (!info.systemName && parsed.systemName) setSystemName(parsed.systemName);
+        if (!info.overview && parsed.overview) setSystemOverview(parsed.overview);
+      } else {
+        setLoadingMsg('RFP에서 기능요구사항 추출 중...');
+        const prompt = getRFPParsePrompt(text);
+        const response = await fetch('/api/claude', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ max_tokens: 2000, messages: [{ role: 'user', content: prompt }] }),
+        });
+        const data = await response.json();
+        if (data.error) throw new Error(data.error.message || 'API 오류');
+        const resText = data.content?.map(c => c.type === 'text' ? c.text : '').join('') || '';
+        const parsed = safeParseJSON(resText);
+        funcs = parsed.functions || [];
+      }
 
       // 후처리: LV3에서 영어 코드 제거
       funcs = funcs
@@ -523,12 +535,203 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
       saveProject({ functions: withId, systemName: info.systemName || systemName, systemOverview: info.overview || systemOverview });
       setUploadedFuncFileName(file.name + ' (RFP)');
       setTab('functions');
-      alert(`✅ RFP 분석 완료!\n기능요구사항 ${withId.length}개를 기능목록으로 변환했습니다.`);
+      alert(`✅ RFP 분석 완료!\n기능요구사항 ${withId.length}개를 기능목록으로 변환했습니다.\n\n💡 'ISP계획서' 탭에서 정보화전략계획서 초안을 자동 생성할 수 있습니다.`);
     } catch (err) {
       alert('RFP 파싱 오류: ' + err.message);
     } finally {
       setLoading(false);
       setLoadingMsg('');
+    }
+  };
+
+  // ISP 정보화전략계획서 전체 생성
+  const handleGenerateISP = async () => {
+    if (!rfpText && functions.length === 0) {
+      alert('RFP를 먼저 업로드하거나 기능목록을 생성해주세요.');
+      return;
+    }
+    setIspLoading(true);
+    const sections = ['executive', 'background', 'asIs', 'toBe', 'requirements', 'implementation'];
+    const sectionNames = {
+      executive: '경영진 요약',
+      background: '사업 배경 및 목적',
+      asIs: '현황 분석(AS-IS)',
+      toBe: '목표 시스템(TO-BE)',
+      requirements: '기능 요구사항',
+      implementation: '구현 전략 및 로드맵',
+    };
+    const draft = {};
+    try {
+      for (const sec of sections) {
+        setIspLoadingSection(sectionNames[sec]);
+        const result = await generateISPSection(sec, rfpText, systemName, systemOverview, functions);
+        draft[sec] = result;
+      }
+      setIspDraft(draft);
+      saveProject({ ispDraft: draft });
+      alert('✅ 정보화전략계획서 초안 생성 완료!');
+    } catch (err) {
+      alert('ISP 계획서 생성 오류: ' + err.message);
+    } finally {
+      setIspLoading(false);
+      setIspLoadingSection('');
+    }
+  };
+
+  // ISP Word 출력
+  const handleISPWordExport = async () => {
+    if (!ispDraft) { alert('먼저 계획서 초안을 생성해주세요.'); return; }
+    try {
+      const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, BorderStyle } = await import('docx');
+      const children = [];
+      const addHeading = (text, level) => children.push(
+        new Paragraph({ heading: level, children: [new TextRun({ text, bold: true })] })
+      );
+      const addText = (text) => children.push(
+        new Paragraph({ children: [new TextRun({ text: text || '' })] })
+      );
+      const addBullet = (text) => children.push(
+        new Paragraph({ bullet: { level: 0 }, children: [new TextRun({ text: text || '' })] })
+      );
+      const addSpace = () => children.push(new Paragraph({ children: [] }));
+
+      // 표지
+      children.push(new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 2880, after: 480 },
+        children: [new TextRun({ text: systemName || '정보화전략계획서', size: 48, bold: true })],
+      }));
+      children.push(new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [new TextRun({ text: '정보화전략계획서(ISP)', size: 32, color: '1e40af' })],
+      }));
+      children.push(new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 960 },
+        children: [new TextRun({ text: new Date().getFullYear() + '년', size: 24, color: '6b7280' })],
+      }));
+      addSpace(); addSpace();
+
+      const sectionOrder = ['executive', 'background', 'asIs', 'toBe', 'requirements', 'implementation'];
+      const sectionNums = { executive: '1', background: '2', asIs: '3', toBe: '4', requirements: '5', implementation: '6' };
+
+      for (const sec of sectionOrder) {
+        const d = ispDraft[sec];
+        if (!d) continue;
+        addHeading(`${sectionNums[sec]}. ${d.title || sec}`, HeadingLevel.HEADING_1);
+        addSpace();
+
+        if (sec === 'executive') {
+          addText(d.content || '');
+          addSpace();
+          if (d.keyPoints?.length) {
+            addText('■ 핵심 포인트');
+            d.keyPoints.forEach(p => addBullet(p));
+          }
+          addSpace();
+          if (d.investmentValue) { addText('■ 투자 가치'); addText(d.investmentValue); }
+        } else if (sec === 'background') {
+          addHeading('2.1 사업 추진 배경', HeadingLevel.HEADING_2);
+          addText(d.background || '');
+          addSpace();
+          addHeading('2.2 사업 목적', HeadingLevel.HEADING_2);
+          addText(d.purpose || '');
+          addSpace();
+          if (d.goals?.length) {
+            addHeading('2.3 추진 목표', HeadingLevel.HEADING_2);
+            d.goals.forEach(g => addBullet(g));
+          }
+          addSpace();
+          if (d.scope) { addHeading('2.4 사업 범위', HeadingLevel.HEADING_2); addText(d.scope); }
+        } else if (sec === 'asIs') {
+          addHeading('3.1 현재 업무 현황', HeadingLevel.HEADING_2);
+          addText(d.currentStatus || '');
+          addSpace();
+          if (d.problems?.length) {
+            addHeading('3.2 주요 문제점', HeadingLevel.HEADING_2);
+            d.problems.forEach(p => addBullet(p));
+          }
+          addSpace();
+          if (d.limitations) { addHeading('3.3 현재 시스템 한계', HeadingLevel.HEADING_2); addText(d.limitations); }
+          addSpace();
+          if (d.improvementNeeds) { addHeading('3.4 개선 필요사항', HeadingLevel.HEADING_2); addText(d.improvementNeeds); }
+        } else if (sec === 'toBe') {
+          if (d.vision) { addHeading('4.1 목표 시스템 비전', HeadingLevel.HEADING_2); addText(d.vision); addSpace(); }
+          if (d.architecture) { addHeading('4.2 시스템 아키텍처', HeadingLevel.HEADING_2); addText(d.architecture); addSpace(); }
+          if (d.coreFeatures?.length) {
+            addHeading('4.3 핵심 기능', HeadingLevel.HEADING_2);
+            d.coreFeatures.forEach(f => addBullet(f));
+            addSpace();
+          }
+          if (d.expectedEffects?.length) {
+            addHeading('4.4 기대 효과', HeadingLevel.HEADING_2);
+            d.expectedEffects.forEach(e => addBullet(e));
+            addSpace();
+          }
+          if (d.technicalStack) { addHeading('4.5 기술 스택', HeadingLevel.HEADING_2); addText(d.technicalStack); }
+        } else if (sec === 'requirements') {
+          addText(d.summary || '');
+          addSpace();
+          if (d.functionalAreas?.length) {
+            addHeading('5.1 기능 요구사항', HeadingLevel.HEADING_2);
+            d.functionalAreas.forEach(area => {
+              children.push(new Paragraph({ children: [new TextRun({ text: `▶ ${area.area}`, bold: true })] }));
+              addText(area.description || '');
+              area.keyFunctions?.forEach(f => addBullet(f));
+              addSpace();
+            });
+          }
+          if (d.nonFunctional?.length) {
+            addHeading('5.2 비기능 요구사항', HeadingLevel.HEADING_2);
+            d.nonFunctional.forEach(r => addBullet(r));
+          }
+        } else if (sec === 'implementation') {
+          if (d.strategy) { addHeading('6.1 구현 전략', HeadingLevel.HEADING_2); addText(d.strategy); addSpace(); }
+          if (d.phases?.length) {
+            addHeading('6.2 추진 로드맵', HeadingLevel.HEADING_2);
+            d.phases.forEach(ph => {
+              children.push(new Paragraph({ children: [new TextRun({ text: `${ph.phase} (${ph.period})`, bold: true, color: '1e40af' })] }));
+              ph.tasks?.forEach(t => addBullet(`과제: ${t}`));
+              ph.deliverables?.forEach(dl => addBullet(`산출물: ${dl}`));
+              addSpace();
+            });
+          }
+          if (d.risks?.length) {
+            addHeading('6.3 리스크 관리', HeadingLevel.HEADING_2);
+            d.risks.forEach(r => addBullet(r));
+            addSpace();
+          }
+          if (d.successFactors?.length) {
+            addHeading('6.4 성공 요인', HeadingLevel.HEADING_2);
+            d.successFactors.forEach(s => addBullet(s));
+          }
+        }
+        addSpace();
+      }
+
+      const doc = new Document({
+        styles: {
+          default: { document: { run: { font: '맑은 고딕', size: 22 } } },
+          paragraphStyles: [
+            { id: 'Heading1', name: 'Heading 1', basedOn: 'Normal', next: 'Normal', quickFormat: true,
+              run: { size: 32, bold: true, color: '1e3a8a', font: '맑은 고딕' },
+              paragraph: { spacing: { before: 400, after: 200 }, outlineLevel: 0,
+                border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: '1e40af', space: 4 } } } },
+            { id: 'Heading2', name: 'Heading 2', basedOn: 'Normal', next: 'Normal', quickFormat: true,
+              run: { size: 24, bold: true, color: '1d4ed8', font: '맑은 고딕' },
+              paragraph: { spacing: { before: 240, after: 120 }, outlineLevel: 1 } },
+          ],
+        },
+        sections: [{ properties: { page: { size: { width: 11906, height: 16838 }, margin: { top: 1440, right: 1134, bottom: 1440, left: 1701 } } }, children }],
+      });
+
+      const buffer = await Packer.toBuffer(doc);
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = `${systemName || '정보화전략계획서'}_ISP초안.docx`; a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Word 출력 오류: ' + err.message);
     }
   };
 
@@ -1063,6 +1266,7 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
     {key:'setup',        label:'시스템개요'},
     {key:'functions',    label:'기능목록',   count:functions.length},
     {key:'fp',           label:'FP산정표',   count:fpList.length},
+    {key:'isp',          label:'ISP계획서',  count:ispDraft ? 6 : 0},
     {key:'screens',      label:'화면목록',   count:screenList.length, disabled:true},
     {key:'requirements', label:'요구사항',   count:reqList.length, disabled:true},
     {key:'crud',         label:'CRUD',       disabled:true},
@@ -2801,6 +3005,182 @@ JSON만 응답:
               </div>
             </div>
           )}
+        </div>
+      )}
+                {tab === 'isp' && (
+        <div style={{ padding: '24px' }}>
+          {/* 헤더 */}
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:20, flexWrap:'wrap', gap:12 }}>
+            <div>
+              <h2 style={{ fontSize:18, fontWeight:700, color:'#1e3a8a', margin:0 }}>📋 정보화전략계획서 (ISP)</h2>
+              <p style={{ fontSize:12, color:'#6b7280', marginTop:4 }}>RFP 기반 자동 초안 생성 · 편집 후 Word 출력</p>
+            </div>
+            <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+              <button
+                onClick={handleGenerateISP}
+                disabled={ispLoading}
+                style={{ background: ispLoading ? '#9ca3af' : '#1d4ed8', color:'#fff', border:'none', borderRadius:7, padding:'9px 18px', fontSize:13, fontWeight:600, cursor: ispLoading ? 'not-allowed' : 'pointer', display:'flex', alignItems:'center', gap:6 }}
+              >
+                {ispLoading ? `⏳ ${ispLoadingSection} 생성 중...` : (ispDraft ? '🔄 재생성' : '✨ 초안 자동 생성')}
+              </button>
+              {ispDraft && (
+                <button
+                  onClick={handleISPWordExport}
+                  style={{ background:'#16a34a', color:'#fff', border:'none', borderRadius:7, padding:'9px 18px', fontSize:13, fontWeight:600, cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}
+                >
+                  📄 Word 출력
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* 준비 안내 */}
+          {!ispDraft && !ispLoading && (
+            <div style={{ background:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:10, padding:'20px 24px', marginBottom:20 }}>
+              <p style={{ fontSize:14, fontWeight:600, color:'#1e40af', margin:'0 0 8px' }}>📌 정보화전략계획서 자동 생성 준비</p>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, fontSize:12 }}>
+                {[
+                  { label:'RFP 업로드', ok: !!rfpText, desc: rfpText ? `${Math.round(rfpText.length/1000)}KB 저장됨` : '시스템개요 탭에서 RFP 업로드' },
+                  { label:'시스템명', ok: !!systemName, desc: systemName || '시스템개요 탭에서 입력' },
+                  { label:'시스템 개요', ok: !!systemOverview, desc: systemOverview ? `${systemOverview.slice(0,30)}...` : '시스템개요 탭에서 입력' },
+                  { label:'기능목록', ok: functions.length > 0, desc: functions.length > 0 ? `${functions.length}개 기능` : '기능목록 탭에서 생성' },
+                ].map(item => (
+                  <div key={item.label} style={{ display:'flex', alignItems:'center', gap:8, background:'#fff', borderRadius:6, padding:'8px 12px', border:'1px solid #e0e7ff' }}>
+                    <span style={{ fontSize:16 }}>{item.ok ? '✅' : '⚠️'}</span>
+                    <div>
+                      <div style={{ fontWeight:600, color: item.ok ? '#166534' : '#92400e' }}>{item.label}</div>
+                      <div style={{ color:'#6b7280', fontSize:11 }}>{item.desc}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 로딩 */}
+          {ispLoading && (
+            <div style={{ background:'#f0f9ff', border:'1px solid #bae6fd', borderRadius:10, padding:'24px', textAlign:'center', marginBottom:20 }}>
+              <div style={{ fontSize:24, marginBottom:8 }}>⏳</div>
+              <p style={{ fontSize:14, fontWeight:600, color:'#0c4a6e', margin:0 }}>정보화전략계획서 초안 생성 중...</p>
+              <p style={{ fontSize:12, color:'#0369a1', marginTop:4 }}>{ispLoadingSection} 섹션 작성 중</p>
+              <div style={{ display:'flex', justifyContent:'center', gap:4, marginTop:12 }}>
+                {['경영진 요약','사업 배경','현황 분석','목표 시스템','기능 요구사항','구현 전략'].map(s => (
+                  <span key={s} style={{ fontSize:10, padding:'2px 6px', borderRadius:10, background: s===ispLoadingSection?'#0369a1':'#e0f2fe', color: s===ispLoadingSection?'#fff':'#0369a1' }}>{s}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 생성된 계획서 */}
+          {ispDraft && !ispLoading && (() => {
+            const sections = [
+              { key:'executive', num:'1', icon:'💼', color:'#7c3aed', bg:'#faf5ff', border:'#e9d5ff' },
+              { key:'background', num:'2', icon:'🎯', color:'#0369a1', bg:'#f0f9ff', border:'#bae6fd' },
+              { key:'asIs', num:'3', icon:'🔍', color:'#b45309', bg:'#fffbeb', border:'#fde68a' },
+              { key:'toBe', num:'4', icon:'🚀', color:'#047857', bg:'#f0fdf4', border:'#a7f3d0' },
+              { key:'requirements', num:'5', icon:'📋', color:'#1d4ed8', bg:'#eff6ff', border:'#bfdbfe' },
+              { key:'implementation', num:'6', icon:'🗓️', color:'#be123c', bg:'#fff1f2', border:'#fecdd3' },
+            ];
+            return (
+              <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+                {sections.map(({ key, num, icon, color, bg, border }) => {
+                  const d = ispDraft[key];
+                  if (!d) return null;
+                  return (
+                    <div key={key} style={{ background: bg, border:`1px solid ${border}`, borderRadius:10, overflow:'hidden' }}>
+                      <div style={{ padding:'14px 20px', borderBottom:`1px solid ${border}`, display:'flex', alignItems:'center', gap:8 }}>
+                        <span style={{ fontSize:18 }}>{icon}</span>
+                        <span style={{ fontSize:15, fontWeight:700, color }}>{num}. {d.title}</span>
+                      </div>
+                      <div style={{ padding:'16px 20px', fontSize:13, lineHeight:1.7 }}>
+
+                        {/* 경영진 요약 */}
+                        {key === 'executive' && <>
+                          <p style={{ color:'#374151', margin:'0 0 12px' }}>{d.content}</p>
+                          {d.keyPoints?.length > 0 && <><p style={{ fontWeight:600, color, margin:'8px 0 4px' }}>핵심 포인트</p>
+                          <ul style={{ margin:0, paddingLeft:20 }}>{d.keyPoints.map((p,i) => <li key={i} style={{ color:'#374151', marginBottom:3 }}>{p}</li>)}</ul></>}
+                          {d.investmentValue && <p style={{ background:'#fff', borderRadius:6, padding:'8px 12px', marginTop:10, color:'#374151', borderLeft:`3px solid ${color}` }}>{d.investmentValue}</p>}
+                        </>}
+
+                        {/* 사업 배경 */}
+                        {key === 'background' && <>
+                          {d.background && <><p style={{ fontWeight:600, color, margin:'0 0 4px' }}>추진 배경</p><p style={{ color:'#374151', margin:'0 0 12px' }}>{d.background}</p></>}
+                          {d.purpose && <><p style={{ fontWeight:600, color, margin:'0 0 4px' }}>사업 목적</p><p style={{ color:'#374151', margin:'0 0 12px' }}>{d.purpose}</p></>}
+                          {d.goals?.length > 0 && <><p style={{ fontWeight:600, color, margin:'0 0 4px' }}>추진 목표</p>
+                          <ul style={{ margin:'0 0 12px', paddingLeft:20 }}>{d.goals.map((g,i) => <li key={i} style={{ color:'#374151', marginBottom:3 }}>{g}</li>)}</ul></>}
+                          {d.scope && <><p style={{ fontWeight:600, color, margin:'0 0 4px' }}>사업 범위</p><p style={{ color:'#374151', margin:0 }}>{d.scope}</p></>}
+                        </>}
+
+                        {/* AS-IS */}
+                        {key === 'asIs' && <>
+                          {d.currentStatus && <><p style={{ fontWeight:600, color, margin:'0 0 4px' }}>현재 업무 현황</p><p style={{ color:'#374151', margin:'0 0 12px' }}>{d.currentStatus}</p></>}
+                          {d.problems?.length > 0 && <><p style={{ fontWeight:600, color, margin:'0 0 4px' }}>주요 문제점</p>
+                          <ul style={{ margin:'0 0 12px', paddingLeft:20 }}>{d.problems.map((p,i) => <li key={i} style={{ color:'#374151', marginBottom:3 }}>{p}</li>)}</ul></>}
+                          {d.limitations && <><p style={{ fontWeight:600, color, margin:'0 0 4px' }}>현재 시스템 한계</p><p style={{ color:'#374151', margin:'0 0 12px' }}>{d.limitations}</p></>}
+                          {d.improvementNeeds && <><p style={{ fontWeight:600, color, margin:'0 0 4px' }}>개선 필요사항</p><p style={{ color:'#374151', margin:0 }}>{d.improvementNeeds}</p></>}
+                        </>}
+
+                        {/* TO-BE */}
+                        {key === 'toBe' && <>
+                          {d.vision && <p style={{ background:'#fff', borderRadius:6, padding:'10px 14px', margin:'0 0 12px', color:'#374151', fontWeight:500, borderLeft:`3px solid ${color}`, fontSize:14 }}>{d.vision}</p>}
+                          {d.architecture && <><p style={{ fontWeight:600, color, margin:'0 0 4px' }}>시스템 아키텍처</p><p style={{ color:'#374151', margin:'0 0 12px' }}>{d.architecture}</p></>}
+                          {d.coreFeatures?.length > 0 && <><p style={{ fontWeight:600, color, margin:'0 0 6px' }}>핵심 기능</p>
+                          <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:12 }}>{d.coreFeatures.map((f,i) => <span key={i} style={{ background:'#fff', border:`1px solid ${border}`, borderRadius:16, padding:'3px 10px', fontSize:12, color }}>{f}</span>)}</div></>}
+                          {d.expectedEffects?.length > 0 && <><p style={{ fontWeight:600, color, margin:'0 0 4px' }}>기대 효과</p>
+                          <ul style={{ margin:'0 0 12px', paddingLeft:20 }}>{d.expectedEffects.map((e,i) => <li key={i} style={{ color:'#374151', marginBottom:3 }}>{e}</li>)}</ul></>}
+                          {d.technicalStack && <><p style={{ fontWeight:600, color, margin:'0 0 4px' }}>기술 스택</p><p style={{ color:'#374151', margin:0 }}>{d.technicalStack}</p></>}
+                        </>}
+
+                        {/* 기능 요구사항 */}
+                        {key === 'requirements' && <>
+                          {d.summary && <p style={{ color:'#374151', margin:'0 0 12px' }}>{d.summary}</p>}
+                          {d.functionalAreas?.length > 0 && <>
+                            <p style={{ fontWeight:600, color, margin:'0 0 8px' }}>기능 요구사항 영역</p>
+                            <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:12 }}>
+                              {d.functionalAreas.map((area,i) => (
+                                <div key={i} style={{ background:'#fff', borderRadius:6, padding:'10px 14px', border:`1px solid ${border}` }}>
+                                  <p style={{ fontWeight:600, color, margin:'0 0 3px' }}>▶ {area.area}</p>
+                                  <p style={{ fontSize:12, color:'#6b7280', margin:'0 0 6px' }}>{area.description}</p>
+                                  <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
+                                    {area.keyFunctions?.map((f,j) => <span key={j} style={{ background:bg, border:`1px solid ${border}`, borderRadius:10, padding:'1px 8px', fontSize:11, color }}>{f}</span>)}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </>}
+                          {d.nonFunctional?.length > 0 && <><p style={{ fontWeight:600, color, margin:'0 0 4px' }}>비기능 요구사항</p>
+                          <ul style={{ margin:0, paddingLeft:20 }}>{d.nonFunctional.map((r,i) => <li key={i} style={{ color:'#374151', marginBottom:3 }}>{r}</li>)}</ul></>}
+                        </>}
+
+                        {/* 구현 전략 */}
+                        {key === 'implementation' && <>
+                          {d.strategy && <><p style={{ fontWeight:600, color, margin:'0 0 4px' }}>구현 전략</p><p style={{ color:'#374151', margin:'0 0 12px' }}>{d.strategy}</p></>}
+                          {d.phases?.length > 0 && <>
+                            <p style={{ fontWeight:600, color, margin:'0 0 8px' }}>추진 로드맵</p>
+                            <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:8, marginBottom:12 }}>
+                              {d.phases.map((ph,i) => (
+                                <div key={i} style={{ background:'#fff', borderRadius:8, padding:'12px', border:`1px solid ${border}` }}>
+                                  <p style={{ fontWeight:700, color, margin:'0 0 2px', fontSize:13 }}>{ph.phase}</p>
+                                  <p style={{ fontSize:11, color:'#6b7280', margin:'0 0 8px' }}>{ph.period}</p>
+                                  {ph.tasks?.map((t,j) => <p key={j} style={{ fontSize:11, color:'#374151', margin:'1px 0' }}>• {t}</p>)}
+                                  {ph.deliverables?.length > 0 && <p style={{ fontSize:10, color:'#9ca3af', marginTop:6 }}>📦 {ph.deliverables.join(', ')}</p>}
+                                </div>
+                              ))}
+                            </div>
+                          </>}
+                          {d.risks?.length > 0 && <><p style={{ fontWeight:600, color, margin:'0 0 4px' }}>리스크 관리</p>
+                          <ul style={{ margin:'0 0 12px', paddingLeft:20 }}>{d.risks.map((r,i) => <li key={i} style={{ color:'#374151', marginBottom:3 }}>{r}</li>)}</ul></>}
+                          {d.successFactors?.length > 0 && <><p style={{ fontWeight:600, color, margin:'0 0 4px' }}>성공 요인</p>
+                          <ul style={{ margin:0, paddingLeft:20 }}>{d.successFactors.map((s,i) => <li key={i} style={{ color:'#374151', marginBottom:3 }}>{s}</li>)}</ul></>}
+                        </>}
+
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
       )}
                 {tab === 'asis' && (

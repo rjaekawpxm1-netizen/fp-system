@@ -201,3 +201,91 @@ export const parseSystemInfo = async (text, imageFile = null) => {
   const result = await callClaude(prompt, 1000);
   return result;
 };
+
+// ============================================================
+// 텍스트 반환 (JSON 아닌 순수 텍스트 응답용)
+// ============================================================
+export const callClaudeText = async (content, maxTokens = 2000) => {
+  const response = await fetch('/api/claude', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      max_tokens: maxTokens,
+      messages: [{ role: 'user', content }],
+    }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error?.message || `API 오류 (${response.status})`);
+  }
+  const data = await response.json();
+  if (data.error) throw new Error(data.error);
+  return data.content?.map(c => c.type === 'text' ? c.text : '').join('') || '';
+};
+
+// ============================================================
+// ISP 정보화전략계획서 섹션 생성
+// ============================================================
+import { getISPDraftPrompt } from './systemPrompt';
+
+export const generateISPSection = async (section, rfpText, systemName, overview, functions) => {
+  const prompt = getISPDraftPrompt(section, rfpText, systemName, overview, functions);
+  const text = await callClaudeText(prompt, 2000);
+  // JSON 파싱
+  let clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
+  const start = clean.indexOf('{');
+  const end = clean.lastIndexOf('}');
+  if (start !== -1 && end !== -1) {
+    try { return JSON.parse(clean.slice(start, end + 1)); } catch (e) {}
+  }
+  throw new Error('ISP 섹션 파싱 실패');
+};
+
+// ============================================================
+// 대용량 RFP 청크 처리 (3000자 제한 우회)
+// ============================================================
+export const parseRFPLarge = async (text) => {
+  const CHUNK = 2500;
+  const chunks = [];
+  for (let i = 0; i < Math.min(text.length, 15000); i += CHUNK) {
+    chunks.push(text.slice(i, i + CHUNK));
+  }
+
+  let allFunctions = [];
+  let systemInfo = {};
+
+  for (let i = 0; i < chunks.length; i++) {
+    try {
+      const isFirst = i === 0;
+      const prompt = isFirst
+        ? `SW사업 BA전문가. RFP에서 기능요구사항만 추출. JSON만.\n${chunks[i]}\n{"systemName":"","overview":"","functions":[{"lv1":"","lv2":"","lv3":"","definition":""}]}`
+        : `SW사업 BA전문가. RFP 추가 청크에서 기능요구사항 추출. 중복제외. JSON만.\n${chunks[i]}\n{"functions":[{"lv1":"","lv2":"","lv3":"","definition":""}]}`;
+
+      const text2 = await callClaudeText(prompt, 2000);
+      let clean = text2.replace(/```json/g, '').replace(/```/g, '').trim();
+      const s = clean.indexOf('{'), e2 = clean.lastIndexOf('}');
+      if (s !== -1 && e2 !== -1) {
+        const parsed = JSON.parse(clean.slice(s, e2 + 1));
+        if (isFirst) {
+          systemInfo = { systemName: parsed.systemName || '', overview: parsed.overview || '' };
+        }
+        allFunctions = [...allFunctions, ...(parsed.functions || [])];
+      }
+    } catch (err) {
+      console.warn(`청크 ${i} 파싱 실패:`, err.message);
+    }
+  }
+
+  // 중복 제거
+  const seen = new Set();
+  const deduped = allFunctions
+    .filter(f => f.lv1 && f.lv2 && f.lv3)
+    .filter(f => {
+      const k = `${f.lv1}|${f.lv2}|${f.lv3}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+
+  return { ...systemInfo, functions: deduped };
+};
