@@ -27,57 +27,47 @@ const COMPLEXITY_COLORS = {
 // 강화된 JSON 파싱 헬퍼 (잘림 방지)
 // ============================================================
 const safeParseJSON = (text) => {
-  // 마크다운 제거
-  let clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
-
-  // 1차: 그대로 파싱
-  try { return JSON.parse(clean); } catch (e1) {}
-
-  // JSON 시작점 찾기
+  let clean = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+  try { return JSON.parse(clean); } catch (_) {}
   const start = clean.indexOf('{');
-  if (start === -1) throw new Error('JSON을 찾을 수 없습니다.');
+  if (start === -1) throw new Error('JSON을 찾을 수 없습니다');
   clean = clean.slice(start);
-
-  // 2차: 끝에서부터 } 찾아서 파싱 시도
-  let end = clean.length;
-  while (end > 0) {
-    const candidate = clean.slice(0, end);
-    const lastBrace = candidate.lastIndexOf('}');
-    if (lastBrace === -1) break;
-    try {
-      return JSON.parse(candidate.slice(0, lastBrace + 1));
-    } catch (e) {
-      end = lastBrace;
-    }
+  for (let end = clean.length; end > 0; ) {
+    const pos = clean.lastIndexOf('}', end - 1);
+    if (pos === -1) break;
+    try { return JSON.parse(clean.slice(0, pos + 1)); } catch (_) { end = pos; }
   }
-
-  // 3차: 잘린 배열 복구 - 마지막 완전한 객체 }까지 자르고 닫기
-  const tryFix = (str) => {
-    // 열린 배열/객체 카운트
-    let depth = 0;
-    let lastCompleteObj = -1;
+  // 잘린 배열 복구 (문자열 내부 괄호 무시)
+  const repairJSON = (str) => {
+    let depth = 0, lastComplete = -1, inStr = false, esc = false;
     for (let i = 0; i < str.length; i++) {
-      if (str[i] === '{') depth++;
-      if (str[i] === '}') {
-        depth--;
-        if (depth === 1) lastCompleteObj = i; // 최상위 배열 안의 완전한 객체
-      }
+      const c = str[i];
+      if (esc) { esc = false; continue; }
+      if (c === '\\' && inStr) { esc = true; continue; }
+      if (c === '"') { inStr = !inStr; continue; }
+      if (inStr) continue;
+      if (c === '{') depth++;
+      if (c === '}') { depth--; if (depth === 1) lastComplete = i; }
     }
-    if (lastCompleteObj > 0) {
-      // 마지막 완전한 객체 뒤에 ]} 붙이기
-      const truncated = str.slice(0, lastCompleteObj + 1);
-      // 열린 배열 닫기
-      const opens = (truncated.match(/\[/g) || []).length;
-      const closes = (truncated.match(/\]/g) || []).length;
-      const suffix = ']'.repeat(Math.max(0, opens - closes)) + '}';
-      try { return JSON.parse(truncated + suffix); } catch (e) {}
+    if (lastComplete === -1) return null;
+    const truncated = str.slice(0, lastComplete + 1);
+    let opens = 0, closes = 0, arrO = 0, arrC = 0;
+    inStr = false; esc = false;
+    for (const c of truncated) {
+      if (esc) { esc = false; continue; }
+      if (c === '\\' && inStr) { esc = true; continue; }
+      if (c === '"') { inStr = !inStr; continue; }
+      if (inStr) continue;
+      if (c === '{') opens++;
+      if (c === '}') closes++;
+      if (c === '[') arrO++;
+      if (c === ']') arrC++;
     }
-    return null;
+    const suffix = ']'.repeat(Math.max(0, arrO - arrC)) + '}'.repeat(Math.max(0, opens - closes));
+    try { return JSON.parse(truncated + suffix); } catch (_) { return null; }
   };
-
-  const fixed = tryFix(clean);
-  if (fixed) return fixed;
-
+  const repaired = repairJSON(clean);
+  if (repaired) return repaired;
   throw new Error('JSON 파싱 실패 (응답이 잘렸습니다)');
 };
 

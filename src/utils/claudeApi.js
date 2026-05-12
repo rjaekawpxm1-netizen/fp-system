@@ -12,40 +12,50 @@ import {
   getRFPDomainExpandPrompt,
 } from './systemPrompt';
 
-// JSON 안전 파싱 (잘림 방지)
+// JSON 안전 파싱 - 잘린 응답 완벽 복구
 const safeParseJSON = (text) => {
-  // 마크다운 제거
-  let clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
-
-  // 1차 시도
-  try { return JSON.parse(clean); } catch (e1) {}
-
-  // 2차: 마지막 완전한 객체까지
+  let clean = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+  try { return JSON.parse(clean); } catch (_) {}
   const start = clean.indexOf('{');
-  const end = clean.lastIndexOf('}');
-  if (start !== -1 && end !== -1) {
-    try { return JSON.parse(clean.slice(start, end + 1)); } catch (e2) {}
-
-    // 3차: 배열 마지막 완전한 항목까지
-    const lastComma = clean.lastIndexOf('},');
-    if (lastComma > 0) {
-      // functions 배열인지 확인
-      const prefix = clean.slice(start, lastComma + 1);
-      // 어떤 키인지 찾기
-      const keyMatch = prefix.match(/"(\w+)"\s*:\s*\[/);
-      if (keyMatch) {
-        const fixed = `{"${keyMatch[1]}":[${prefix.split('[').slice(1).join('[').slice(0, lastComma - prefix.indexOf('['))}]}`;
-        try { return JSON.parse(fixed); } catch (e3) {}
-      }
-      // 단순 배열 복구
-      const arrStart = clean.indexOf('[');
-      if (arrStart !== -1) {
-        const fixed2 = clean.slice(0, lastComma + 1) + ']}';
-        try { return JSON.parse(fixed2); } catch (e4) {}
-      }
-    }
+  if (start === -1) throw new Error('JSON 파싱 실패: JSON을 찾을 수 없습니다');
+  clean = clean.slice(start);
+  for (let end = clean.length; end > 0; ) {
+    const pos = clean.lastIndexOf('}', end - 1);
+    if (pos === -1) break;
+    try { return JSON.parse(clean.slice(0, pos + 1)); } catch (_) { end = pos; }
   }
-  throw new Error('JSON 파싱 실패: ' + text.slice(0, 100));
+  // 잘린 배열 복구
+  const repairJSON = (str) => {
+    let depth = 0, lastComplete = -1, inStr = false, escape = false;
+    for (let i = 0; i < str.length; i++) {
+      const c = str[i];
+      if (escape) { escape = false; continue; }
+      if (c === '\\' && inStr) { escape = true; continue; }
+      if (c === '"') { inStr = !inStr; continue; }
+      if (inStr) continue;
+      if (c === '{') depth++;
+      if (c === '}') { depth--; if (depth === 1) lastComplete = i; }
+    }
+    if (lastComplete === -1) return null;
+    const truncated = str.slice(0, lastComplete + 1);
+    let opens = 0, closes = 0, arrOpens = 0, arrCloses = 0;
+    inStr = false; escape = false;
+    for (const c of truncated) {
+      if (escape) { escape = false; continue; }
+      if (c === '\\' && inStr) { escape = true; continue; }
+      if (c === '"') { inStr = !inStr; continue; }
+      if (inStr) continue;
+      if (c === '{') opens++;
+      if (c === '}') closes++;
+      if (c === '[') arrOpens++;
+      if (c === ']') arrCloses++;
+    }
+    const suffix = ']'.repeat(Math.max(0, arrOpens - arrCloses)) + '}'.repeat(Math.max(0, opens - closes));
+    try { return JSON.parse(truncated + suffix); } catch (_) { return null; }
+  };
+  const repaired = repairJSON(clean);
+  if (repaired) return repaired;
+  throw new Error('JSON 파싱 실패: 응답이 잘렸거나 형식이 올바르지 않습니다');
 };
 
 // 텍스트 API 호출
@@ -127,13 +137,13 @@ export const generateFunctions = async (systemInfo, keyword) => {
 };
 
 // ============================================================
-// FP 산정 (청크당 2000)
+// FP 산정 (청크당 4000 - 잘림 방지)
 // ============================================================
 export const generateFPList = async (functions) => {
-  const CHUNK = 25;
+  const CHUNK = 20;  // 청크 크기 줄여서 안정성 향상
   if (functions.length <= CHUNK) {
     const prompt = getFPPrompt(functions);
-    const result = await callClaude(prompt, 2000);
+    const result = await callClaude(prompt, 4000);
     return result.fpList || [];
   }
 
@@ -141,7 +151,7 @@ export const generateFPList = async (functions) => {
   for (let i = 0; i < functions.length; i += CHUNK) {
     const chunk = functions.slice(i, i + CHUNK);
     const prompt = getFPPrompt(chunk);
-    const result = await callClaude(prompt, 2000);
+    const result = await callClaude(prompt, 4000);
     allFP = [...allFP, ...(result.fpList || [])];
   }
   return allFP;
