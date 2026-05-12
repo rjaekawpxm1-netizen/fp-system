@@ -153,3 +153,65 @@ ${reqs}
 
 {"functions":[{"lv1":"","lv2":"","lv3":"","definition":"","fromReq":""}]}`;
 };
+
+// ══════════════════════════════════════════════════════════════
+// RFP → 100개 기능목록 생성 파이프라인 프롬프트
+// ══════════════════════════════════════════════════════════════
+
+// 2단계: 청크에서 원문 요구사항 수집
+export const getRFPChunkCollectPrompt = (chunkText, chunkIdx) => `
+SW사업 BA전문가. RFP 청크에서 요구사항 항목을 원문 그대로 수집. JSON만.
+
+수집 대상 (형식 무관):
+- 코드형: FR-xxx, CNR-xxx, REQ-xxx, SFR-xxx, NFR-xxx, 1.1, 2.3.1 등
+- 서술형: "~해야 한다", "~기능을 제공", "~구현", "~처리", "~관리"
+- 업무명: 등록, 조회, 수정, 삭제, 승인, 반려, 처리, 분석, 보고 등이 포함된 문장
+
+제외: 사업 일정, 제안서 양식, 평가기준, 납품물 목록
+
+RFP 청크 ${chunkIdx}:
+${chunkText}
+
+{"requirements":["요구사항 원문1","요구사항 원문2"]}
+`;
+
+// 3단계: 수집된 요구사항 → 도메인(LV1) 분류
+export const getRFPDomainPrompt = (requirements, systemName, overview) => `
+SW사업 BA전문가. 수집된 요구사항을 업무 도메인(LV1)으로 분류. JSON만.
+
+시스템명: ${systemName}
+개요: ${overview}
+
+요구사항 목록:
+${requirements.slice(0, 60).map((r, i) => `${i + 1}. ${r}`).join('\n')}
+
+규칙:
+- LV1은 5~8개 (업무 대분류)
+- 공통기능은 반드시 포함 (사용자/권한/시스템)
+- ISP/컨설팅이면 분석관리, 전략관리 등도 포함
+- 각 도메인에 해당 요구사항 번호 매핑
+
+{"systemName":"","overview":"","domains":[{"lv1":"업무영역명","description":"영역 설명","requirements":["관련 요구사항 원문"],"expectedLv2":["예상 LV2 목록"]}]}
+`;
+
+// 4단계: 도메인별 기능 확장 (CRUD 완전 적용)
+export const getRFPDomainExpandPrompt = (domain, systemName) => `
+SW사업 BA전문가. 업무 도메인의 기능목록을 완전하게 생성. JSON만.
+
+시스템명: ${systemName}
+도메인(LV1): ${domain.lv1}
+도메인 설명: ${domain.description}
+관련 요구사항:
+${(domain.requirements || []).slice(0, 15).join('\n')}
+예상 LV2: ${(domain.expectedLv2 || []).join(', ')}
+
+생성 규칙:
+1. LV2는 4~6개 생성
+2. 각 LV2마다 LV3 최소 5개 (등록/수정/삭제/목록조회/상세조회 기본 + 업무특화 추가)
+3. 승인/반려/처리/확정 등 업무흐름 LV3 별도 생성
+4. 집계/통계/보고서 기능도 포함
+5. definition은 "~을 ~한다" 형식 15자 이내
+6. 최소 25개 이상 생성 필수
+
+{"functions":[{"lv1":"${domain.lv1}","lv2":"","lv3":"","definition":""}]}
+`;

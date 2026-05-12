@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
-import { generateFunctions, generateFPList, parseDocument, parseSystemInfo, generateISPSection, parseRFPLarge } from '../utils/claudeApi';
+import { generateFunctions, generateFPList, parseDocument, parseSystemInfo, generateISPSection, parseRFPLarge, parseRFPFull } from '../utils/claudeApi';
 import { getWeight, getAvgWeight, getComplexity, getComplexityLabel, calcTotalFP, getChangePct, getFuncChangePct, getImpactFactor } from '../utils/fpCalculator';
 import { getRFPParsePrompt, getValidationPrompt, getRegenFromReqPrompt, getQualityCheckPrompt, getFPValidationPrompt, getISPDraftPrompt } from '../utils/systemPrompt';
 import mammoth from 'mammoth';
@@ -200,6 +200,10 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
   const [ispLoading, setIspLoading] = useState(false);
   const [ispLoadingSection, setIspLoadingSection] = useState("");
   const [ispEditMode, setIspEditMode] = useState(false);
+  // RFP 파싱 진행률
+  const [rfpParseStep, setRfpParseStep] = useState(0);   // 1~4
+  const [rfpParseMsg, setRfpParseMsg] = useState('');
+  const [rfpParsePct, setRfpParsePct] = useState(0);
   // 기능 품질 검증 state
   const [qualityResult, setQualityResult] = useState(project?.qualityResult || null);
   const [qualityLoading, setQualityLoading] = useState(false);
@@ -456,13 +460,16 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
     if (!file) return;
     e.target.value = '';
     setLoading(true);
+    setRfpParseStep(0);
+    setRfpParsePct(0);
+    setRfpParseMsg('RFP 파일 읽는 중...');
     setLoadingMsg('RFP 파일 읽는 중...');
     try {
       let text = '';
-      let imageFile = null;
 
       if (isImageFile(file)) {
-        imageFile = file;
+        alert('이미지 RFP는 현재 지원하지 않습니다. PDF 또는 Word 파일로 업로드해주세요.');
+        return;
       } else if (file.name.endsWith('.pdf')) {
         text = await extractPdfText(file);
       } else if (file.name.endsWith('.docx')) {
@@ -474,81 +481,68 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
         const wb = XLSX.read(arrayBuffer);
         const ws = wb.Sheets[wb.SheetNames[0]];
         text = XLSX.utils.sheet_to_csv(ws);
+      } else if (file.name.endsWith('.txt')) {
+        text = await file.text();
       } else {
-        throw new Error('HWP 파일은 PDF로 변환 후 업로드해주세요. (한글 → 다른 이름으로 저장 → PDF)');
+        throw new Error('HWP는 PDF로 변환 후 업로드해주세요. (한글 → 다른 이름으로 저장 → PDF)');
       }
 
-      // RFP 전체 텍스트 저장 (최대 15000자, ISP 계획서 생성에도 활용)
-      const rfpFull = text.slice(0, 15000);
+      if (!text || text.trim().length < 50) {
+        throw new Error('문서에서 텍스트를 추출할 수 없습니다. 스캔본 PDF는 텍스트 추출이 안 됩니다.');
+      }
+
+      const rfpFull = text.slice(0, 20000);
       setRfpText(rfpFull);
       saveProject({ rfpText: rfpFull });
 
-      // 1단계: 시스템 정보 추출
-      setLoadingMsg('RFP에서 사업명/개요 추출 중...');
-      const info = await parseSystemInfo(text.slice(0, 2000), imageFile);
-      if (info.systemName) setSystemName(info.systemName);
-      if (info.overview)   setSystemOverview(info.overview);
+      const result = await parseRFPFull(text, (step, msg, pct) => {
+        setRfpParseStep(step);
+        setRfpParseMsg(msg);
+        setRfpParsePct(pct);
+        setLoadingMsg(msg);
+      });
 
-      // 2단계: 대용량 RFP 청크 처리 (3000자 제한 우회)
-      let funcs = [];
-      if (text.length > 3000) {
-        setLoadingMsg(`RFP 분석 중... (대용량 문서 청크 처리)`);
-        const parsed = await parseRFPLarge(text);
-        funcs = parsed.functions || [];
-        if (!info.systemName && parsed.systemName) setSystemName(parsed.systemName);
-        if (!info.overview && parsed.overview) setSystemOverview(parsed.overview);
-      } else {
-        setLoadingMsg('RFP에서 기능요구사항 추출 중...');
-        const prompt = getRFPParsePrompt(text);
-        const response = await fetch('/api/claude', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ max_tokens: 2000, messages: [{ role: 'user', content: prompt }] }),
-        });
-        const data = await response.json();
-        if (data.error) throw new Error(data.error.message || 'API 오류');
-        const resText = data.content?.map(c => c.type === 'text' ? c.text : '').join('') || '';
-        const parsed = safeParseJSON(resText);
-        funcs = parsed.functions || [];
-      }
+      if (result.systemName) setSystemName(result.systemName);
+      if (result.overview)   setSystemOverview(result.overview);
 
-      // 후처리: LV3에서 영어 코드 제거
-      funcs = funcs
-        .filter(f => f.lv3 && f.lv1 && f.lv2)
-        .map(f => ({
-          ...f,
-          lv3: f.lv3
-            .replace(/^[A-Z]{2,}-\d+[-\w]*:\s*/i, '')
-            .replace(/^[A-Z]{2,}-\d+\s*/i, '')
-            .trim(),
-          definition: f.definition || `${f.lv3}을 처리한다`,
-        }))
-        .filter(f => f.lv3.trim().length > 0);
+      let funcs = result.functions || [];
 
-      // 기능이 너무 적으면 공통기능이라도 기본 생성
-      if (funcs.length === 0) {
-        const sysName = info.systemName || systemName || '시스템';
-        funcs = [
+      if (funcs.length < 10) {
+        const fallback = [
           { lv1:'공통기능', lv2:'사용자관리', lv3:'사용자 등록', definition:'사용자 정보를 등록한다' },
+          { lv1:'공통기능', lv2:'사용자관리', lv3:'사용자 수정', definition:'사용자 정보를 수정한다' },
+          { lv1:'공통기능', lv2:'사용자관리', lv3:'사용자 삭제', definition:'사용자 정보를 삭제한다' },
           { lv1:'공통기능', lv2:'사용자관리', lv3:'사용자 목록조회', definition:'사용자 목록을 조회한다' },
+          { lv1:'공통기능', lv2:'사용자관리', lv3:'사용자 상세조회', definition:'사용자 상세 정보를 조회한다' },
           { lv1:'공통기능', lv2:'권한관리', lv3:'권한 등록', definition:'권한 정보를 등록한다' },
           { lv1:'공통기능', lv2:'권한관리', lv3:'권한 목록조회', definition:'권한 목록을 조회한다' },
-          { lv1:'공통기능', lv2:'시스템관리', lv3:'코드 관리', definition:'공통코드를 관리한다' },
+          { lv1:'공통기능', lv2:'시스템관리', lv3:'공통코드 관리', definition:'공통코드를 관리한다' },
+          { lv1:'공통기능', lv2:'시스템관리', lv3:'메뉴 관리', definition:'메뉴 정보를 관리한다' },
+          { lv1:'공통기능', lv2:'시스템관리', lv3:'시스템 로그 조회', definition:'시스템 로그를 조회한다' },
         ];
-        alert(`⚠️ RFP에서 요구사항을 자동 추출하지 못했습니다.\n공통기능 5개를 기본 생성했습니다.\n\n직접 기능을 추가하거나, 시스템개요 탭에서 "AI 자동 생성"을 이용해주세요.`);
+        const existingKeys = new Set(funcs.map(f => `${f.lv1}|${f.lv2}|${f.lv3}`));
+        funcs = [...funcs, ...fallback.filter(f => !existingKeys.has(`${f.lv1}|${f.lv2}|${f.lv3}`))];
       }
 
       const withId = funcs.map((f, i) => ({ ...f, id: Date.now() + i }));
       setFunctions(withId);
-      saveProject({ functions: withId, systemName: info.systemName || systemName, systemOverview: info.overview || systemOverview });
+      saveProject({
+        functions: withId,
+        systemName: result.systemName || systemName,
+        systemOverview: result.overview || systemOverview,
+      });
       setUploadedFuncFileName(file.name + ' (RFP)');
+      setRfpParseStep(0);
       setTab('functions');
-      alert(`✅ RFP 분석 완료!\n기능요구사항 ${withId.length}개를 기능목록으로 변환했습니다.\n\n💡 'ISP계획서' 탭에서 정보화전략계획서 초안을 자동 생성할 수 있습니다.`);
+      alert(`✅ RFP 분석 완료!\n총 ${withId.length}개 기능목록 생성\n\n💡 불필요한 기능을 삭제하거나 추가 후 FP 산정으로 이동하세요.`);
     } catch (err) {
       alert('RFP 파싱 오류: ' + err.message);
     } finally {
       setLoading(false);
       setLoadingMsg('');
+      setRfpParseStep(0);
+      setRfpParsePct(0);
+      setRfpParseMsg('');
     }
   };
 
@@ -1368,10 +1362,49 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
         {/* 로딩 오버레이 */}
         {loading && (
           <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center'}}>
-            <div style={{background:'#fff',borderRadius:14,padding:'28px 36px',textAlign:'center',maxWidth:320}}>
-              <div style={{fontSize:28,marginBottom:12}}>⚙️</div>
-              <div style={{fontSize:14,fontWeight:700,color:'#111827',marginBottom:6}}>AI 처리 중</div>
-              <div style={{fontSize:13,color:'#6b7280'}}>{loadingMsg||'잠시만 기다려주세요...'}</div>
+            <div style={{background:'#fff',borderRadius:14,padding:'28px 36px',textAlign:'center',maxWidth:380,width:'90%'}}>
+              {rfpParseStep > 0 ? (
+                // RFP 4단계 파이프라인 진행률
+                <>
+                  <div style={{fontSize:28,marginBottom:10}}>📄</div>
+                  <div style={{fontSize:15,fontWeight:700,color:'#1e3a8a',marginBottom:4}}>RFP 분석 중...</div>
+                  <div style={{fontSize:12,color:'#6b7280',marginBottom:16,minHeight:18}}>{rfpParseMsg}</div>
+                  {/* 진행바 */}
+                  <div style={{background:'#e5e7eb',borderRadius:99,height:8,marginBottom:14,overflow:'hidden'}}>
+                    <div style={{background:'linear-gradient(90deg,#1d4ed8,#3b82f6)',height:'100%',borderRadius:99,width:`${rfpParsePct}%`,transition:'width 0.4s ease'}}/>
+                  </div>
+                  {/* 4단계 표시 */}
+                  <div style={{display:'flex',justifyContent:'space-between',gap:4}}>
+                    {[
+                      {n:1,label:'정보추출'},
+                      {n:2,label:'요구사항수집'},
+                      {n:3,label:'도메인분류'},
+                      {n:4,label:'기능확장'},
+                    ].map(s => (
+                      <div key={s.n} style={{flex:1,textAlign:'center'}}>
+                        <div style={{
+                          width:28,height:28,borderRadius:'50%',margin:'0 auto 4px',
+                          display:'flex',alignItems:'center',justifyContent:'center',
+                          fontSize:12,fontWeight:700,
+                          background: rfpParseStep > s.n ? '#16a34a' : rfpParseStep === s.n ? '#1d4ed8' : '#e5e7eb',
+                          color: rfpParseStep >= s.n ? '#fff' : '#9ca3af',
+                        }}>
+                          {rfpParseStep > s.n ? '✓' : s.n}
+                        </div>
+                        <div style={{fontSize:9,color: rfpParseStep >= s.n ? '#1d4ed8':'#9ca3af',fontWeight: rfpParseStep===s.n?700:400}}>{s.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{fontSize:11,color:'#9ca3af',marginTop:12}}>약 1~3분 소요됩니다</div>
+                </>
+              ) : (
+                // 일반 로딩
+                <>
+                  <div style={{fontSize:28,marginBottom:12}}>⚙️</div>
+                  <div style={{fontSize:14,fontWeight:700,color:'#111827',marginBottom:6}}>AI 처리 중</div>
+                  <div style={{fontSize:13,color:'#6b7280'}}>{loadingMsg||'잠시만 기다려주세요...'}</div>
+                </>
+              )}
             </div>
           </div>
         )}

@@ -289,3 +289,147 @@ export const parseRFPLarge = async (text) => {
 
   return { ...systemInfo, functions: deduped };
 };
+
+// ══════════════════════════════════════════════════════════════
+// RFP → 100개 기능목록 4단계 파이프라인
+// ══════════════════════════════════════════════════════════════
+import {
+  getRFPChunkCollectPrompt,
+  getRFPDomainPrompt,
+  getRFPDomainExpandPrompt,
+} from './systemPrompt';
+
+// 내부 JSON 파싱 헬퍼
+const parseJSON = (text) => {
+  let clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
+  const s = clean.indexOf('{'), e = clean.lastIndexOf('}');
+  if (s !== -1 && e !== -1) {
+    try { return JSON.parse(clean.slice(s, e + 1)); } catch (_) {}
+  }
+  // 잘린 배열 복구
+  const arrEnd = clean.lastIndexOf('},');
+  if (arrEnd > 0) {
+    const partial = clean.slice(0, arrEnd + 1);
+    const opens = (partial.match(/\[/g) || []).length;
+    const closes = (partial.match(/\]/g) || []).length;
+    try { return JSON.parse(partial + ']'.repeat(Math.max(0, opens - closes)) + '}'); } catch (_) {}
+  }
+  throw new Error('JSON 파싱 실패');
+};
+
+// 단계별 진행 콜백 타입: (step, message, progress) => void
+export const parseRFPFull = async (text, onProgress) => {
+  const report = (step, msg, pct) => onProgress && onProgress(step, msg, pct);
+
+  // ── 1단계: 시스템 정보 추출 ──────────────────────────────
+  report(1, 'RFP에서 사업명/개요 추출 중...', 5);
+  let systemName = '', overview = '';
+  try {
+    const infoPrompt = `아래 문서에서 시스템 정보 추출. JSON만:\n${text.slice(0, 2000)}\n{"systemName":"","overview":"","projectType":"ISP또는SW개발또는컨설팅"}`;
+    const infoText = await callClaudeText(infoPrompt, 800);
+    const info = parseJSON(infoText);
+    systemName = info.systemName || '';
+    overview = info.overview || '';
+  } catch (e) { console.warn('시스템정보 추출 실패:', e.message); }
+
+  // ── 2단계: 청크별 요구사항 수집 ──────────────────────────
+  report(2, 'RFP 전체 분석 중... (청크 분할)', 10);
+  const CHUNK_SIZE = 2500;
+  const MAX_TEXT = 20000;
+  const chunks = [];
+  const bounded = text.slice(0, MAX_TEXT);
+  for (let i = 0; i < bounded.length; i += CHUNK_SIZE) {
+    chunks.push(bounded.slice(i, i + CHUNK_SIZE));
+  }
+
+  let allRequirements = [];
+  for (let i = 0; i < chunks.length; i++) {
+    report(2, `요구사항 수집 중... (${i + 1}/${chunks.length} 청크)`, 10 + Math.round((i / chunks.length) * 25));
+    try {
+      const prompt = getRFPChunkCollectPrompt(chunks[i], i + 1);
+      const resText = await callClaudeText(prompt, 1500);
+      const parsed = parseJSON(resText);
+      const reqs = (parsed.requirements || []).filter(r => r && r.length > 5);
+      allRequirements = [...allRequirements, ...reqs];
+    } catch (e) { console.warn(`청크 ${i + 1} 수집 실패:`, e.message); }
+  }
+
+  // 중복 제거
+  allRequirements = [...new Set(allRequirements)].slice(0, 80);
+  report(2, `요구사항 ${allRequirements.length}개 수집 완료`, 35);
+
+  // 수집 실패 시 텍스트에서 직접 라인 추출
+  if (allRequirements.length < 5) {
+    const lines = text.split('\n')
+      .map(l => l.trim())
+      .filter(l => l.length > 10 && l.length < 200)
+      .filter(l => /관리|기능|처리|등록|조회|수정|삭제|승인|분석|수행|제공|구현/.test(l))
+      .slice(0, 40);
+    allRequirements = [...allRequirements, ...lines];
+  }
+
+  // ── 3단계: 도메인 분류 ───────────────────────────────────
+  report(3, '업무 도메인 분류 중...', 40);
+  let domains = [];
+  try {
+    const domainPrompt = getRFPDomainPrompt(allRequirements, systemName, overview);
+    const domainText = await callClaudeText(domainPrompt, 2000);
+    const domainParsed = parseJSON(domainText);
+    domains = domainParsed.domains || [];
+    if (domainParsed.systemName && !systemName) systemName = domainParsed.systemName;
+    if (domainParsed.overview && !overview) overview = domainParsed.overview;
+  } catch (e) { console.warn('도메인 분류 실패:', e.message); }
+
+  // 도메인 분류 실패 시 기본 도메인 구성
+  if (domains.length === 0) {
+    domains = [
+      { lv1: '업무관리', description: '핵심 업무 처리', requirements: allRequirements.slice(0, 10), expectedLv2: [] },
+      { lv1: '현황관리', description: '현황 조회 및 분석', requirements: allRequirements.slice(10, 20), expectedLv2: [] },
+      { lv1: '보고서관리', description: '보고서 및 통계', requirements: allRequirements.slice(20, 30), expectedLv2: [] },
+      { lv1: '공통기능', description: '사용자/권한/시스템', requirements: [], expectedLv2: ['사용자관리', '권한관리', '시스템관리'] },
+    ];
+  }
+
+  report(3, `도메인 ${domains.length}개 확인 완료`, 45);
+
+  // ── 4단계: 도메인별 기능 확장 (순차 호출) ───────────────
+  let allFunctions = [];
+  for (let i = 0; i < domains.length; i++) {
+    const domain = domains[i];
+    report(4, `[${i + 1}/${domains.length}] "${domain.lv1}" 기능 확장 중...`, 45 + Math.round((i / domains.length) * 50));
+    try {
+      const expandPrompt = getRFPDomainExpandPrompt(domain, systemName);
+      const expandText = await callClaudeText(expandPrompt, 3000);
+      const expandParsed = parseJSON(expandText);
+      const funcs = (expandParsed.functions || [])
+        .filter(f => f.lv1 && f.lv2 && f.lv3)
+        .map(f => ({
+          ...f,
+          lv1: domain.lv1, // 도메인명 고정
+          lv3: f.lv3
+            .replace(/^[A-Z]{2,}-\d+[-\w]*:\s*/i, '')
+            .replace(/^[A-Z]{2,}-\d+\s*/i, '')
+            .trim(),
+          definition: f.definition || `${f.lv3}을 처리한다`,
+        }))
+        .filter(f => f.lv3.length > 0);
+      allFunctions = [...allFunctions, ...funcs];
+      report(4, `"${domain.lv1}" ${funcs.length}개 생성 완료`, 45 + Math.round(((i + 1) / domains.length) * 50));
+    } catch (e) {
+      console.warn(`도메인 "${domain.lv1}" 확장 실패:`, e.message);
+    }
+  }
+
+  // ── 후처리: 중복 제거 ────────────────────────────────────
+  report(4, '중복 제거 및 정리 중...', 96);
+  const seen = new Set();
+  const deduped = allFunctions.filter(f => {
+    const key = `${f.lv1}|${f.lv2}|${f.lv3}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  report(4, `완료! 총 ${deduped.length}개 기능 생성`, 100);
+  return { systemName, overview, functions: deduped };
+};
