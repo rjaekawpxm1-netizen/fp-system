@@ -41,7 +41,7 @@ const ProjectList = ({ projects, onCreateProject, onDeleteProject, onCopyProject
   const totalFuncs = projects.reduce((sum, p) => sum + (p.functions || []).length, 0);
   const totalDevCost = Math.round(totalFP * 605784);
 
-  const btnPrimary = { background:'#111827', color:'#fff', border:'none', borderRadius:7, padding:'8px 14px', fontSize:12, fontWeight:600, cursor:'pointer' };
+  const btnPrimary = { background:'#1d4ed8', color:'#fff', border:'none', borderRadius:7, padding:'8px 14px', fontSize:12, fontWeight:600, cursor:'pointer' };
   const btnSecondary = { background:'#fff', color:'#374151', border:'1px solid #e5e7eb', borderRadius:7, padding:'8px 12px', fontSize:12, cursor:'pointer' };
   const btnDanger = { background:'#fff1f2', color:'#e11d48', border:'1px solid #fecdd3', borderRadius:7, padding:'8px 12px', fontSize:12, cursor:'pointer' };
   const card = { background:'#fff', border:'1px solid #e5e7eb', borderRadius:12 };
@@ -50,25 +50,25 @@ const ProjectList = ({ projects, onCreateProject, onDeleteProject, onCopyProject
     <div style={{ minHeight:'100vh', background:'#f5f4f0', fontFamily:"'Pretendard',-apple-system,'Malgun Gothic',sans-serif" }}>
 
       {/* 헤더 */}
-      <div style={{ background:'#111318', borderBottom:'1px solid rgba(255,255,255,0.06)', padding:'0 32px', height:52, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+      <div style={{ background:'#1e3a8a', borderBottom:'1px solid rgba(255,255,255,0.06)', padding:'0 32px', height:52, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
           <div style={{ width:28, height:28, background:'#3b6cf8', borderRadius:6, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800, color:'#fff' }}>BA</div>
           <span style={{ color:'#fff', fontWeight:700, fontSize:14 }}>BA 도우미</span>
-          <span style={{ color:'#4b5563', fontSize:10, padding:'2px 7px', background:'rgba(255,255,255,0.05)', borderRadius:4 }}>2025 SW사업 대가산정 가이드</span>
+          <span style={{ color:'rgba(255,255,255,0.5)', fontSize:10, padding:'2px 7px', background:'rgba(255,255,255,0.05)', borderRadius:4 }}>2025 SW사업 대가산정 가이드</span>
         </div>
-        <button onClick={()=>navigate('/')} style={{ ...btnSecondary, border:'1px solid rgba(255,255,255,0.1)', background:'transparent', color:'#6b7280', fontSize:11, padding:'5px 10px' }}>← 홈</button>
+        <button onClick={()=>navigate('/')} style={{ ...btnSecondary, border:'1px solid rgba(255,255,255,0.1)', background:'transparent', color:'rgba(255,255,255,0.6)', fontSize:11, padding:'5px 10px' }}>← 홈</button>
       </div>
 
       <div style={{ maxWidth:1060, margin:'0 auto', padding:'24px 20px' }}>
 
         {/* 히어로 */}
-        <div style={{ background:'#111318', borderRadius:14, padding:'26px 30px', marginBottom:18, position:'relative', overflow:'hidden' }}>
+        <div style={{ background:'#1e3a8a', borderRadius:14, padding:'26px 30px', marginBottom:18, position:'relative', overflow:'hidden' }}>
           <div style={{ position:'absolute', right:-60, top:-60, width:200, height:200, background:'rgba(59,108,248,0.07)', borderRadius:'50%' }}/>
           <div style={{ position:'absolute', right:60, bottom:-70, width:150, height:150, background:'rgba(59,108,248,0.04)', borderRadius:'50%' }}/>
           <div style={{ position:'relative', display:'flex', justifyContent:'space-between', alignItems:'center', gap:20, flexWrap:'wrap' }}>
             <div>
               <h1 style={{ margin:'0 0 5px', fontSize:20, fontWeight:800, color:'#fff', letterSpacing:'-0.5px' }}>SW사업 BA 도우미</h1>
-              <p style={{ margin:'0 0 16px', fontSize:12, color:'#6b7280', lineHeight:1.6 }}>기능점수 산정 · 개발비 산출 · AI 기반 자동 산출물 생성</p>
+              <p style={{ margin:'0 0 16px', fontSize:12, color:'rgba(255,255,255,0.6)', lineHeight:1.6 }}>기능점수 산정 · 개발비 산출 · AI 기반 자동 산출물 생성</p>
               <div style={{ display:'flex', gap:8 }}>
                 <button onClick={()=>setShowForm(true)} style={{ background:'#3b6cf8', color:'#fff', border:'none', borderRadius:7, padding:'8px 16px', fontSize:13, fontWeight:700, cursor:'pointer' }}>+ 새 프로젝트</button>
                 <div style={{ display:'flex', border:'1px solid rgba(255,255,255,0.1)', borderRadius:7, overflow:'hidden' }}>
@@ -82,8 +82,8 @@ const ProjectList = ({ projects, onCreateProject, onDeleteProject, onCopyProject
               <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
                 {[['프로젝트',projects.length,'개'],['총 기능',totalFuncs.toLocaleString(),'개'],['총 FP',totalFP.toFixed(0),'FP'],['개발비',(totalDevCost/100000000).toFixed(1),'억']].map(([l,v,u])=>(
                   <div key={l} style={{ background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.07)', borderRadius:10, padding:'11px 14px', textAlign:'center', minWidth:68 }}>
-                    <div style={{ fontSize:17, fontWeight:800, color:'#fff', lineHeight:1 }}>{v}<span style={{ fontSize:10, fontWeight:400, color:'#6b7280' }}>{u}</span></div>
-                    <div style={{ fontSize:10, color:'#4b5563', marginTop:3 }}>{l}</div>
+                    <div style={{ fontSize:17, fontWeight:800, color:'#fff', lineHeight:1 }}>{v}<span style={{ fontSize:10, fontWeight:400, color:'rgba(255,255,255,0.6)' }}>{u}</span></div>
+                    <div style={{ fontSize:10, color:'rgba(255,255,255,0.5)', marginTop:3 }}>{l}</div>
                   </div>
                 ))}
               </div>
@@ -137,8 +137,8 @@ const ProjectList = ({ projects, onCreateProject, onDeleteProject, onCopyProject
                   const pct = projects.length>0?Math.round(done/projects.length*100):0;
                   return (
                     <div key={label} style={{ background:'#f9fafb', borderRadius:7, padding:'9px', textAlign:'center' }}>
-                      <div style={{ fontSize:15, fontWeight:800, color:pct>0?'#111827':'#d1d5db' }}>{done}<span style={{ fontSize:9, color:'#9ca3af' }}>/{projects.length}</span></div>
-                      <div style={{ fontSize:9, color:'#6b7280', margin:'2px 0 5px' }}>{label}</div>
+                      <div style={{ fontSize:15, fontWeight:800, color:pct>0?'#111827':'#d1d5db' }}>{done}<span style={{ fontSize:9, color:'rgba(255,255,255,0.7)' }}>/{projects.length}</span></div>
+                      <div style={{ fontSize:9, color:'rgba(255,255,255,0.6)', margin:'2px 0 5px' }}>{label}</div>
                       <div style={{ background:'#e5e7eb', borderRadius:20, height:3, overflow:'hidden' }}>
                         <div style={{ width:pct+'%', height:'100%', background:pct===100?'#10b981':pct>0?'#f59e0b':'transparent', borderRadius:20 }}/>
                       </div>
@@ -156,12 +156,12 @@ const ProjectList = ({ projects, onCreateProject, onDeleteProject, onCopyProject
             <div style={{ ...card, padding:'60px 40px', textAlign:'center', border:'2px dashed #e5e7eb' }}>
               <div style={{ fontSize:36, marginBottom:10 }}>📋</div>
               <p style={{ fontSize:15, fontWeight:700, color:'#111827', marginBottom:5 }}>아직 프로젝트가 없습니다</p>
-              <p style={{ fontSize:12, color:'#9ca3af', marginBottom:18 }}>새 프로젝트를 만들어 시작하세요</p>
+              <p style={{ fontSize:12, color:'rgba(255,255,255,0.7)', marginBottom:18 }}>새 프로젝트를 만들어 시작하세요</p>
               <button onClick={()=>setShowForm(true)} style={{ ...btnPrimary, padding:'9px 22px', fontSize:13 }}>+ 첫 프로젝트 만들기</button>
             </div>
           ) : (
             <div>
-              <p style={{ fontSize:11, color:'#9ca3af', margin:'0 0 10px' }}>총 {projects.length}개 프로젝트</p>
+              <p style={{ fontSize:11, color:'rgba(255,255,255,0.7)', margin:'0 0 10px' }}>총 {projects.length}개 프로젝트</p>
               <div style={{ display:'flex', flexDirection:'column', gap:7 }}>
                 {projects.map(project=>{
                   const progress = calcProgress(project);
@@ -219,8 +219,8 @@ const ProjectList = ({ projects, onCreateProject, onDeleteProject, onCopyProject
         )}
 
         <div style={{ marginTop:28, paddingTop:14, borderTop:'1px solid #e5e7eb', display:'flex', justifyContent:'space-between' }}>
-          <p style={{ fontSize:10, color:'#9ca3af', margin:0 }}>BA 도우미 · 2025 SW사업 대가산정 가이드 · FP 단가 605,784원</p>
-          <p style={{ fontSize:10, color:'#9ca3af', margin:0 }}>Powered by Claude AI</p>
+          <p style={{ fontSize:10, color:'rgba(255,255,255,0.7)', margin:0 }}>BA 도우미 · 2025 SW사업 대가산정 가이드 · FP 단가 605,784원</p>
+          <p style={{ fontSize:10, color:'rgba(255,255,255,0.7)', margin:0 }}>Powered by Claude AI</p>
         </div>
       </div>
     </div>

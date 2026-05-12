@@ -1029,31 +1029,31 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
   );
 
   const S = {
-    wrap: { display:'flex', minHeight:'100vh', background:'#f5f4f0', fontFamily:"'Pretendard', -apple-system, 'Malgun Gothic', sans-serif" },
-    sidebar: { width:200, flexShrink:0, background:'#111318', display:'flex', flexDirection:'column', position:'sticky', top:0, height:'100vh', overflowY:'auto' },
-    sidebarLogo: { padding:'18px 16px 14px', borderBottom:'1px solid rgba(255,255,255,0.06)' },
+    wrap: { display:'flex', minHeight:'100vh', background:'#f0f4ff', fontFamily:"'Pretendard', -apple-system, 'Malgun Gothic', sans-serif" },
+    sidebar: { width:200, flexShrink:0, background:'#1e3a8a', display:'flex', flexDirection:'column', position:'sticky', top:0, height:'100vh', overflowY:'auto' },
+    sidebarLogo: { padding:'18px 16px 14px', borderBottom:'1px solid rgba(255,255,255,0.12)' },
     sidebarSection: { padding:'14px 10px 6px' },
-    sidebarLabel: { color:'#4b5563', fontSize:9, fontWeight:700, letterSpacing:'0.8px', textTransform:'uppercase', padding:'0 8px', marginBottom:4, display:'block' },
-    navItem: (active) => ({ display:'flex', alignItems:'center', gap:8, padding:'7px 8px', borderRadius:6, cursor:'pointer', color: active?'#93b4fd':'#6b7280', fontSize:12, fontWeight: active?600:400, background: active?'rgba(59,108,248,0.12)':'transparent', marginBottom:1 }),
-    navDot: (active) => ({ width:5, height:5, borderRadius:'50%', background: active?'#3b6cf8':'currentColor', opacity: active?1:0.4, flexShrink:0 }),
+    sidebarLabel: { color:'rgba(255,255,255,0.45)', fontSize:9, fontWeight:700, letterSpacing:'0.8px', textTransform:'uppercase', padding:'0 8px', marginBottom:4, display:'block' },
+    navItem: (active) => ({ display:'flex', alignItems:'center', gap:8, padding:'7px 8px', borderRadius:6, cursor:'pointer', color: active?'#fff':'rgba(255,255,255,0.6)', fontSize:12, fontWeight: active?600:400, background: active?'rgba(255,255,255,0.15)':'transparent', marginBottom:1 }),
+    navDot: (active) => ({ width:5, height:5, borderRadius:'50%', background: active?'#93c5fd':'rgba(255,255,255,0.3)', flexShrink:0 }),
     main: { flex:1, display:'flex', flexDirection:'column', minWidth:0 },
-    topbar: { background:'#fff', borderBottom:'1px solid #e5e7eb', padding:'0 24px', height:50, display:'flex', alignItems:'center', justifyContent:'space-between', position:'sticky', top:0, zIndex:50 },
-    breadcrumb: { display:'flex', alignItems:'center', gap:6, fontSize:12 },
-    tabbar: { background:'#fff', borderBottom:'1px solid #e5e7eb', padding:'0 24px', display:'flex', alignItems:'center', overflowX:'auto' },
-    tab: (active, disabled) => ({ display:'flex', alignItems:'center', gap:5, padding:'11px 14px', fontSize:12, fontWeight: active?600:400, color: active?'#111827': disabled?'#d1d5db':'#9ca3af', cursor: disabled?'not-allowed':'pointer', borderBottom: active?'2px solid #111827':'2px solid transparent', whiteSpace:'nowrap', flexShrink:0, marginBottom:-1, background:'none', border:'none', borderBottomStyle:'solid', borderBottomWidth:2, borderBottomColor: active?'#111827':'transparent', opacity: disabled?0.4:1 }),
-    tabCount: (active) => ({ background: active?'#111827':'#f3f4f6', color: active?'#fff':'#6b7280', fontSize:10, padding:'1px 5px', borderRadius:8, fontWeight:600 }),
+    topbar: { background:'#1e40af', borderBottom:'1px solid rgba(255,255,255,0.1)', padding:'0 24px', height:50, display:'flex', alignItems:'center', justifyContent:'space-between', position:'sticky', top:0, zIndex:50 },
+    breadcrumb: { display:'flex', alignItems:'center', gap:6, fontSize:12, color:'rgba(255,255,255,0.7)' },
+    tabbar: { background:'#1d4ed8', borderBottom:'1px solid rgba(255,255,255,0.1)', padding:'0 24px', display:'flex', alignItems:'center', overflowX:'auto' },
+    tab: (active, disabled) => ({ display:'flex', alignItems:'center', gap:5, padding:'11px 14px', fontSize:12, fontWeight: active?700:400, color: active?'#fff': disabled?'rgba(255,255,255,0.2)':'rgba(255,255,255,0.55)', cursor: disabled?'not-allowed':'pointer', whiteSpace:'nowrap', flexShrink:0, marginBottom:-1, background:'none', border:'none', borderBottomStyle:'solid', borderBottomWidth:2, borderBottomColor: active?'#fff':'transparent', opacity: disabled?0.4:1 }),
+    tabCount: (active) => ({ background: active?'rgba(255,255,255,0.9)':'rgba(255,255,255,0.15)', color: active?'#1d4ed8':'rgba(255,255,255,0.7)', fontSize:10, padding:'1px 5px', borderRadius:8, fontWeight:600 }),
     content: { padding:'20px 24px', flex:1 },
-    card: { background:'#fff', border:'1px solid #e5e7eb', borderRadius:12, padding:'20px 22px', marginBottom:14 },
-    label: { fontSize:10, fontWeight:700, color:'#6b7280', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:5, display:'flex', alignItems:'center', gap:3 },
-    input: { width:'100%', padding:'8px 11px', border:'1px solid #e5e7eb', borderRadius:7, fontSize:13, color:'#111827', background:'#fafafa', outline:'none', boxSizing:'border-box' },
-    textarea: { width:'100%', padding:'9px 11px', border:'1px solid #e5e7eb', borderRadius:7, fontSize:13, color:'#111827', background:'#fafafa', outline:'none', resize:'vertical', fontFamily:'inherit', boxSizing:'border-box' },
-    btnPrimary: { background:'#111827', color:'#fff', border:'none', borderRadius:7, padding:'8px 16px', fontSize:12, fontWeight:600, cursor:'pointer', display:'flex', alignItems:'center', gap:6 },
-    btnSecondary: { background:'#fff', color:'#374151', border:'1px solid #e5e7eb', borderRadius:7, padding:'8px 14px', fontSize:12, fontWeight:500, cursor:'pointer', display:'flex', alignItems:'center', gap:5 },
+    card: { background:'#fff', border:'1px solid #dbeafe', borderRadius:12, padding:'20px 22px', marginBottom:14 },
+    label: { fontSize:10, fontWeight:700, color:'#3b82f6', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:5, display:'flex', alignItems:'center', gap:3 },
+    input: { width:'100%', padding:'8px 11px', border:'1.5px solid #dbeafe', borderRadius:7, fontSize:13, color:'#1e3a8a', background:'#f8faff', outline:'none', boxSizing:'border-box' },
+    textarea: { width:'100%', padding:'9px 11px', border:'1.5px solid #dbeafe', borderRadius:7, fontSize:13, color:'#1e3a8a', background:'#f8faff', outline:'none', resize:'vertical', fontFamily:'inherit', boxSizing:'border-box' },
+    btnPrimary: { background:'#1d4ed8', color:'#fff', border:'none', borderRadius:7, padding:'8px 16px', fontSize:12, fontWeight:600, cursor:'pointer', display:'flex', alignItems:'center', gap:6 },
+    btnSecondary: { background:'#fff', color:'#1d4ed8', border:'1.5px solid #bfdbfe', borderRadius:7, padding:'8px 14px', fontSize:12, fontWeight:500, cursor:'pointer', display:'flex', alignItems:'center', gap:5 },
     btnSuccess: { background:'#16a34a', color:'#fff', border:'none', borderRadius:7, padding:'8px 14px', fontSize:12, fontWeight:600, cursor:'pointer', display:'flex', alignItems:'center', gap:5 },
-    lv1Badge: { background:'#f3f4f6', color:'#6b7280', padding:'2px 7px', borderRadius:4, fontSize:10, fontWeight:600, whiteSpace:'nowrap' },
-    statusDot: { width:6, height:6, borderRadius:'50%', background:'#22c55e', display:'inline-block' },
-    th: { padding:'8px 12px', textAlign:'left', fontSize:10, fontWeight:600, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'0.4px', borderBottom:'1px solid #e5e7eb', background:'#fafafa', whiteSpace:'nowrap' },
-    td: { padding:'8px 12px', borderBottom:'1px solid #f3f4f6', fontSize:12, color:'#374151', verticalAlign:'middle' },
+    lv1Badge: { background:'#eff6ff', color:'#1d4ed8', padding:'2px 7px', borderRadius:4, fontSize:10, fontWeight:600, whiteSpace:'nowrap' },
+    statusDot: { width:6, height:6, borderRadius:'50%', background:'#4ade80', display:'inline-block' },
+    th: { padding:'8px 12px', textAlign:'left', fontSize:10, fontWeight:700, color:'#3b82f6', textTransform:'uppercase', letterSpacing:'0.4px', borderBottom:'2px solid #dbeafe', background:'#eff6ff', whiteSpace:'nowrap' },
+    td: { padding:'8px 12px', borderBottom:'1px solid #eff6ff', fontSize:12, color:'#1e3a8a', verticalAlign:'middle' },
   };
 
   const inputStyle = S.input;
@@ -1082,10 +1082,10 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
       <div style={S.sidebar}>
         <div style={S.sidebarLogo}>
           <div style={{display:'flex',alignItems:'center',gap:9}}>
-            <div style={{width:30,height:30,background:'#3b6cf8',borderRadius:7,display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:800,color:'#fff'}}>BA</div>
+            <div style={{width:30,height:30,background:'#3b82f6',borderRadius:7,display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:800,color:'#fff'}}>BA</div>
             <div>
               <div style={{color:'#fff',fontSize:13,fontWeight:700}}>BA 도우미</div>
-              <div style={{color:'#4b5563',fontSize:9,letterSpacing:'0.5px',textTransform:'uppercase',marginTop:1}}>CAS IT Consulting</div>
+              <div style={{color:'rgba(255,255,255,0.45)',fontSize:9,letterSpacing:'0.5px',textTransform:'uppercase',marginTop:1}}>CAS IT Consulting</div>
             </div>
           </div>
         </div>
@@ -1108,17 +1108,17 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
           </div>
         </div>
         {fpList.length > 0 && (
-          <div style={{margin:'auto 0 0',padding:'12px',borderTop:'1px solid rgba(255,255,255,0.06)'}}>
-            <div style={{fontSize:9,color:'#4b5563',fontWeight:700,letterSpacing:'0.8px',textTransform:'uppercase',marginBottom:6}}>FP 요약</div>
+          <div style={{margin:'auto 0 0',padding:'12px',borderTop:'1px solid rgba(255,255,255,0.1)'}}>
+            <div style={{fontSize:9,color:'rgba(255,255,255,0.45)',fontWeight:700,letterSpacing:'0.8px',textTransform:'uppercase',marginBottom:6}}>FP 요약</div>
             {[['정통법 신규',stdSummary.newDev+' FP'],['정통법 변경',stdSummary.changed+' FP'],['간이법 신규',simpleSummary.newDev+' FP']].map(([l,v])=>(
-              <div key={l} style={{display:'flex',justifyContent:'space-between',fontSize:10,color:'#6b7280',padding:'2px 0'}}>
-                <span>{l}</span><span style={{color:'#9ca3af',fontWeight:600}}>{v}</span>
+              <div key={l} style={{display:'flex',justifyContent:'space-between',fontSize:10,color:'rgba(255,255,255,0.6)',padding:'2px 0'}}>
+                <span>{l}</span><span style={{color:'rgba(255,255,255,0.9)',fontWeight:600}}>{v}</span>
               </div>
             ))}
           </div>
         )}
-        <div style={{padding:'11px 12px',borderTop:'1px solid rgba(255,255,255,0.06)',marginTop:fpList.length>0?0:'auto'}}>
-          <div style={{display:'flex',alignItems:'center',gap:5,fontSize:10,color:'#4b5563'}}>
+        <div style={{padding:'11px 12px',borderTop:'1px solid rgba(255,255,255,0.1)',marginTop:fpList.length>0?0:'auto'}}>
+          <div style={{display:'flex',alignItems:'center',gap:5,fontSize:10,color:'rgba(255,255,255,0.5)'}}>
             <span style={S.statusDot}/><span>API 연결됨</span>
           </div>
         </div>
@@ -1129,16 +1129,16 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
         {/* 상단 바 */}
         <div style={S.topbar}>
           <div style={S.breadcrumb}>
-            <span style={{color:'#9ca3af',cursor:'pointer'}} onClick={()=>navigate('/')}>프로젝트</span>
-            <span style={{color:'#d1d5db'}}>/</span>
-            <span style={{color:'#111827',fontWeight:600}}>{project.name}</span>
+            <span style={{color:'rgba(255,255,255,0.6)',cursor:'pointer'}} onClick={()=>navigate('/')}>프로젝트</span>
+            <span style={{color:'rgba(255,255,255,0.3)'}}>›</span>
+            <span style={{color:'#fff',fontWeight:600}}>{project.name}</span>
           </div>
           <div style={{display:'flex',alignItems:'center',gap:8}}>
-            {loading && <span style={{fontSize:11,color:'#3b6cf8',fontWeight:600}}>⚙️ {loadingMsg||'처리 중...'}</span>}
-            <div style={{display:'flex',alignItems:'center',gap:4,fontSize:11,color:'#9ca3af'}}>
+            {loading && <span style={{fontSize:11,color:'#bfdbfe',fontWeight:600}}>⚙️ {loadingMsg||'처리 중...'}</span>}
+            <div style={{display:'flex',alignItems:'center',gap:4,fontSize:11,color:'rgba(255,255,255,0.6)'}}>
               <span style={S.statusDot}/><span>저장됨</span>
             </div>
-            <button onClick={exportAllExcel} style={S.btnPrimary}>📥 전체 Excel</button>
+            <button onClick={exportAllExcel} style={{...S.btnPrimary,background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)'}}>📥 전체 Excel</button>
           </div>
         </div>
 
