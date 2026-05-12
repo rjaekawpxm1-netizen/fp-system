@@ -6,6 +6,10 @@ import {
   getParseImagePrompt,
   getSystemInfoPrompt,
   getSystemInfoImagePrompt,
+  getISPDraftPrompt,
+  getRFPChunkCollectPrompt,
+  getRFPDomainPrompt,
+  getRFPDomainExpandPrompt,
 } from './systemPrompt';
 
 // JSON 안전 파싱 (잘림 방지)
@@ -226,7 +230,6 @@ export const callClaudeText = async (content, maxTokens = 2000) => {
 // ============================================================
 // ISP 정보화전략계획서 섹션 생성
 // ============================================================
-import { getISPDraftPrompt } from './systemPrompt';
 
 export const generateISPSection = async (section, rfpText, systemName, overview, functions) => {
   const prompt = getISPDraftPrompt(section, rfpText, systemName, overview, functions);
@@ -293,11 +296,6 @@ export const parseRFPLarge = async (text) => {
 // ══════════════════════════════════════════════════════════════
 // RFP → 100개 기능목록 4단계 파이프라인
 // ══════════════════════════════════════════════════════════════
-import {
-  getRFPChunkCollectPrompt,
-  getRFPDomainPrompt,
-  getRFPDomainExpandPrompt,
-} from './systemPrompt';
 
 // 내부 JSON 파싱 헬퍼
 const parseJSON = (text) => {
