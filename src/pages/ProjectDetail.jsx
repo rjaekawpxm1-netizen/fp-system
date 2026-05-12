@@ -2980,13 +2980,9 @@ JSON만 응답:
             </div>
           )}
         </div>
-        </div>
       </div>
     </div>
-    </div>
-    </div>
-    </div>
-
+  </div>
   );
 };
 
