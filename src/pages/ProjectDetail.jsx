@@ -724,9 +724,6 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
     }
   };
 
-  const inputStyle = { width: '100%', padding: '7px 10px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6, outline: 'none', boxSizing: 'border-box' };
-  const cellStyle = { padding: '5px 6px', borderBottom: '1px solid #e5e7eb', fontSize: 12, verticalAlign: 'middle' };
-
   // 화면목록 AI 자동 생성
   const handleGenerateScreens = async () => {
     if (functions.length === 0) return alert('기능 목록을 먼저 생성하세요.');
