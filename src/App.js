@@ -113,7 +113,7 @@ const App = () => {
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', flexDirection: 'column', gap: 16, fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif' }}>
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', flexDirection: 'column', gap: 16, fontFamily: "'Pretendard', -apple-system, 'Malgun Gothic', sans-serif" }}>
         <div style={{ fontSize: 36 }}>⚙️</div>
         <p style={{ fontSize: 16, color: '#374151', fontWeight: 600 }}>데이터 불러오는 중...</p>
       </div>
@@ -122,7 +122,7 @@ const App = () => {
 
   if (error) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', flexDirection: 'column', gap: 16, fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif' }}>
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', flexDirection: 'column', gap: 16, fontFamily: "'Pretendard', -apple-system, 'Malgun Gothic', sans-serif" }}>
         <div style={{ fontSize: 36 }}>⚠️</div>
         <p style={{ fontSize: 16, color: '#dc2626' }}>{error}</p>
         <button onClick={loadProjects} style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 14, cursor: 'pointer' }}>
@@ -134,7 +134,7 @@ const App = () => {
 
   return (
     <BrowserRouter>
-      <div style={{ minHeight: '100vh', fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif' }}>
+      <div style={{ minHeight: '100vh', fontFamily: "'Pretendard', -apple-system, 'Malgun Gothic', sans-serif" }}>
         <Routes>
           <Route path="/" element={<Home />} />
           <Route
