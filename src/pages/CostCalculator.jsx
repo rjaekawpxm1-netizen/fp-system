@@ -75,11 +75,22 @@ const CostCalculator = ({ projects }) => {
   const [reverseMode, setReverseMode] = useState(false);
   const [targetBudget, setTargetBudget] = useState('');
 
+  if (!projects || projects.length === 0) {
+    return (
+      <div style={{ display:'flex', justifyContent:'center', alignItems:'center', height:'100vh', flexDirection:'column', gap:16, fontFamily:"'Pretendard', -apple-system, 'Malgun Gothic', sans-serif" }}>
+        <div style={{ fontSize:32 }}>⚙️</div>
+        <p style={{ fontSize:15, color:'#374151', fontWeight:600 }}>데이터 불러오는 중...</p>
+        <button onClick={() => navigate('/ba')} style={{ background:'#e5e7eb', color:'#374151', border:'none', borderRadius:7, padding:'8px 16px', fontSize:13, cursor:'pointer' }}>목록으로</button>
+      </div>
+    );
+  }
+
   if (!project) {
     return (
-      <div style={{ padding: 40, textAlign: 'center' }}>
-        <p>프로젝트를 찾을 수 없습니다.</p>
-        <button onClick={() => navigate('/')}>목록으로</button>
+      <div style={{ display:'flex', justifyContent:'center', alignItems:'center', height:'100vh', flexDirection:'column', gap:16, fontFamily:"'Pretendard', -apple-system, 'Malgun Gothic', sans-serif" }}>
+        <div style={{ fontSize:32 }}>⚠️</div>
+        <p style={{ fontSize:15, color:'#374151', fontWeight:600 }}>프로젝트를 찾을 수 없습니다.</p>
+        <button onClick={() => navigate('/ba')} style={{ background:'#1d4ed8', color:'#fff', border:'none', borderRadius:7, padding:'8px 16px', fontSize:13, cursor:'pointer' }}>목록으로</button>
       </div>
     );
   }

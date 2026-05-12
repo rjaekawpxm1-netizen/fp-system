@@ -66,31 +66,35 @@ export const getSystemInfoImagePrompt = () => `
 
 // ── RFP 파싱 ─────────────────────────────────────────────────
 export const getRFPParsePrompt = (text) => `
-SW사업 BA전문가. RFP에서 "구축할 시스템의 기능요구사항"만 추출해서 LV1/LV2/LV3으로 변환. JSON만.
+SW사업 BA전문가. RFP에서 "구축할 시스템의 기능요구사항"을 추출해서 LV1/LV2/LV3으로 변환. JSON만.
 
-## 핵심 규칙
+## 인식할 요구사항 코드 형식 (모두 처리)
+다음 중 어떤 형식이든 기능요구사항으로 인식:
+- FR-xxx, FR_xxx : 기능요구사항
+- CNR-xxx, CNR_xxx : 컨설팅/일반 요구사항
+- SFR-xxx : 소프트웨어 기능요구사항  
+- FRQ-xxx, REQ-xxx : 요구사항
+- 숫자만: 1.1, 2.3.1 등 번호체계
+- 코드 없이 "~해야 한다", "~기능을 제공", "~구현" 등 서술형도 포함
+
+## 핵심 추출 규칙
 1. 추출 대상: 발주기관이 구축을 요구하는 SW 시스템의 기능
    예) "출입신청 기능을 제공해야 한다" → 출입신청관리 > 출입신청 > 출입신청 등록
-   예) "승인/반려 처리 기능" → 출입신청관리 > 승인처리 > 승인처리 등록
+   예) "CNR-001: 현황분석 수행" → 현황분석 > 현황조사 > 현황조사 등록
+   예) "이해관계자 인터뷰 수행" → 현황분석 > 인터뷰관리 > 인터뷰 등록
 
-2. 추출 제외 (이런 것들은 과업/컨설팅이지 SW기능이 아님):
-   - "현황분석", "ISP수립", "전략수립", "계획수립" 등 컨설팅 과업
-   - "제안서", "평가기준", "제출서류" 등 사업 행정 절차
-   - "사업자가 해야 할 일" (수행사 의무사항)
+2. ISP/컨설팅 사업이면 컨설팅 과업도 SW 기능으로 변환:
+   "현황분석" → 현황분석관리 LV2
+   "전략수립" → 전략계획관리 LV2
+   "로드맵 작성" → 로드맵관리 LV2
+   "보고서 작성" → 보고서관리 LV2
 
-3. FR-xxx, NFR-xxx 형태의 기능요구사항이 있으면 우선 활용
+3. 문서 전체에서 기능이 될 수 있는 모든 항목 추출 (최소 20개 이상 목표)
 
 4. LV3는 반드시 한국어, 코드번호 제외
-   예) "FR-001-C: 출입신청서 생성" → LV3: "출입신청 등록"
+   CRUD 패턴 적용: 등록/수정/삭제/목록조회/상세조회
 
-5. CRUD 패턴 적용: 등록/수정/삭제/목록조회/상세조회
-
-6. 공통기능 추가: 사용자관리, 권한관리, 시스템관리
-
-## 판단 기준
-"이 기능이 완성된 SW 시스템에서 사용자가 클릭하는 화면/버튼인가?"
-→ YES: 포함
-→ NO (분석/계획/문서작성): 제외
+5. 공통기능 반드시 추가: 사용자관리/권한관리/시스템관리
 
 ## RFP 텍스트
 ${text.slice(0, 3000)}
@@ -131,85 +135,21 @@ export const getFPValidationPrompt = (fpList, totalFP) => {
 {"fpScore":90,"issues":[{"type":"ILF부족","severity":"error","message":"","suggestion":""}],"summary":""}`;
 };
 
-// ── ❌ 요구사항 재생성 (Tier1 최적화) ───────────────────────
+// ── ❌ 요구사항 재생성 (토큰 증가 + 더 많이 생성) ───────────────────────
 export const getRegenFromReqPrompt = (failedReqs, systemInfo, existingFunctions) => {
   const existingLV2 = [...new Set(existingFunctions.map(f => f.lv2))].slice(0, 20).join(',');
-  const reqs = failedReqs.slice(0, 5).map((r, i) => `${i+1}.${r.req}`).join('\n');
+  const reqs = failedReqs.slice(0, 10).map((r, i) => `${i+1}.${r.req}`).join('\n');
+  const count = Math.max(failedReqs.length * 3, 10); // 요구사항당 최소 3개 이상 생성
   return `BA전문가. JSON만.
 시스템:${systemInfo}
 기존LV2:${existingLV2}
-미반영요구사항→LV1/LV2/LV3변환(CRUD패턴,중복제외):
+미반영요구사항→LV1/LV2/LV3변환(CRUD패턴 완전적용, 중복제외, 최소${count}개 생성):
 ${reqs}
+
+규칙:
+- 각 요구사항에서 등록/수정/삭제/목록조회/상세조회 CRUD 패턴 모두 생성
+- 승인/반려/처리 등 업무흐름도 별도 LV3 생성
+- 최소 ${count}개 이상 생성 필수
+
 {"functions":[{"lv1":"","lv2":"","lv3":"","definition":"","fromReq":""}]}`;
-};
-
-// ── ISP 정보화전략계획서 생성 ─────────────────────────────────
-export const getISPDraftPrompt = (section, rfpText, systemName, overview, functions) => {
-  const funcSample = functions.slice(0, 30).map(f => `${f.lv1} > ${f.lv2} > ${f.lv3}`).join('\n');
-  const rfpSnippet = rfpText.slice(0, 1500);
-
-  const sectionPrompts = {
-    executive: `
-SW사업 ISP 전문가. JSON만 응답. 한국어.
-아래 정보를 바탕으로 정보화전략계획서의 "경영진 요약(Executive Summary)" 섹션을 작성하라.
-
-시스템명: ${systemName}
-개요: ${overview}
-RFP 주요내용: ${rfpSnippet}
-
-{"title":"경영진 요약","content":"300자 이내 경영진 요약","keyPoints":["핵심포인트1","핵심포인트2","핵심포인트3"],"investmentValue":"투자 가치 및 기대효과 1문장"}
-`,
-    background: `
-SW사업 ISP 전문가. JSON만 응답. 한국어.
-아래 정보를 바탕으로 정보화전략계획서의 "사업 배경 및 목적" 섹션을 작성하라.
-
-시스템명: ${systemName}
-개요: ${overview}
-RFP 주요내용: ${rfpSnippet}
-
-{"title":"사업 배경 및 목적","background":"사업추진 배경 200자","purpose":"사업 목적 200자","goals":["목표1","목표2","목표3"],"scope":"사업 범위 설명"}
-`,
-    asIs: `
-SW사업 ISP 전문가. JSON만 응답. 한국어.
-아래 정보를 바탕으로 정보화전략계획서의 "현황 분석(AS-IS)" 섹션을 작성하라.
-
-시스템명: ${systemName}
-RFP 주요내용: ${rfpSnippet}
-
-{"title":"현황 분석","currentStatus":"현재 업무 처리 현황 200자","problems":["문제점1","문제점2","문제점3","문제점4"],"limitations":"현재 시스템의 한계 150자","improvementNeeds":"개선 필요사항 150자"}
-`,
-    toBe: `
-SW사업 ISP 전문가. JSON만 응답. 한국어.
-아래 정보를 바탕으로 정보화전략계획서의 "목표 시스템(TO-BE)" 섹션을 작성하라.
-
-시스템명: ${systemName}
-개요: ${overview}
-주요기능(상위 30개):
-${funcSample}
-
-{"title":"목표 시스템(TO-BE)","vision":"목표 시스템 비전 1문장","architecture":"시스템 아키텍처 설명 200자","coreFeatures":["핵심기능1","핵심기능2","핵심기능3","핵심기능4","핵심기능5"],"expectedEffects":["기대효과1","기대효과2","기대효과3"],"technicalStack":"활용 기술스택 및 플랫폼"}
-`,
-    requirements: `
-SW사업 ISP 전문가. JSON만 응답. 한국어.
-아래 기능목록을 바탕으로 정보화전략계획서의 "기능 요구사항 정의" 섹션을 작성하라.
-
-시스템명: ${systemName}
-기능목록:
-${funcSample}
-
-{"title":"기능 요구사항 정의","summary":"기능 요구사항 개요 150자","functionalAreas":[{"area":"업무영역명","description":"영역 설명","keyFunctions":["주요기능1","주요기능2"]}],"nonFunctional":["비기능요구사항1","비기능요구사항2","비기능요구사항3"]}
-`,
-    implementation: `
-SW사업 ISP 전문가. JSON만 응답. 한국어.
-아래 정보를 바탕으로 정보화전략계획서의 "구현 전략 및 추진 로드맵" 섹션을 작성하라.
-
-시스템명: ${systemName}
-개요: ${overview}
-기능수: ${functions.length}개
-
-{"title":"구현 전략 및 추진 로드맵","strategy":"구현 전략 200자","phases":[{"phase":"1단계","period":"1~3개월","tasks":["과제1","과제2"],"deliverables":["산출물1"]},{"phase":"2단계","period":"4~6개월","tasks":["과제1","과제2"],"deliverables":["산출물1"]},{"phase":"3단계","period":"7~9개월","tasks":["과제1","과제2"],"deliverables":["산출물1"]}],"risks":["리스크1","리스크2","리스크3"],"successFactors":["성공요인1","성공요인2"]}
-`,
-  };
-
-  return sectionPrompts[section] || sectionPrompts.background;
 };

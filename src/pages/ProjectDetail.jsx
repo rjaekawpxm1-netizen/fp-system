@@ -525,10 +525,18 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
         }))
         .filter(f => f.lv3.trim().length > 0);
 
-      if (funcs.length === 0) throw new Error(
-        'SW 기능요구사항을 추출할 수 없습니다.\n' +
-        'RFP에 기능요구사항(FR-xxx) 부분만 복사해서 직접 입력해주세요.'
-      );
+      // 기능이 너무 적으면 공통기능이라도 기본 생성
+      if (funcs.length === 0) {
+        const sysName = info.systemName || systemName || '시스템';
+        funcs = [
+          { lv1:'공통기능', lv2:'사용자관리', lv3:'사용자 등록', definition:'사용자 정보를 등록한다' },
+          { lv1:'공통기능', lv2:'사용자관리', lv3:'사용자 목록조회', definition:'사용자 목록을 조회한다' },
+          { lv1:'공통기능', lv2:'권한관리', lv3:'권한 등록', definition:'권한 정보를 등록한다' },
+          { lv1:'공통기능', lv2:'권한관리', lv3:'권한 목록조회', definition:'권한 목록을 조회한다' },
+          { lv1:'공통기능', lv2:'시스템관리', lv3:'코드 관리', definition:'공통코드를 관리한다' },
+        ];
+        alert(`⚠️ RFP에서 요구사항을 자동 추출하지 못했습니다.\n공통기능 5개를 기본 생성했습니다.\n\n직접 기능을 추가하거나, 시스템개요 탭에서 "AI 자동 생성"을 이용해주세요.`);
+      }
 
       const withId = funcs.map((f, i) => ({ ...f, id: Date.now() + i }));
       setFunctions(withId);
@@ -1718,7 +1726,7 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                                   <button onClick={async () => {
                                     setValidationLoading(true);
                                     try {
-                                      const res = await fetch('/api/claude', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ max_tokens: 1500, messages: [{ role: 'user', content: getRegenFromReqPrompt([item], systemInfo, functions) }] }) });
+                                      const res = await fetch('/api/claude', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ max_tokens: 4000, messages: [{ role: 'user', content: getRegenFromReqPrompt([item], systemInfo, functions) }] }) });
                                       const data = await res.json();
                                       const text = data.content?.map(c => c.type==='text'?c.text:'').join('')||'';
                                       const parsed = safeParseJSON(text);
@@ -1741,7 +1749,7 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                               if (!ok) return;
                               setValidationLoading(true);
                               try {
-                                const res = await fetch('/api/claude', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ max_tokens: 1500, messages: [{ role: 'user', content: getRegenFromReqPrompt(failedItems, systemInfo, functions) }] }) });
+                                const res = await fetch('/api/claude', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ max_tokens: 4000, messages: [{ role: 'user', content: getRegenFromReqPrompt(failedItems, systemInfo, functions) }] }) });
                                 const data = await res.json();
                                 const text = data.content?.map(c => c.type==='text'?c.text:'').join('')||'';
                                 const parsed = safeParseJSON(text);

@@ -258,8 +258,8 @@ export const parseRFPLarge = async (text) => {
     try {
       const isFirst = i === 0;
       const prompt = isFirst
-        ? `SW사업 BA전문가. RFP에서 기능요구사항만 추출. JSON만.\n${chunks[i]}\n{"systemName":"","overview":"","functions":[{"lv1":"","lv2":"","lv3":"","definition":""}]}`
-        : `SW사업 BA전문가. RFP 추가 청크에서 기능요구사항 추출. 중복제외. JSON만.\n${chunks[i]}\n{"functions":[{"lv1":"","lv2":"","lv3":"","definition":""}]}`;
+        ? `SW사업 BA전문가. RFP 청크에서 모든 요구사항을 기능목록으로 변환. FR-xxx/CNR-xxx/REQ-xxx 등 코드 형식 무관하게 모두 처리. 서술형 요구사항도 포함. CRUD패턴 적용. JSON만.\n${chunks[i]}\n{"systemName":"","overview":"","functions":[{"lv1":"","lv2":"","lv3":"","definition":""}]}`
+        : `SW사업 BA전문가. RFP 추가 청크에서 요구사항 추출. 코드형식 무관(FR/CNR/REQ 등), 서술형 포함. 중복제외. CRUD패턴. JSON만.\n${chunks[i]}\n{"functions":[{"lv1":"","lv2":"","lv3":"","definition":""}]}`;
 
       const text2 = await callClaudeText(prompt, 2000);
       let clean = text2.replace(/```json/g, '').replace(/```/g, '').trim();
