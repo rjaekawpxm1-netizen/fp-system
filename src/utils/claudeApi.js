@@ -13,6 +13,9 @@ import {
   getRFPDomainExpandPrompt,
 } from './systemPrompt';
 
+// temperature: 0 → 재현성 보장 (같은 RFP → 같은 결과)
+const STABLE_TEMP = 0;
+
 // JSON 안전 파싱 - 잘린 응답 완벽 복구
 const safeParseJSON = (text) => {
   let clean = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
@@ -66,6 +69,7 @@ const callClaude = async (content, maxTokens = 2000) => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       max_tokens: maxTokens,
+      temperature: STABLE_TEMP,
       messages: [{ role: 'user', content }],
     }),
   });
@@ -285,6 +289,7 @@ export const callClaudeText = async (content, maxTokens = 2000) => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       max_tokens: maxTokens,
+      temperature: STABLE_TEMP,
       messages: [{ role: 'user', content }],
     }),
   });
@@ -399,6 +404,9 @@ export const parseRFPFull = async (text, onProgress) => {
     const detectText = await callClaudeText(detectPrompt, 1500);
     const detected = parseJSON(detectText);
     systems = (detected.systems || []).filter(s => s.systemName && s.systemKey);
+    // projectType을 각 system에 전달
+    const pType = detected.projectType || 'SW개발';
+    systems = systems.map(s => ({ ...s, projectType: pType }));
   } catch (e) { console.warn('시스템 탐지 실패:', e.message); }
 
   // 탐지 실패 시 기본 1개 시스템으로
@@ -463,7 +471,8 @@ export const parseRFPFull = async (text, onProgress) => {
     try {
       const domainPrompt = getRFPDomainPrompt(
         sysRequirements, sys.systemName,
-        sys.description, sys.mainUsers || ['사용자','관리자']
+        sys.description, sys.mainUsers || ['사용자','관리자'],
+        result.projectType || 'SW개발'
       );
       const domainText = await callClaudeText(domainPrompt, 2000);
       const domainParsed = parseJSON(domainText);
@@ -486,7 +495,7 @@ export const parseRFPFull = async (text, onProgress) => {
       const domain = domains[di];
       rpt(4, `"${domain.lv1}" 기능 확장 중... (${di+1}/${domains.length})`, 45 + (di/domains.length)*50);
       try {
-        const expandPrompt = getRFPDomainExpandPrompt(domain, sys.systemName, sys.mainUsers || ['사용자','관리자']);
+        const expandPrompt = getRFPDomainExpandPrompt(domain, sys.systemName, sys.mainUsers || ['사용자','관리자'], result.projectType || 'SW개발');
         const expandText = await callClaudeText(expandPrompt, 3000);
         const expandParsed = parseJSON(expandText);
         const funcs = (expandParsed.functions || [])
@@ -530,6 +539,7 @@ export const parseRFPFull = async (text, onProgress) => {
   return {
     systemName: allResults[0]?.systemName || '',
     overview: systems[0]?.description || '',
+    projectType: systems[0]?.projectType || detected?.projectType || 'SW개발',
     systems: allResults,          // 시스템별 분리 결과
     functions: allFunctions,      // 전체 합산 (기존 호환)
     multiSystem: allResults.length > 1,
