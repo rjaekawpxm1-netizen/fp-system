@@ -794,12 +794,13 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
       if (!ok) return;
     }
 
-    const totalChunks = Math.ceil(functions.length / 15);
+    const totalChunks = Math.ceil(functions.length / 10);
+    const estMin = Math.ceil(totalChunks * 7 / 60);
     setLoading(true);
-    setLoadingMsg(`FP 산정 중... (0/${totalChunks} 완료)`);
+    setLoadingMsg(`FP 산정 중... (0/${totalChunks} 완료) — 약 ${estMin}분 소요`);
     try {
       const result = await generateFPList(functions, (current, total) => {
-        setLoadingMsg(`FP 산정 중... (${current}/${total} 완료)${current < total ? ' — 잠시 대기 중' : ''}`);
+        setLoadingMsg(`FP 산정 중... (${current}/${total} 완료)${current < total ? ' — Rate Limit 방지 대기 중' : ''}`);
       });
       const withId = result.map((f, i) => {
         const base = {

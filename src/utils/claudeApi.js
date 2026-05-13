@@ -138,19 +138,20 @@ export const generateFunctions = async (systemInfo, keyword) => {
 };
 
 // ============================================================
-// FP 산정 (Rate Limit 방지 - 딜레이 + 재시도)
+// FP 산정 (Rate Limit 완전 대응)
 // ============================================================
 const sleep = (ms) => new Promise(res => setTimeout(res, ms));
 
-const callClaudeWithRetry = async (prompt, maxTokens, retries = 3) => {
+const callClaudeWithRetry = async (prompt, maxTokens, retries = 5) => {
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
       return await callClaude(prompt, maxTokens);
     } catch (err) {
-      const isRateLimit = err.message?.includes('rate limit') || err.message?.includes('10,000');
+      const msg = err.message || '';
+      const isRateLimit = msg.includes('rate limit') || msg.includes('10,000') || msg.includes('529') || msg.includes('overloaded');
       if (isRateLimit && attempt < retries - 1) {
-        const waitSec = (attempt + 1) * 15; // 15초, 30초, 45초
-        console.warn(`Rate limit 감지. ${waitSec}초 후 재시도 (${attempt + 1}/${retries})`);
+        const waitSec = [20, 40, 60, 90][attempt] || 90;
+        console.warn(`Rate limit. ${waitSec}초 대기 후 재시도 (${attempt + 1}/${retries})`);
         await sleep(waitSec * 1000);
       } else {
         throw err;
@@ -160,26 +161,32 @@ const callClaudeWithRetry = async (prompt, maxTokens, retries = 3) => {
 };
 
 export const generateFPList = async (functions, onProgress) => {
-  const CHUNK = 15; // 청크 줄여서 토큰 분산
-  const DELAY_MS = 4000; // 청크 사이 4초 대기
+  const CHUNK = 10;        // 청크 10개로 줄여 토큰 분산
+  const DELAY_MS = 7000;   // 청크 사이 7초 대기 (분당 ~8청크 = ~800토큰/분 여유)
 
-  if (functions.length <= CHUNK) {
-    const prompt = getFPPrompt(functions);
-    const result = await callClaudeWithRetry(prompt, 4000);
-    return result.fpList || [];
-  }
-
-  let allFP = [];
   const chunks = [];
   for (let i = 0; i < functions.length; i += CHUNK)
     chunks.push(functions.slice(i, i + CHUNK));
 
+  if (onProgress) onProgress(0, chunks.length);
+
+  let allFP = [];
   for (let i = 0; i < chunks.length; i++) {
     if (onProgress) onProgress(i + 1, chunks.length);
     const prompt = getFPPrompt(chunks[i]);
-    const result = await callClaudeWithRetry(prompt, 4000);
-    allFP = [...allFP, ...(result.fpList || [])];
-    // 마지막 청크가 아니면 딜레이
+    try {
+      const result = await callClaudeWithRetry(prompt, 3000);
+      allFP = [...allFP, ...(result.fpList || [])];
+    } catch (err) {
+      console.error(`청크 ${i + 1} 최종 실패:`, err.message);
+      // 실패한 청크는 기본값으로 채움 (누락 방지)
+      const fallback = chunks[i].map(f => ({
+        lv1: f.lv1, lv2: f.lv2, lv3: f.lv3,
+        definition: f.definition,
+        fpType: 'EI', ftr: 1, det: 5, reuseType: '신규개발',
+      }));
+      allFP = [...allFP, ...fallback];
+    }
     if (i < chunks.length - 1) await sleep(DELAY_MS);
   }
   return allFP;

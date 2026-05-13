@@ -36,7 +36,7 @@ ${FP_WEIGHTS}
 ILF lv2="(데이터)", EIF lv2="(외부연계)"
 EI복잡도: FTR≤1→L, FTR=2/DET≤4→L, FTR=2/DET5-15→A, FTR=2/DET16+→H, FTR3+/DET5+→H
 JSON만 응답:
-${JSON.stringify(functions.slice(0,30))}
+${JSON.stringify(functions)}
 
 {"fpList":[{"lv1":"","lv2":"","lv3":"","definition":"","fpType":"ILF","ftr":1,"det":10,"reuseType":"신규개발"}]}
 `;
