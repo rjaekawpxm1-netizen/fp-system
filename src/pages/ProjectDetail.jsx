@@ -190,12 +190,26 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
   const [ispLoading, setIspLoading] = useState(false);
   const [ispLoadingSection, setIspLoadingSection] = useState("");
   const [ispEditMode, setIspEditMode] = useState(false);
+  const [showCostPanel, setShowCostPanel] = useState(false);
+  const [costMethod, setCostMethod] = useState('정통법');
+  const [costLinkIdx, setCostLinkIdx] = useState(2);
+  const [costPerfIdx, setCostPerfIdx] = useState(2);
+  const [costEnvIdx, setCostEnvIdx] = useState(1);
+  const [costSecIdx, setCostSecIdx] = useState(1);
+  const [costUnitPrice, setCostUnitPrice] = useState(605784);
+  const [costProfitRate, setCostProfitRate] = useState(10);
+  const [costDirectExp, setCostDirectExp] = useState(0);
+  const [costReverseMode, setCostReverseMode] = useState(false);
+  const [costTargetBudget, setCostTargetBudget] = useState('');
+  const COST_LINK=[{l:'연계없음',v:0.88},{l:'1~2개',v:0.94},{l:'3~5개',v:1.00},{l:'6~10개',v:1.06},{l:'10개초과',v:1.12}];
+  const COST_PERF=[{l:'요구없음',v:0.91},{l:'일반',v:0.95},{l:'표준',v:1.00},{l:'중요',v:1.05},{l:'엄격',v:1.09}];
+  const COST_ENV=[{l:'요구없음',v:0.94},{l:'동일환경',v:1.00},{l:'유사환경',v:1.06},{l:'이질환경',v:1.13},{l:'이질+훈련',v:1.19}];
+  const COST_SEC=[{l:'1가지',v:0.97},{l:'2가지',v:1.00},{l:'3가지',v:1.03},{l:'4가지',v:1.06},{l:'5가지+',v:1.08}];
+  const calcSizeCoeffI=(fp)=>{const f=Number(fp);if(f<500)return 1.28;if(f>3000)return 1.153;return Math.round((0.4057*Math.pow(Math.log(f)-7.1978,2)+0.8878)*10000)/10000;};
   // RFP 파싱 진행률
   const [rfpParseStep, setRfpParseStep] = useState(0);   // 1~4
   const [rfpParseMsg, setRfpParseMsg] = useState('');
   const [rfpParsePct, setRfpParsePct] = useState(0);
-  const [rfpSystems, setRfpSystems] = useState(project?.rfpSystems || []); // 탐지된 시스템 목록
-  const [activeSystemKey, setActiveSystemKey] = useState(''); // 현재 보는 시스템
   // 기능 품질 검증 state
   const [qualityResult, setQualityResult] = useState(project?.qualityResult || null);
   const [qualityLoading, setQualityLoading] = useState(false);
@@ -494,37 +508,39 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
         setLoadingMsg(msg);
       });
 
-      // 멀티 시스템 결과 저장
-      const detectedSystems = result.systems || [];
-      setRfpSystems(detectedSystems);
-
-      // 첫 번째 시스템 정보를 프로젝트 기본값으로
       if (result.systemName) setSystemName(result.systemName);
       if (result.overview)   setSystemOverview(result.overview);
 
-      // 전체 기능 합산 (systemKey/systemName 태그 포함)
       let funcs = result.functions || [];
+
+      if (funcs.length < 10) {
+        const fallback = [
+          { lv1:'공통기능', lv2:'사용자관리', lv3:'사용자 등록', definition:'사용자 정보를 등록한다' },
+          { lv1:'공통기능', lv2:'사용자관리', lv3:'사용자 수정', definition:'사용자 정보를 수정한다' },
+          { lv1:'공통기능', lv2:'사용자관리', lv3:'사용자 삭제', definition:'사용자 정보를 삭제한다' },
+          { lv1:'공통기능', lv2:'사용자관리', lv3:'사용자 목록조회', definition:'사용자 목록을 조회한다' },
+          { lv1:'공통기능', lv2:'사용자관리', lv3:'사용자 상세조회', definition:'사용자 상세 정보를 조회한다' },
+          { lv1:'공통기능', lv2:'권한관리', lv3:'권한 등록', definition:'권한 정보를 등록한다' },
+          { lv1:'공통기능', lv2:'권한관리', lv3:'권한 목록조회', definition:'권한 목록을 조회한다' },
+          { lv1:'공통기능', lv2:'시스템관리', lv3:'공통코드 관리', definition:'공통코드를 관리한다' },
+          { lv1:'공통기능', lv2:'시스템관리', lv3:'메뉴 관리', definition:'메뉴 정보를 관리한다' },
+          { lv1:'공통기능', lv2:'시스템관리', lv3:'시스템 로그 조회', definition:'시스템 로그를 조회한다' },
+        ];
+        const existingKeys = new Set(funcs.map(f => `${f.lv1}|${f.lv2}|${f.lv3}`));
+        funcs = [...funcs, ...fallback.filter(f => !existingKeys.has(`${f.lv1}|${f.lv2}|${f.lv3}`))];
+      }
 
       const withId = funcs.map((f, i) => ({ ...f, id: Date.now() + i }));
       setFunctions(withId);
-
-      const firstSystemKey = detectedSystems[0]?.systemKey || '';
-      setActiveSystemKey(firstSystemKey);
-
       saveProject({
         functions: withId,
-        rfpSystems: detectedSystems,
         systemName: result.systemName || systemName,
         systemOverview: result.overview || systemOverview,
       });
       setUploadedFuncFileName(file.name + ' (RFP)');
       setRfpParseStep(0);
       setTab('functions');
-
-      const summary = detectedSystems.length > 1
-        ? detectedSystems.map(s => `• ${s.systemName}: ${s.functions.length}개`).join('\n')
-        : `총 ${withId.length}개 기능목록 생성`;
-      alert(`✅ RFP 분석 완료!\n${summary}\n\n💡 기능목록 탭 상단에서 시스템별로 전환할 수 있습니다.`);
+      alert(`✅ RFP 분석 완료!\n총 ${withId.length}개 기능목록 생성\n\n💡 불필요한 기능을 삭제하거나 추가 후 FP 산정으로 이동하세요.`);
     } catch (err) {
       alert('RFP 파싱 오류: ' + err.message);
     } finally {
@@ -789,19 +805,15 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
   const handleGenerateFP = async () => {
     if (functions.length === 0) return alert('기능 목록을 먼저 생성하세요.');
 
+    // E. AI 재생성 경고
     if (fpList.length > 0) {
       const ok = window.confirm(`기존 FP 산정표 ${fpList.length}개가 있습니다.\nAI 재산정 시 기존 데이터가 덮어쓰기 됩니다.\n계속하시겠습니까?`);
       if (!ok) return;
     }
-
-    const totalChunks = Math.ceil(functions.length / 5);
-    const estMin = Math.ceil(totalChunks * 3 / 60);
     setLoading(true);
-    setLoadingMsg(`FP 산정 중... (0/${totalChunks} 완료) — 약 ${estMin}분 소요`);
+    setLoadingMsg('AI가 FP 산정 중...');
     try {
-      const result = await generateFPList(functions, (current, total) => {
-        setLoadingMsg(`FP 산정 중... (${current}/${total} 완료)${current < total ? ' — Rate Limit 방지 대기 중' : ''}`);
-      });
+      const result = await generateFPList(functions);
       const withId = result.map((f, i) => {
         const base = {
           ...f,
@@ -1276,8 +1288,6 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
   return (
     <div style={S.wrap}>
 
-    <div style={S.wrap}>
-
       {/* ── 사이드바 ── */}
       <div style={S.sidebar}>
         <div style={S.sidebarLogo}>
@@ -1339,9 +1349,70 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
               <span style={S.statusDot}/><span>저장됨</span>
             </div>
             <button onClick={exportAllExcel} style={{...S.btnPrimary,background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)'}}>📥 전체 Excel</button>
+            <button onClick={()=>setShowCostPanel(v=>!v)} style={{...S.btnPrimary,background:showCostPanel?'#f59e0b':'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)'}}>💰 개발비 산출</button>
           </div>
         </div>
 
+        {showCostPanel&&(()=>{
+          const fpR=fpList.reduce((a,f)=>{const p=Number(f.fpPoint)||0,r=f.reuseType||'신규개발';return r==='신규개발'?{...a,nd:a.nd+p}:r==='기능변경'?{...a,ch:a.ch+p*0.35}:a},{nd:0,ch:0});
+          const tFP=costMethod==='간이법'?(fpR.nd+fpR.ch)*1.286:(fpR.nd+fpR.ch);
+          const sC=calcSizeCoeffI(tFP);
+          const tC=sC*COST_LINK[costLinkIdx].v*COST_PERF[costPerfIdx].v*COST_ENV[costEnvIdx].v*COST_SEC[costSecIdx].v;
+          const dev=Math.round(tFP*costUnitPrice*tC);
+          const tot=Math.round(dev*(1+costProfitRate/100)+Number(costDirectExp||0));
+          const fmt=n=>Math.round(n).toLocaleString();
+          const fmtB=n=>(n/1e8).toFixed(2)+'억원';
+          const revFP=costReverseMode&&costTargetBudget?Math.round((Number(costTargetBudget)-Number(costDirectExp||0))/(costUnitPrice*tC*(1+costProfitRate/100))):0;
+          const inp={padding:'5px 8px',border:'1px solid #e5e7eb',borderRadius:5,fontSize:12,width:110};
+          const sel={padding:'4px 6px',border:'1px solid #e5e7eb',borderRadius:5,fontSize:11,background:'#fff',width:'100%',marginBottom:6};
+          return(<div style={{background:'#fff',borderBottom:'2px solid #f59e0b',padding:'16px 24px',fontSize:12}}>
+            <div style={{display:'flex',gap:20,flexWrap:'wrap',alignItems:'flex-start'}}>
+              <div style={{minWidth:170}}>
+                <div style={{fontSize:10,color:'#6b7280',marginBottom:3}}>산정 방법</div>
+                <div style={{display:'flex',gap:4,marginBottom:8}}>{['정통법','간이법'].map(m=><button key={m} onClick={()=>setCostMethod(m)} style={{padding:'4px 12px',fontSize:11,fontWeight:600,border:'1px solid '+(costMethod===m?'#1d4ed8':'#e5e7eb'),borderRadius:5,cursor:'pointer',background:costMethod===m?'#1d4ed8':'#fff',color:costMethod===m?'#fff':'#374151'}}>{m}</button>)}</div>
+                <div style={{fontSize:10,color:'#6b7280',marginBottom:2}}>단가(원/FP)</div><input type="number" value={costUnitPrice} onChange={e=>setCostUnitPrice(Number(e.target.value))} style={{...inp,marginBottom:6}}/>
+                <div style={{fontSize:10,color:'#6b7280',marginBottom:2}}>이윤율(%)</div><input type="number" value={costProfitRate} onChange={e=>setCostProfitRate(Number(e.target.value))} style={{...inp,marginBottom:6}}/>
+                <div style={{fontSize:10,color:'#6b7280',marginBottom:2}}>직접경비(원)</div><input type="number" value={costDirectExp} onChange={e=>setCostDirectExp(Number(e.target.value))} style={inp}/>
+              </div>
+              <div style={{minWidth:210}}>
+                <div style={{fontSize:10,color:'#6b7280',marginBottom:2}}>연계복잡성</div><select value={costLinkIdx} onChange={e=>setCostLinkIdx(Number(e.target.value))} style={sel}>{COST_LINK.map((c,i)=><option key={i} value={i}>{c.l} ({c.v})</option>)}</select>
+                <div style={{fontSize:10,color:'#6b7280',marginBottom:2}}>성능 요구수준</div><select value={costPerfIdx} onChange={e=>setCostPerfIdx(Number(e.target.value))} style={sel}>{COST_PERF.map((c,i)=><option key={i} value={i}>{c.l} ({c.v})</option>)}</select>
+                <div style={{fontSize:10,color:'#6b7280',marginBottom:2}}>운영환경 호환성</div><select value={costEnvIdx} onChange={e=>setCostEnvIdx(Number(e.target.value))} style={sel}>{COST_ENV.map((c,i)=><option key={i} value={i}>{c.l} ({c.v})</option>)}</select>
+                <div style={{fontSize:10,color:'#6b7280',marginBottom:2}}>보안성</div><select value={costSecIdx} onChange={e=>setCostSecIdx(Number(e.target.value))} style={sel}>{COST_SEC.map((c,i)=><option key={i} value={i}>{c.l} ({c.v})</option>)}</select>
+              </div>
+              <div style={{minWidth:190}}>
+                <div style={{background:'#eff6ff',borderRadius:8,padding:'10px 14px',textAlign:'center',marginBottom:6}}>
+                  <div style={{fontSize:10,color:'#6b7280'}}>총 FP</div>
+                  <div style={{fontSize:18,fontWeight:800,color:'#1d4ed8'}}>{fmt(tFP)} FP</div>
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:5,marginBottom:6}}>
+                  <div style={{background:'#f0fdf4',borderRadius:7,padding:'8px',textAlign:'center'}}><div style={{fontSize:10,color:'#6b7280'}}>규모보정</div><div style={{fontWeight:700,color:'#16a34a'}}>{sC.toFixed(4)}</div></div>
+                  <div style={{background:'#faf5ff',borderRadius:7,padding:'8px',textAlign:'center'}}><div style={{fontSize:10,color:'#6b7280'}}>총보정</div><div style={{fontWeight:700,color:'#7c3aed'}}>{tC.toFixed(4)}</div></div>
+                </div>
+                <div style={{background:'#fff7ed',border:'2px solid #f59e0b',borderRadius:9,padding:'10px',textAlign:'center',marginBottom:5}}>
+                  <div style={{fontSize:10,color:'#92400e'}}>개발비(보정후)</div>
+                  <div style={{fontSize:15,fontWeight:800,color:'#b45309'}}>{fmtB(dev)}</div>
+                  <div style={{fontSize:10,color:'#9ca3af'}}>{fmt(dev)}원</div>
+                </div>
+                <div style={{background:'#fef2f2',border:'2px solid #ef4444',borderRadius:9,padding:'10px',textAlign:'center'}}>
+                  <div style={{fontSize:10,color:'#991b1b'}}>총사업비</div>
+                  <div style={{fontSize:17,fontWeight:800,color:'#dc2626'}}>{fmtB(tot)}</div>
+                </div>
+              </div>
+              <div style={{minWidth:170}}>
+                <button onClick={()=>setCostReverseMode(v=>!v)} style={{padding:'5px 12px',fontSize:11,fontWeight:600,border:'none',borderRadius:5,cursor:'pointer',background:costReverseMode?'#f59e0b':'#e5e7eb',color:costReverseMode?'#fff':'#374151',marginBottom:8}}>🔄 예산역산 {costReverseMode?'ON':'OFF'}</button>
+                {costReverseMode&&<div>
+                  <input type="number" value={costTargetBudget} onChange={e=>setCostTargetBudget(e.target.value)} placeholder="목표예산(원)" style={{...inp,width:'100%',marginBottom:5}}/>
+                  <div style={{display:'flex',gap:3,flexWrap:'wrap',marginBottom:6}}>{[[1,1e8],[2,2e8],[5,5e8],[10,1e9],[20,2e9]].map(([l,v])=><button key={l} onClick={()=>setCostTargetBudget(String(v))} style={{fontSize:10,padding:'2px 7px',borderRadius:8,background:'#f3f4f6',color:'#374151',border:'1px solid #e5e7eb',cursor:'pointer'}}>{l}억</button>)}</div>
+                  {costTargetBudget&&<div style={{background:'#fffbeb',border:'1px solid #fde68a',borderRadius:7,padding:'9px 12px'}}>
+                    <div style={{fontWeight:700,color:'#b45309'}}>필요 FP: {fmt(revFP)}</div>
+                    <div style={{fontSize:10,color:'#6b7280',marginTop:2}}>현재 {fmt(tFP)} · {revFP>tFP?'부족 '+fmt(revFP-tFP):'초과 '+fmt(tFP-revFP)}</div>
+                  </div>}
+                </div>}
+              </div>
+            </div>
+          </div>);
+        })()}
         {/* 탭 바 */}
         <div style={S.tabbar}>
           {TAB_LABELS.map(t=>(
@@ -1370,7 +1441,7 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                   {/* 4단계 표시 */}
                   <div style={{display:'flex',justifyContent:'space-between',gap:4}}>
                     {[
-                      {n:1,label:'시스템탐지'},
+                      {n:1,label:'정보추출'},
                       {n:2,label:'요구사항수집'},
                       {n:3,label:'도메인분류'},
                       {n:4,label:'기능확장'},
@@ -1389,7 +1460,7 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                       </div>
                     ))}
                   </div>
-                  <div style={{fontSize:11,color:'#9ca3af',marginTop:12}}>시스템 수에 따라 2~5분 소요</div>
+                  <div style={{fontSize:11,color:'#9ca3af',marginTop:12}}>약 1~3분 소요됩니다</div>
                 </>
               ) : (
                 // 일반 로딩
@@ -1520,46 +1591,8 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
       )}
                 {tab === 'functions' && (
         <div>
-          {/* ── 멀티 시스템 전환 탭 ── */}
-          {rfpSystems.length > 1 && (
-            <div style={{ marginBottom:16, background:'#f0f9ff', border:'1px solid #bae6fd', borderRadius:10, padding:'12px 16px' }}>
-              <div style={{ fontSize:11, fontWeight:700, color:'#0369a1', marginBottom:8 }}>
-                📦 탐지된 시스템 {rfpSystems.length}개 — 시스템별 기능목록 전환
-              </div>
-              <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-                <button
-                  onClick={() => setActiveSystemKey('')}
-                  style={{ padding:'5px 12px', borderRadius:16, fontSize:12, fontWeight:600, cursor:'pointer', border:'none',
-                    background: activeSystemKey==='' ? '#0369a1' : '#e0f2fe',
-                    color: activeSystemKey==='' ? '#fff' : '#0369a1' }}
-                >
-                  전체 ({functions.length}개)
-                </button>
-                {rfpSystems.map(sys => (
-                  <button key={sys.systemKey}
-                    onClick={() => setActiveSystemKey(sys.systemKey)}
-                    style={{ padding:'5px 14px', borderRadius:16, fontSize:12, fontWeight:600, cursor:'pointer', border:'none',
-                      background: activeSystemKey===sys.systemKey ? '#0369a1' : '#e0f2fe',
-                      color: activeSystemKey===sys.systemKey ? '#fff' : '#0369a1' }}
-                  >
-                    {sys.systemName} ({sys.functions?.length || functions.filter(f=>f.systemKey===sys.systemKey).length}개)
-                  </button>
-                ))}
-              </div>
-              {activeSystemKey && (
-                <p style={{ fontSize:11, color:'#6b7280', marginTop:6, marginBottom:0 }}>
-                  {rfpSystems.find(s=>s.systemKey===activeSystemKey)?.description}
-                </p>
-              )}
-            </div>
-          )}
-
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <p style={{ fontSize: 14, color: '#6b7280', margin: 0 }}>
-              {activeSystemKey
-                ? `${rfpSystems.find(s=>s.systemKey===activeSystemKey)?.systemName} · ${functions.filter(f=>f.systemKey===activeSystemKey).length}개`
-                : `총 ${functions.length}개 기능`} · 셀 클릭하여 수정 가능
-            </p>
+            <p style={{ fontSize: 14, color: '#6b7280', margin: 0 }}>총 {functions.length}개 기능 · 셀 클릭하여 수정 가능</p>
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={addFunction} style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>+ 행 추가</button>
               <button
@@ -1935,10 +1968,7 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                 </tr>
               </thead>
               <tbody>
-                {(activeSystemKey
-                  ? functions.filter(f => f.systemKey === activeSystemKey)
-                  : functions
-                ).map((f) => (
+                {functions.map((f) => (
                   <tr key={f.id}>
                     {['lv1', 'lv2', 'lv3'].map((field) => (
                       <td key={field} style={{ ...cellStyle, whiteSpace: 'nowrap' }}>
@@ -3433,7 +3463,6 @@ JSON만 응답:
       </div>
     </div>
   </div>
-</div>
   );
 };
 
