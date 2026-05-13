@@ -399,6 +399,7 @@ export const parseRFPFull = async (text, onProgress) => {
   // ── 0단계: 구축 대상 시스템 탐지 ────────────────────────
   report(1, 'RFP에서 구축 대상 시스템 탐지 중...', 3);
   let systems = [];
+  let detectedProjectType = 'SW개발';
   try {
     const detectPrompt = getRFPSystemDetectPrompt(text);
     const detectText = await callClaudeText(detectPrompt, 1500);
@@ -406,6 +407,7 @@ export const parseRFPFull = async (text, onProgress) => {
     systems = (detected.systems || []).filter(s => s.systemName && s.systemKey);
     // projectType을 각 system에 전달
     const pType = detected.projectType || 'SW개발';
+    detectedProjectType = pType;
     systems = systems.map(s => ({ ...s, projectType: pType }));
   } catch (e) { console.warn('시스템 탐지 실패:', e.message); }
 
@@ -539,10 +541,9 @@ export const parseRFPFull = async (text, onProgress) => {
   return {
     systemName: allResults[0]?.systemName || '',
     overview: systems[0]?.description || '',
-    projectType: systems[0]?.projectType || detected?.projectType || 'SW개발',
+    projectType: systems[0]?.projectType || detectedProjectType,
     systems: allResults,          // 시스템별 분리 결과
     functions: allFunctions,      // 전체 합산 (기존 호환)
     multiSystem: allResults.length > 1,
   };
 };
-
