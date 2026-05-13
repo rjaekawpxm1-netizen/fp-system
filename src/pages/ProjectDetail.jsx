@@ -1312,10 +1312,7 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
             <div style={S.navDot(false)}/>
             <span>← 목록으로</span>
           </div>
-          <div style={S.navItem(false)} onClick={()=>navigate('/project/'+id+'/cost')}>
-            <div style={S.navDot(false)}/>
-            <span>💰 개발비 산출</span>
-          </div>
+
         </div>
         {fpList.length > 0 && (
           <div style={{margin:'auto 0 0',padding:'12px',borderTop:'1px solid rgba(255,255,255,0.1)'}}>
@@ -1982,6 +1979,105 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
 
                 </div>
               )}
+
+              {/* ── 검증 후 다음 단계 액션 ── */}
+              {(validationResult || qualityResult || fpValidResult) && (() => {
+                const covScore  = validationResult?.coverage?.score || 0;
+                const failCount = (validationResult?.coverage?.items||[]).filter(i=>i.status==='❌').length;
+                const qualScore = qualityResult?.qualityScore || 0;
+                const fpIssues  = (fpValidResult?.issues||[]).length;
+                const allGood   = covScore>=80 && qualScore>=80 && fpIssues===0;
+
+                const actions = [];
+
+                // 미반영 요구사항 있으면
+                if (failCount > 0) actions.push({
+                  icon:'❌', color:'#dc2626', bg:'#fef2f2', border:'#fecaca',
+                  title:`미반영 요구사항 ${failCount}개 재생성`,
+                  desc:'커버리지 검증에서 미반영된 요구사항을 기능목록에 추가합니다.',
+                  action: async () => {
+                    const failedItems = (validationResult?.coverage?.items||[]).filter(i=>i.status==='❌');
+                    if (!window.confirm(`미반영 ${failedItems.length}개를 일괄 재생성할까요?`)) return;
+                    setValidationLoading(true);
+                    try {
+                      const res = await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({max_tokens:4000,messages:[{role:'user',content:getRegenFromReqPrompt(failedItems,systemInfo,functions)}]})});
+                      const data = await res.json();
+                      const text = data.content?.map(c=>c.type==='text'?c.text:'').join('')||'';
+                      const parsed = safeParseJSON(text);
+                      const existingLV3 = new Set(functions.map(f=>f.lv3));
+                      const newFuncs = (parsed.functions||[]).filter(f=>!existingLV3.has(f.lv3)).map((f,j)=>({...f,id:Date.now()+j}));
+                      const merged = [...functions,...newFuncs];
+                      setFunctions(merged); saveProject({functions:merged});
+                      alert(`✅ ${newFuncs.length}개 추가됐습니다. 다시 검증해보세요.`);
+                    } catch(e){alert('오류: '+e.message);}
+                    finally{setValidationLoading(false);}
+                  }
+                });
+
+                // 품질 이슈 있으면
+                if (qualScore < 80) actions.push({
+                  icon:'🔬', color:'#7c3aed', bg:'#faf5ff', border:'#e9d5ff',
+                  title:'기능 품질 개선 — FP 재산정',
+                  desc:`품질 점수 ${qualScore}점. 품질 이슈를 수정 후 AI FP를 다시 산정하세요.`,
+                  action: () => { alert('기능목록을 직접 수정 후 FP산정표 탭에서 "AI FP 산정"을 눌러주세요.'); setTab('functions'); }
+                });
+
+                // FP 역검증 이슈 있으면
+                if (fpIssues > 0) actions.push({
+                  icon:'🔁', color:'#0369a1', bg:'#f0f9ff', border:'#bae6fd',
+                  title:`FP 역검증 이슈 ${fpIssues}개 — FP 재산정`,
+                  desc:'FTR/DET 값 이상 항목이 있습니다. AI FP 재산정으로 값을 보정하세요.',
+                  action: () => { if(window.confirm('FP를 재산정할까요? 기존 FP 데이터가 덮어써집니다.')) handleGenerateFP(); }
+                });
+
+                // 모두 통과 시
+                if (allGood) actions.push({
+                  icon:'🎉', color:'#16a34a', bg:'#f0fdf4', border:'#bbf7d0',
+                  title:'검증 완료 — 개발비 산출로 이동',
+                  desc:`커버리지 ${covScore}점 / 품질 ${qualScore}점 / FP 이슈 없음. 개발비 산출로 넘어가세요.`,
+                  action: () => setShowCostPanel(true)
+                });
+
+                // 항상 있는 액션
+                actions.push({
+                  icon:'📋', color:'#374151', bg:'#f9fafb', border:'#e5e7eb',
+                  title:'FP산정표 확인',
+                  desc:`현재 ${fpList.length}개 FP 항목. FP산정표 탭에서 세부 수치를 확인·조정하세요.`,
+                  action: () => setTab('fp')
+                });
+
+                if (fpList.length > 0) actions.push({
+                  icon:'💰', color:'#b45309', bg:'#fffbeb', border:'#fde68a',
+                  title:'개발비 산출',
+                  desc:'상단 "💰 개발비 산출" 버튼으로 보정계수 적용 후 총사업비를 산출하세요.',
+                  action: () => setShowCostPanel(true)
+                });
+
+                return (
+                  <div style={{marginTop:16, padding:'16px 0 4px'}}>
+                    <div style={{fontSize:13,fontWeight:700,color:'#374151',marginBottom:10}}>
+                      📌 다음 단계
+                      {allGood && <span style={{marginLeft:8,fontSize:11,background:'#dcfce7',color:'#16a34a',padding:'2px 8px',borderRadius:10,fontWeight:600}}>모든 검증 통과</span>}
+                    </div>
+                    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(220px,1fr))',gap:8}}>
+                      {actions.map((a,i)=>(
+                        <div key={i} onClick={a.action}
+                          style={{background:a.bg,border:`1px solid ${a.border}`,borderRadius:10,padding:'12px 14px',cursor:'pointer',transition:'transform 0.1s',display:'flex',gap:10,alignItems:'flex-start'}}
+                          onMouseEnter={e=>e.currentTarget.style.transform='translateY(-2px)'}
+                          onMouseLeave={e=>e.currentTarget.style.transform=''}
+                        >
+                          <span style={{fontSize:20,flexShrink:0}}>{a.icon}</span>
+                          <div>
+                            <div style={{fontSize:12,fontWeight:700,color:a.color,marginBottom:3}}>{a.title}</div>
+                            <div style={{fontSize:11,color:'#6b7280',lineHeight:1.5}}>{a.desc}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
             </div>
           )}
           <div style={{ overflowX: 'auto' }}>
