@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
-import { generateFunctions, generateFPList, parseDocument, parseSystemInfo, generateISPSection, parseRFPLarge, parseRFPFull } from '../utils/claudeApi';
+import { generateFunctions, generateFPList, parseDocument, parseSystemInfo, generateISPSection, parseRFPLarge, parseRFPFull, callClaudeText } from '../utils/claudeApi';
 import { getWeight, getAvgWeight, getComplexity, getComplexityLabel, calcTotalFP, getChangePct, getFuncChangePct, getImpactFactor } from '../utils/fpCalculator';
 import { getRFPParsePrompt, getValidationPrompt, getRegenFromReqPrompt, getQualityCheckPrompt, getFPValidationPrompt, getISPDraftPrompt } from '../utils/systemPrompt';
 import mammoth from 'mammoth';
@@ -1772,25 +1772,27 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                         try {
                           // 1단계: 요구사항 검증
                           setValidationStep(1);
-                          const t1 = await callClaude(getValidationPrompt(rfpText, functions), 3000);
-                          // callClaude가 이미 JSON 파싱된 객체 반환 - 직접 사용
-                          const r1 = (t1 && t1.coverage) ? t1 : { coverage: { score: 0, items: [] }, summary: '파싱 실패' };
+                          const raw1 = await callClaudeText(getValidationPrompt(rfpText, functions), 3000);
+                          let r1; try { r1 = safeParseJSON(raw1); } catch(e) { r1 = { coverage: { score: 0, items: [] }, summary: '파싱 실패: ' + e.message }; }
+                          if (!r1.coverage) r1 = { coverage: { score: 0, items: [] }, summary: '응답 구조 오류' };
                           setValidationResult(r1);
                           saveProject({ validationResult: r1, rfpText });
 
                           // 2단계: 품질 검증 (5초 딜레이)
                           setValidationStep(2);
                           await sleep(5000);
-                          const t2 = await callClaude(getQualityCheckPrompt(functions), 1000);
-                          const r2 = (t2 && t2.qualityScore !== undefined) ? t2 : { qualityScore: 0, issues: [], crudGaps: [], summary: '파싱 실패' };
+                          const raw2 = await callClaudeText(getQualityCheckPrompt(functions), 1500);
+                          let r2; try { r2 = safeParseJSON(raw2); } catch(e) { r2 = { qualityScore: 0, issues: [], crudGaps: [], summary: '파싱 실패' }; }
+                          if (r2.qualityScore === undefined) r2.qualityScore = 0;
                           setQualityResult(r2);
                           saveProject({ qualityResult: r2 });
 
                           // 3단계: FP 역검증 (5초 딜레이)
                           setValidationStep(3);
                           await sleep(5000);
-                          const t3 = await callClaude(getFPValidationPrompt(fpList, totalFPVal), 1000);
-                          const r3 = (t3 && t3.fpScore !== undefined) ? t3 : { fpScore: 0, issues: [], summary: '파싱 실패' };
+                          const raw3 = await callClaudeText(getFPValidationPrompt(fpList, totalFPVal), 1500);
+                          let r3; try { r3 = safeParseJSON(raw3); } catch(e) { r3 = { fpScore: 0, issues: [], summary: '파싱 실패' }; }
+                          if (r3.fpScore === undefined) r3.fpScore = 0;
                           setFpValidResult(r3);
                           saveProject({ fpValidResult: r3 });
 
