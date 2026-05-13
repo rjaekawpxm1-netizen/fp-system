@@ -157,9 +157,9 @@ const App = () => {
               />
             }
           />
-          <Route path="/project/:id/cost" element={<CostCalculator projects={projects} />} />
-          <Route path="/project/:id/rebuild" element={<RebuildCost projects={projects} />} />
-          <Route path="/project/:id/maintenance" element={<MaintenanceCost projects={projects} />} />
+          <Route path="/project/:id/cost" element={<CostCalculator projects={projects} projectsLoading={loading} />} />
+          <Route path="/project/:id/rebuild" element={<RebuildCost projects={projects} projectsLoading={loading} />} />
+          <Route path="/project/:id/maintenance" element={<MaintenanceCost projects={projects} projectsLoading={loading} />} />
           <Route path="/da" element={<DAMain />} />
           <Route path="/da/connect" element={<DAConnect />} />
           <Route path="/da/setup" element={<DASetup />} />

@@ -74,7 +74,7 @@ const calcSizeCoeff = (fp) => {
   return Math.round((0.4057 * Math.pow(Math.log(f) - 7.1978, 2) + 0.8878) * 10000) / 10000;
 };
 
-const RebuildCost = ({ projects }) => {
+const RebuildCost = ({ projects, projectsLoading }) => {
   const { id } = useParams();
   const navigate = useNavigate();
   const project = projects.find((p) => p.id === id);
@@ -98,11 +98,21 @@ const RebuildCost = ({ projects }) => {
   const [profitRate, setProfitRate] = useState(25);
   const [directCost, setDirectCost] = useState(0);
 
+  if (projectsLoading) {
+    return (
+      <div style={{ display:'flex', justifyContent:'center', alignItems:'center', height:'100vh', flexDirection:'column', gap:16 }}>
+        <div style={{ fontSize:32 }}>⚙️</div>
+        <p style={{ fontSize:15, color:'#374151', fontWeight:600 }}>데이터 불러오는 중...</p>
+      </div>
+    );
+  }
+
   if (!project) {
     return (
-      <div style={{ padding: 40, textAlign: 'center' }}>
-        <p>프로젝트를 찾을 수 없습니다.</p>
-        <button onClick={() => navigate('/')}>목록으로</button>
+      <div style={{ display:'flex', justifyContent:'center', alignItems:'center', height:'100vh', flexDirection:'column', gap:16 }}>
+        <div style={{ fontSize:32 }}>⚠️</div>
+        <p style={{ fontSize:15, color:'#374151', fontWeight:600 }}>프로젝트를 찾을 수 없습니다.</p>
+        <button onClick={() => navigate('/ba')} style={{ background:'#1d4ed8', color:'#fff', border:'none', borderRadius:7, padding:'8px 16px', fontSize:13, cursor:'pointer' }}>목록으로</button>
       </div>
     );
   }

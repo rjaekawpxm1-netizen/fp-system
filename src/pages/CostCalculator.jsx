@@ -53,7 +53,7 @@ const SECURITY = [
 
 const FP_UNIT_PRICE = 605784; // 2025년 기능점수당 단가
 
-const CostCalculator = ({ projects }) => {
+const CostCalculator = ({ projects, projectsLoading }) => {
   const { id } = useParams();
   const navigate = useNavigate();
   const project = projects.find((p) => p.id === id);
@@ -75,12 +75,12 @@ const CostCalculator = ({ projects }) => {
   const [reverseMode, setReverseMode] = useState(false);
   const [targetBudget, setTargetBudget] = useState('');
 
-  if (!projects || projects.length === 0) {
+  // Supabase 로딩 중
+  if (projectsLoading) {
     return (
       <div style={{ display:'flex', justifyContent:'center', alignItems:'center', height:'100vh', flexDirection:'column', gap:16, fontFamily:"'Pretendard', -apple-system, 'Malgun Gothic', sans-serif" }}>
         <div style={{ fontSize:32 }}>⚙️</div>
         <p style={{ fontSize:15, color:'#374151', fontWeight:600 }}>데이터 불러오는 중...</p>
-        <button onClick={() => navigate('/ba')} style={{ background:'#e5e7eb', color:'#374151', border:'none', borderRadius:7, padding:'8px 16px', fontSize:13, cursor:'pointer' }}>목록으로</button>
       </div>
     );
   }
