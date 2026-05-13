@@ -2130,20 +2130,6 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
               >
                 {showValidation ? '검증 닫기' : '🔍 FP 검증'}
               </button>
-              <button
-                onClick={() => {
-                  if (fpList.length === 0) return alert('FP 산정을 먼저 실행해주세요.');
-                  setTab('requirements');
-                  setShowAnalysisPanel(true);
-                  setTimeout(() => {
-                    const el = document.getElementById('ai-validation-section');
-                    if (el) el.scrollIntoView({ behavior: 'smooth' });
-                  }, 150);
-                }}
-                style={{ background: '#f0fdf4', color: '#16a34a', border: '1px solid #86efac', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-              >
-                🔁 FP 역검증 (검증 탭)
-              </button>
               <button onClick={addFPRow} style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>+ 행 추가</button>
               <button onClick={exportExcel} style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>📥 Excel 출력</button>
             </div>
@@ -2159,7 +2145,7 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                   <div style={{ fontSize:11, color:'#6b7280' }}>{fpValidResult.summary}</div>
                 </div>
               </div>
-              <button onClick={()=>{setTab('requirements');setShowAnalysisPanel(true);}} style={{ fontSize:11, padding:'4px 10px', background:'#2563eb', color:'#fff', border:'none', borderRadius:5, cursor:'pointer', fontWeight:600, whiteSpace:'nowrap' }}>상세 보기 →</button>
+              <button onClick={()=>{setTab('functions');setShowAnalysisPanel(true);setTimeout(()=>{const el=document.getElementById('ai-validation-section');if(el)el.scrollIntoView({behavior:'smooth'});},150);}} style={{ fontSize:11, padding:'4px 10px', background:'#2563eb', color:'#fff', border:'none', borderRadius:5, cursor:'pointer', fontWeight:600, whiteSpace:'nowrap' }}>상세 보기 →</button>
             </div>
           )}
 
