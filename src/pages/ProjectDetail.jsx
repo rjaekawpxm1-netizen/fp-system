@@ -194,6 +194,8 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
   const [rfpParseStep, setRfpParseStep] = useState(0);   // 1~4
   const [rfpParseMsg, setRfpParseMsg] = useState('');
   const [rfpParsePct, setRfpParsePct] = useState(0);
+  const [rfpSystems, setRfpSystems] = useState(project?.rfpSystems || []); // 탐지된 시스템 목록
+  const [activeSystemKey, setActiveSystemKey] = useState(''); // 현재 보는 시스템
   // 기능 품질 검증 state
   const [qualityResult, setQualityResult] = useState(project?.qualityResult || null);
   const [qualityLoading, setQualityLoading] = useState(false);
@@ -492,39 +494,37 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
         setLoadingMsg(msg);
       });
 
+      // 멀티 시스템 결과 저장
+      const detectedSystems = result.systems || [];
+      setRfpSystems(detectedSystems);
+
+      // 첫 번째 시스템 정보를 프로젝트 기본값으로
       if (result.systemName) setSystemName(result.systemName);
       if (result.overview)   setSystemOverview(result.overview);
 
+      // 전체 기능 합산 (systemKey/systemName 태그 포함)
       let funcs = result.functions || [];
-
-      if (funcs.length < 10) {
-        const fallback = [
-          { lv1:'공통기능', lv2:'사용자관리', lv3:'사용자 등록', definition:'사용자 정보를 등록한다' },
-          { lv1:'공통기능', lv2:'사용자관리', lv3:'사용자 수정', definition:'사용자 정보를 수정한다' },
-          { lv1:'공통기능', lv2:'사용자관리', lv3:'사용자 삭제', definition:'사용자 정보를 삭제한다' },
-          { lv1:'공통기능', lv2:'사용자관리', lv3:'사용자 목록조회', definition:'사용자 목록을 조회한다' },
-          { lv1:'공통기능', lv2:'사용자관리', lv3:'사용자 상세조회', definition:'사용자 상세 정보를 조회한다' },
-          { lv1:'공통기능', lv2:'권한관리', lv3:'권한 등록', definition:'권한 정보를 등록한다' },
-          { lv1:'공통기능', lv2:'권한관리', lv3:'권한 목록조회', definition:'권한 목록을 조회한다' },
-          { lv1:'공통기능', lv2:'시스템관리', lv3:'공통코드 관리', definition:'공통코드를 관리한다' },
-          { lv1:'공통기능', lv2:'시스템관리', lv3:'메뉴 관리', definition:'메뉴 정보를 관리한다' },
-          { lv1:'공통기능', lv2:'시스템관리', lv3:'시스템 로그 조회', definition:'시스템 로그를 조회한다' },
-        ];
-        const existingKeys = new Set(funcs.map(f => `${f.lv1}|${f.lv2}|${f.lv3}`));
-        funcs = [...funcs, ...fallback.filter(f => !existingKeys.has(`${f.lv1}|${f.lv2}|${f.lv3}`))];
-      }
 
       const withId = funcs.map((f, i) => ({ ...f, id: Date.now() + i }));
       setFunctions(withId);
+
+      const firstSystemKey = detectedSystems[0]?.systemKey || '';
+      setActiveSystemKey(firstSystemKey);
+
       saveProject({
         functions: withId,
+        rfpSystems: detectedSystems,
         systemName: result.systemName || systemName,
         systemOverview: result.overview || systemOverview,
       });
       setUploadedFuncFileName(file.name + ' (RFP)');
       setRfpParseStep(0);
       setTab('functions');
-      alert(`✅ RFP 분석 완료!\n총 ${withId.length}개 기능목록 생성\n\n💡 불필요한 기능을 삭제하거나 추가 후 FP 산정으로 이동하세요.`);
+
+      const summary = detectedSystems.length > 1
+        ? detectedSystems.map(s => `• ${s.systemName}: ${s.functions.length}개`).join('\n')
+        : `총 ${withId.length}개 기능목록 생성`;
+      alert(`✅ RFP 분석 완료!\n${summary}\n\n💡 기능목록 탭 상단에서 시스템별로 전환할 수 있습니다.`);
     } catch (err) {
       alert('RFP 파싱 오류: ' + err.message);
     } finally {
@@ -1366,7 +1366,7 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                   {/* 4단계 표시 */}
                   <div style={{display:'flex',justifyContent:'space-between',gap:4}}>
                     {[
-                      {n:1,label:'정보추출'},
+                      {n:1,label:'시스템탐지'},
                       {n:2,label:'요구사항수집'},
                       {n:3,label:'도메인분류'},
                       {n:4,label:'기능확장'},
@@ -1385,7 +1385,7 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                       </div>
                     ))}
                   </div>
-                  <div style={{fontSize:11,color:'#9ca3af',marginTop:12}}>약 1~3분 소요됩니다</div>
+                  <div style={{fontSize:11,color:'#9ca3af',marginTop:12}}>시스템 수에 따라 2~5분 소요</div>
                 </>
               ) : (
                 // 일반 로딩
@@ -1516,8 +1516,46 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
       )}
                 {tab === 'functions' && (
         <div>
+          {/* ── 멀티 시스템 전환 탭 ── */}
+          {rfpSystems.length > 1 && (
+            <div style={{ marginBottom:16, background:'#f0f9ff', border:'1px solid #bae6fd', borderRadius:10, padding:'12px 16px' }}>
+              <div style={{ fontSize:11, fontWeight:700, color:'#0369a1', marginBottom:8 }}>
+                📦 탐지된 시스템 {rfpSystems.length}개 — 시스템별 기능목록 전환
+              </div>
+              <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+                <button
+                  onClick={() => setActiveSystemKey('')}
+                  style={{ padding:'5px 12px', borderRadius:16, fontSize:12, fontWeight:600, cursor:'pointer', border:'none',
+                    background: activeSystemKey==='' ? '#0369a1' : '#e0f2fe',
+                    color: activeSystemKey==='' ? '#fff' : '#0369a1' }}
+                >
+                  전체 ({functions.length}개)
+                </button>
+                {rfpSystems.map(sys => (
+                  <button key={sys.systemKey}
+                    onClick={() => setActiveSystemKey(sys.systemKey)}
+                    style={{ padding:'5px 14px', borderRadius:16, fontSize:12, fontWeight:600, cursor:'pointer', border:'none',
+                      background: activeSystemKey===sys.systemKey ? '#0369a1' : '#e0f2fe',
+                      color: activeSystemKey===sys.systemKey ? '#fff' : '#0369a1' }}
+                  >
+                    {sys.systemName} ({sys.functions?.length || functions.filter(f=>f.systemKey===sys.systemKey).length}개)
+                  </button>
+                ))}
+              </div>
+              {activeSystemKey && (
+                <p style={{ fontSize:11, color:'#6b7280', marginTop:6, marginBottom:0 }}>
+                  {rfpSystems.find(s=>s.systemKey===activeSystemKey)?.description}
+                </p>
+              )}
+            </div>
+          )}
+
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <p style={{ fontSize: 14, color: '#6b7280', margin: 0 }}>총 {functions.length}개 기능 · 셀 클릭하여 수정 가능</p>
+            <p style={{ fontSize: 14, color: '#6b7280', margin: 0 }}>
+              {activeSystemKey
+                ? `${rfpSystems.find(s=>s.systemKey===activeSystemKey)?.systemName} · ${functions.filter(f=>f.systemKey===activeSystemKey).length}개`
+                : `총 ${functions.length}개 기능`} · 셀 클릭하여 수정 가능
+            </p>
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={addFunction} style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>+ 행 추가</button>
               <button
@@ -1893,7 +1931,10 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                 </tr>
               </thead>
               <tbody>
-                {functions.map((f) => (
+                {(activeSystemKey
+                  ? functions.filter(f => f.systemKey === activeSystemKey)
+                  : functions
+                ).map((f) => (
                   <tr key={f.id}>
                     {['lv1', 'lv2', 'lv3'].map((field) => (
                       <td key={field} style={{ ...cellStyle, whiteSpace: 'nowrap' }}>

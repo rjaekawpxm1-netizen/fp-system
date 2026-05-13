@@ -155,19 +155,52 @@ ${reqs}
 };
 
 // ══════════════════════════════════════════════════════════════
-// RFP → 100개 기능목록 생성 파이프라인 프롬프트
+// RFP → 시스템별 기능목록 생성 파이프라인 프롬프트
 // ══════════════════════════════════════════════════════════════
 
-// 2단계: 청크에서 원문 요구사항 수집
-export const getRFPChunkCollectPrompt = (chunkText, chunkIdx) => `
-SW사업 BA전문가. RFP 청크에서 요구사항 항목을 원문 그대로 수집. JSON만.
+// 0단계: RFP에서 구축 대상 시스템 목록 탐지
+export const getRFPSystemDetectPrompt = (text) => `
+SW사업 BA전문가. RFP에서 "실제로 구축(개발)할 SW 시스템" 목록을 탐지. JSON만.
 
-수집 대상 (형식 무관):
-- 코드형: FR-xxx, CNR-xxx, REQ-xxx, SFR-xxx, NFR-xxx, 1.1, 2.3.1 등
-- 서술형: "~해야 한다", "~기능을 제공", "~구현", "~처리", "~관리"
-- 업무명: 등록, 조회, 수정, 삭제, 승인, 반려, 처리, 분석, 보고 등이 포함된 문장
+## 구축 대상 시스템이란
+- 발주기관이 사업자에게 개발을 의뢰하는 소프트웨어 시스템
+- 완성 후 사용자가 로그인해서 실제로 사용하는 시스템
+- 예) "연구정보시스템 구축", "과제관리시스템 개발", "포털 구축"
 
-제외: 사업 일정, 제안서 양식, 평가기준, 납품물 목록
+## 제외 대상 (시스템 아님)
+- ISP/마스터플랜 등 컨설팅 산출물
+- 현황분석, 전략수립 등 방법론 과업
+- 하드웨어, 네트워크 장비
+
+## RFP 텍스트
+${text.slice(0, 4000)}
+
+각 시스템마다:
+- systemKey: 영문 camelCase 식별자 (예: researchInfoSystem)
+- systemName: 한국어 시스템명
+- description: 시스템 목적 1~2문장
+- mainUsers: 주요 사용자 (예: ["연구원","관리자"])
+- coreFeatures: RFP에서 언급된 핵심 기능 키워드 목록
+
+{"systems":[{"systemKey":"","systemName":"","description":"","mainUsers":[],"coreFeatures":[]}]}
+`;
+
+// 2단계: 청크에서 특정 시스템의 요구사항만 수집
+export const getRFPChunkCollectPrompt = (chunkText, chunkIdx, systemName, coreFeatures) => `
+SW사업 BA전문가. RFP 청크에서 "${systemName}"에 관련된 요구사항만 수집. JSON만.
+
+## 수집 기준: "${systemName}" 시스템의 요구사항
+관련 키워드: ${coreFeatures.join(', ')}
+
+## 수집 대상 (형식 무관)
+- 코드형: FR-xxx, CNR-xxx, REQ-xxx, SFR-xxx 등
+- 서술형: "~해야 한다", "~기능을 제공", "~처리", "~관리"
+- 해당 시스템 사용자가 직접 수행하는 업무 기능
+
+## 절대 수집 제외
+- 컨설턴트/사업자가 수행하는 방법론 과업 (현황분석 수행, 전략수립, 보고서 작성 등)
+- 다른 시스템의 요구사항
+- 납품물, 일정, 평가기준
 
 RFP 청크 ${chunkIdx}:
 ${chunkText}
@@ -176,46 +209,50 @@ ${chunkText}
 `;
 
 // 3단계: 수집된 요구사항 → 도메인(LV1) 분류
-export const getRFPDomainPrompt = (requirements, systemName, overview) => `
-SW사업 BA전문가. 수집된 요구사항을 업무 도메인(LV1)으로 분류. JSON만.
+export const getRFPDomainPrompt = (requirements, systemName, description, mainUsers) => `
+SW사업 BA전문가. 수집된 요구사항을 "${systemName}"의 업무 도메인(LV1)으로 분류. JSON만.
 
-시스템명: ${systemName}
-개요: ${overview}
+시스템 설명: ${description}
+주요 사용자: ${mainUsers.join(', ')}
 
 요구사항 목록:
 ${requirements.slice(0, 60).map((r, i) => `${i + 1}. ${r}`).join('\n')}
 
-규칙:
-- LV1은 5~8개 (업무 대분류)
-- 공통기능은 반드시 포함 (사용자/권한/시스템)
-- ISP/컨설팅이면 분석관리, 전략관리 등도 포함
+## 분류 규칙
+- LV1은 5~8개 (실제 업무 대분류)
+- 반드시 사용자가 실제로 쓰는 업무 영역 기준으로 분류
+- 예) 과제관리, 연구비관리, 보고서관리, 성과관리, 공통기능
+- 공통기능(사용자/권한/시스템관리) 반드시 포함
 - 각 도메인에 해당 요구사항 번호 매핑
 
-{"systemName":"","overview":"","domains":[{"lv1":"업무영역명","description":"영역 설명","requirements":["관련 요구사항 원문"],"expectedLv2":["예상 LV2 목록"]}]}
+{"domains":[{"lv1":"업무영역명","description":"영역 설명","requirements":["관련 요구사항 원문"],"expectedLv2":["예상 LV2 목록"]}]}
 `;
 
-// 4단계: 도메인별 기능 확장 (CRUD 완전 적용)
-export const getRFPDomainExpandPrompt = (domain, systemName) => `
-SW사업 BA전문가. 업무 도메인의 기능목록을 완전하게 생성. JSON만.
+// 4단계: 도메인별 기능 확장
+export const getRFPDomainExpandPrompt = (domain, systemName, mainUsers) => `
+SW사업 BA전문가. "${systemName}"의 "${domain.lv1}" 업무영역 기능목록 생성. JSON만.
 
-시스템명: ${systemName}
-도메인(LV1): ${domain.lv1}
-도메인 설명: ${domain.description}
+주요 사용자: ${mainUsers.join(', ')}
 관련 요구사항:
 ${(domain.requirements || []).slice(0, 15).join('\n')}
 예상 LV2: ${(domain.expectedLv2 || []).join(', ')}
 
-생성 규칙:
-1. LV2는 4~6개 생성
-2. 각 LV2마다 LV3 최소 5개 (등록/수정/삭제/목록조회/상세조회 기본 + 업무특화 추가)
-3. 승인/반려/처리/확정 등 업무흐름 LV3 별도 생성
-4. 집계/통계/보고서 기능도 포함
-5. definition은 "~을 ~한다" 형식 15자 이내
-6. 최소 25개 이상 생성 필수
+## 생성 기준: 사용자가 시스템에서 직접 클릭하는 화면/버튼
+판단 기준: "로그인한 사용자가 이 기능의 버튼/메뉴를 클릭하는가?"
+→ YES: 포함 (등록화면, 조회화면, 처리버튼 등)
+→ NO: 제외 (컨설턴트 작업, 방법론, 문서 작성 등)
+
+## 생성 규칙
+1. LV2는 4~6개 (실제 업무 메뉴 단위)
+2. 각 LV2마다 LV3 최소 5개:
+   - 기본 CRUD: 등록 / 수정 / 삭제 / 목록조회 / 상세조회
+   - 업무특화: 승인 / 반려 / 제출 / 확정 / 취소 등
+   - 집계/통계/출력: 통계조회 / 보고서출력 / 현황조회 등
+3. definition: "~을 ~한다" 형식 15자 이내
+4. 최소 25개 이상 생성 필수
 
 {"functions":[{"lv1":"${domain.lv1}","lv2":"","lv3":"","definition":""}]}
 `;
-
 
 // ── ISP 정보화전략계획서 생성 ─────────────────────────────────
 export const getISPDraftPrompt = (section, rfpText, systemName, overview, functions) => {
