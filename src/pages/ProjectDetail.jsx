@@ -233,11 +233,12 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
     const txList   = fpList.filter(f => ['EI','EO','EQ'].includes(f.fpType));
     const maxFtr   = txList.reduce((max, f) => Math.max(max, Number(f.ftr) || 0), 0);
 
-    // ── 1. 중복 LV3 ───────────────────────────────────────────
-    const lv3Names = fpList.map(f => f.lv3?.trim()).filter(Boolean);
-    const duplicates = lv3Names.filter((n, i) => lv3Names.indexOf(n) !== i);
-    [...new Set(duplicates)].forEach(name => {
-      issues.push({ severity: 'error', type: '중복 기능', message: `"${name}" 기능이 중복 식별됩니다.` });
+    // ── 1. 중복 LV3 (LV1+LV2가 다르면 중복 아님) ────────────
+    const fullKeys = fpList.map(f => `${f.lv1}|${f.lv2}|${f.lv3?.trim()}`);
+    const duplicateKeys = fullKeys.filter((k, i) => fullKeys.indexOf(k) !== i);
+    [...new Set(duplicateKeys)].forEach(key => {
+      const name = key.split('|')[2];
+      issues.push({ severity: 'error', type: '중복 기능', message: `"${name}" 기능이 같은 LV1/LV2 안에서 중복 식별됩니다.` });
     });
 
     // ── 2. ILF 누락 경고 ──────────────────────────────────────
@@ -2227,6 +2228,20 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
               >
                 {showValidation ? '검증 닫기' : '🔍 FP 검증'}
               </button>
+              <button
+                onClick={() => {
+                  if (fpList.length === 0) return alert('FP 산정을 먼저 실행해주세요.');
+                  setTab('functions');
+                  setShowAnalysisPanel(true);
+                  setTimeout(() => {
+                    const el = document.getElementById('ai-validation-section');
+                    if (el) el.scrollIntoView({ behavior: 'smooth' });
+                  }, 150);
+                }}
+                style={{ background: '#f0fdf4', color: '#16a34a', border: '1px solid #86efac', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+              >
+                🔁 FP 역검증
+              </button>
               <button onClick={addFPRow} style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>+ 행 추가</button>
               <button onClick={exportExcel} style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>📥 Excel 출력</button>
             </div>
@@ -2262,17 +2277,34 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                 </div>
                 {issues.length > 0 && (
                   <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {issues.map((issue, i) => (
-                      <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '6px 10px', borderRadius: 6, background: issue.severity === 'error' ? '#fef2f2' : issue.severity === 'warning' ? '#fff7ed' : '#eff6ff' }}>
-                        <span style={{ fontSize: 14, flexShrink: 0 }}>{issue.severity === 'error' ? '❌' : issue.severity === 'warning' ? '⚠️' : 'ℹ️'}</span>
-                        <div>
-                          <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 6px', borderRadius: 4, marginRight: 6, background: issue.severity === 'error' ? '#fee2e2' : issue.severity === 'warning' ? '#fef9c3' : '#dbeafe', color: issue.severity === 'error' ? '#dc2626' : issue.severity === 'warning' ? '#854d0e' : '#1e40af' }}>
-                            {issue.type}
-                          </span>
-                          <span style={{ fontSize: 12, color: '#374151' }}>{issue.message}</span>
+                    {issues.map((issue, i) => {
+                      // 이슈에서 기능명 추출 (따옴표 안 텍스트)
+                      const nameMatch = issue.message.match(/"([^"]+)"/);
+                      const targetName = nameMatch ? nameMatch[1] : null;
+                      const targetIdx = targetName ? fpList.findIndex(f => f.lv3 === targetName) : -1;
+                      return (
+                        <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '6px 10px', borderRadius: 6, background: issue.severity === 'error' ? '#fef2f2' : issue.severity === 'warning' ? '#fff7ed' : '#eff6ff' }}>
+                          <span style={{ fontSize: 14, flexShrink: 0 }}>{issue.severity === 'error' ? '❌' : issue.severity === 'warning' ? '⚠️' : 'ℹ️'}</span>
+                          <div style={{ flex: 1 }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 6px', borderRadius: 4, marginRight: 6, background: issue.severity === 'error' ? '#fee2e2' : issue.severity === 'warning' ? '#fef9c3' : '#dbeafe', color: issue.severity === 'error' ? '#dc2626' : issue.severity === 'warning' ? '#854d0e' : '#1e40af' }}>
+                              {issue.type}
+                            </span>
+                            <span style={{ fontSize: 12, color: '#374151' }}>{issue.message}</span>
+                          </div>
+                          {targetIdx >= 0 && (
+                            <button
+                              onClick={() => {
+                                const el = document.getElementById(`fp-row-${fpList[targetIdx].id}`);
+                                if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.style.outline = '2px solid #f59e0b'; setTimeout(() => el.style.outline = '', 2000); }
+                              }}
+                              style={{ fontSize: 10, padding: '2px 8px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}
+                            >
+                              위치로 →
+                            </button>
+                          )}
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -2327,7 +2359,7 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                   const autoCalcBg = '#f0f9ff';
 
                   return (
-                    <tr key={f.id}>
+                    <tr key={f.id} id={`fp-row-${f.id}`}>
                       {/* LV1~LV3 */}
                       {['lv1','lv2','lv3'].map((field) => (
                         <td key={field} style={{ ...cellStyle, whiteSpace: 'nowrap' }}>

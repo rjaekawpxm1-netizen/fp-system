@@ -109,15 +109,27 @@ ${text.slice(0, 3000)}
 
 // ── 요구사항 검증 (Tier1 최적화: 입력 최소화) ────────────────
 export const getValidationPrompt = (rfpText, functions) => {
-  // RFP 핵심만 1000자
-  const rfp = rfpText.slice(0, 1000);
-  // 기능목록 lv2>lv3 형식으로 최대 40개
-  const funcs = functions.slice(0, 40).map(f => `${f.lv2}>${f.lv3}`).join('\n');
-  return `BA검토전문가. JSON만.
-RFP: ${rfp}
-기능(${functions.length}개): ${funcs}
-검증: 요구사항반영여부/CRUD누락/공통기능/누락기능추천
-{"coverage":{"score":0,"items":[{"req":"","status":"✅","functions":[],"comment":""}]},"crudCheck":[{"lv2":"","missing":[],"ok":[]}],"commonCheck":{"userMgmt":true,"authMgmt":true,"sysMgmt":true},"suggestions":[{"lv1":"","lv2":"","lv3":"","definition":"","reason":""}],"summary":""}`;
+  const rfp = rfpText.slice(0, 2000);
+  const funcs = functions.slice(0, 80).map(f => `${f.lv1}>${f.lv2}>${f.lv3}`).join('\n');
+  return `공공SW사업 BA전문가. 요구사항 커버리지 검증. JSON만.
+
+## 검증 방법
+1. RFP에서 요구사항 문장 추출 (FR-xxx, CNR-xxx, "~해야 한다" 등)
+2. 각 요구사항이 기능목록에 반영됐는지 확인
+3. 반영: ✅ / 미반영: ❌ / 부분반영: ⚠️
+
+## 판단 기준
+- LV3 기능명이 요구사항의 핵심 업무를 포함하면 ✅
+- 유사한 기능이 있으면 ⚠️
+- 전혀 없으면 ❌
+
+RFP:
+${rfp}
+
+기능목록(${functions.length}개):
+${funcs}
+
+{"coverage":{"score":0,"items":[{"req":"요구사항 원문","status":"✅","functions":["관련기능LV3"],"comment":""}]},"summary":"한줄요약"}`;
 };
 
 // ── 기능 품질 검증 (Tier1 최적화) ────────────────────────────
