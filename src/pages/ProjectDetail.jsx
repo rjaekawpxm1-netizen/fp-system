@@ -1630,7 +1630,7 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
 
           {/* ── 통합 분석 도구 ── */}
           {showAnalysisPanel && (
-            <div style={{ marginBottom: 16 }}>
+            <div id="ai-validation-section" style={{ marginBottom: 16 }}>
 
               {/* 상단: RFP 입력 + 검증 실행 */}
               <div style={{ background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 12, padding: '16px 20px', marginBottom: 12 }}>
@@ -1674,22 +1674,22 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                         try {
                           // 1단계: 요구사항 검증
                           setValidationStep(1);
-                          const t1 = await callClaude(getValidationPrompt(rfpText, functions, fpList), 1500);
+                          const t1 = await callClaude(getValidationPrompt(rfpText, functions), 3000);
                           let r1; try { r1 = safeParseJSON(t1); } catch(e) { r1 = { coverage: { score: 0, items: [] }, crudCheck: [], commonCheck: { userMgmt: false, authMgmt: false, sysMgmt: false }, suggestions: [], summary: '응답이 잘렸습니다.' }; }
                           setValidationResult(r1);
                           saveProject({ validationResult: r1, rfpText });
 
-                          // 2단계: 품질 검증 (8초 딜레이)
+                          // 2단계: 품질 검증 (5초 딜레이)
                           setValidationStep(2);
-                          await sleep(8000);
+                          await sleep(5000);
                           const t2 = await callClaude(getQualityCheckPrompt(functions), 1000);
                           let r2; try { r2 = safeParseJSON(t2); } catch(e) { r2 = { qualityScore: 0, issues: [], crudGaps: [], summary: '응답이 잘렸습니다.' }; }
                           setQualityResult(r2);
                           saveProject({ qualityResult: r2 });
 
-                          // 3단계: FP 역검증 (8초 딜레이)
+                          // 3단계: FP 역검증 (5초 딜레이)
                           setValidationStep(3);
-                          await sleep(8000);
+                          await sleep(5000);
                           const t3 = await callClaude(getFPValidationPrompt(fpList, totalFPVal), 1000);
                           let r3; try { r3 = safeParseJSON(t3); } catch(e) { r3 = { fpScore: 0, issues: [], summary: '응답이 잘렸습니다.' }; }
                           setFpValidResult(r3);
@@ -2131,66 +2131,35 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                 {showValidation ? '검증 닫기' : '🔍 FP 검증'}
               </button>
               <button
-                onClick={async () => {
+                onClick={() => {
                   if (fpList.length === 0) return alert('FP 산정을 먼저 실행해주세요.');
-                  setFpValidLoading(true);
-                  try {
-                    const totalFPVal = Number(stdSummary.newDev) + Number(stdSummary.changed);
-                    const prompt = getFPValidationPrompt(fpList, totalFPVal, null);
-                    const response = await fetch('/api/claude', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ max_tokens: 1000, messages: [{ role: 'user', content: prompt }] }),
-                    });
-                    const data = await response.json();
-                    if (data.error) throw new Error(data.error.message || 'API 오류');
-                    const text = data.content?.map(c => c.type === 'text' ? c.text : '').join('') || '';
-                    const result = safeParseJSON(text);
-                    setFpValidResult(result);
-                    saveProject({ fpValidResult: result });
-                  } catch (err) {
-                    alert('FP 역검증 오류: ' + err.message);
-                  } finally {
-                    setFpValidLoading(false);
-                  }
+                  setTab('requirements');
+                  setShowAnalysisPanel(true);
+                  setTimeout(() => {
+                    const el = document.getElementById('ai-validation-section');
+                    if (el) el.scrollIntoView({ behavior: 'smooth' });
+                  }, 150);
                 }}
-                disabled={fpValidLoading}
-                style={{ background: fpValidLoading ? '#e5e7eb' : '#f0fdf4', color: fpValidLoading ? '#9ca3af' : '#16a34a', border: '1px solid #86efac', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: fpValidLoading ? 'not-allowed' : 'pointer' }}
+                style={{ background: '#f0fdf4', color: '#16a34a', border: '1px solid #86efac', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
               >
-                {fpValidLoading ? '⚙️ 역검증 중...' : '🔁 FP 역검증'}
+                🔁 FP 역검증 (검증 탭)
               </button>
               <button onClick={addFPRow} style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>+ 행 추가</button>
               <button onClick={exportExcel} style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>📥 Excel 출력</button>
             </div>
           </div>
 
-          {/* FP 역검증 결과 */}
+          {/* FP 역검증 결과 - 요약 (상세는 요구사항 탭) */}
           {fpValidResult && (
-            <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 12, padding: '16px 20px', marginBottom: 16 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: 32, fontWeight: 900, color: fpValidResult.fpScore >= 80 ? '#16a34a' : fpValidResult.fpScore >= 60 ? '#d97706' : '#dc2626', lineHeight: 1 }}>{fpValidResult.fpScore}</div>
-                    <div style={{ fontSize: 10, color: '#6b7280' }}>FP 품질</div>
-                  </div>
-                  <div>
-                    <p style={{ margin: '0 0 4px', fontSize: 13, fontWeight: 700, color: '#166534' }}>🔁 FP 역검증 결과</p>
-                    <p style={{ margin: 0, fontSize: 12, color: '#374151' }}>{fpValidResult.summary}</p>
-                  </div>
+            <div style={{ background: fpValidResult.fpScore>=80?'#f0fdf4':fpValidResult.fpScore>=60?'#fffbeb':'#fef2f2', border: `1px solid ${fpValidResult.fpScore>=80?'#86efac':fpValidResult.fpScore>=60?'#fde68a':'#fca5a5'}`, borderRadius: 10, padding: '10px 16px', marginBottom: 12, display:'flex', alignItems:'center', justifyContent:'space-between', gap:12 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                <span style={{ fontSize:24, fontWeight:900, color: fpValidResult.fpScore>=80?'#16a34a':fpValidResult.fpScore>=60?'#d97706':'#dc2626' }}>{fpValidResult.fpScore}</span>
+                <div>
+                  <div style={{ fontSize:12, fontWeight:700, color:'#374151' }}>🔁 FP 역검증 {fpValidResult.issues?.length>0?`— 이슈 ${fpValidResult.issues.length}개`:'통과'}</div>
+                  <div style={{ fontSize:11, color:'#6b7280' }}>{fpValidResult.summary}</div>
                 </div>
-                <button onClick={() => { setFpValidResult(null); saveProject({ fpValidResult: null }); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', fontSize: 18 }}>✕</button>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {(fpValidResult.issues || []).map((issue, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 8, padding: '8px 12px', background: issue.severity === 'error' ? '#fef2f2' : issue.severity === 'warning' ? '#fffbeb' : '#eff6ff', borderRadius: 8, fontSize: 12 }}>
-                    <span>{issue.severity === 'error' ? '❌' : issue.severity === 'warning' ? '⚠️' : 'ℹ️'}</span>
-                    <div>
-                      <span style={{ fontWeight: 600 }}>[{issue.type}]</span> {issue.message}
-                      {issue.suggestion && <p style={{ margin: '2px 0 0', color: '#2563eb' }}>💡 {issue.suggestion}</p>}
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <button onClick={()=>{setTab('requirements');setShowAnalysisPanel(true);}} style={{ fontSize:11, padding:'4px 10px', background:'#2563eb', color:'#fff', border:'none', borderRadius:5, cursor:'pointer', fontWeight:600, whiteSpace:'nowrap' }}>상세 보기 →</button>
             </div>
           )}
 
