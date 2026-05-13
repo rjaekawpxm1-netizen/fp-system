@@ -1354,8 +1354,9 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
         </div>
 
         {showCostPanel&&(()=>{
-          const fpR=fpList.reduce((a,f)=>{const p=Number(f.fpPoint)||0,r=f.reuseType||'신규개발';return r==='신규개발'?{...a,nd:a.nd+p}:r==='기능변경'?{...a,ch:a.ch+p*0.35}:a},{nd:0,ch:0});
-          const tFP=costMethod==='간이법'?(fpR.nd+fpR.ch)*1.286:(fpR.nd+fpR.ch);
+          const fpSumCalc=calcTotalFP(fpList, fpMethod==='standard'?'standard':'simple');
+          const fpNd=Number(fpSumCalc.newDev)||0, fpCh=Number(fpSumCalc.changed)||0;
+          const tFP=Math.round((costMethod==='간이법'?(fpNd+fpCh)*1.286:(fpNd+fpCh))*100)/100;
           const sC=calcSizeCoeffI(tFP);
           const tC=sC*COST_LINK[costLinkIdx].v*COST_PERF[costPerfIdx].v*COST_ENV[costEnvIdx].v*COST_SEC[costSecIdx].v;
           const dev=Math.round(tFP*costUnitPrice*tC);
@@ -1398,6 +1399,31 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                   <div style={{fontSize:10,color:'#991b1b'}}>총사업비</div>
                   <div style={{fontSize:17,fontWeight:800,color:'#dc2626'}}>{fmtB(tot)}</div>
                 </div>
+                <button onClick={async()=>{
+                  const {exportCostExcel}=await import('../utils/excelExport');
+                  await exportCostExcel({
+                    projectName: systemName||project.name,
+                    method: fpMethod,
+                    totalFP: tFP,
+                    fpSummary:{newDev:fpNd.toFixed(2), changed:fpCh.toFixed(2)},
+                    fpUnitPrice: costUnitPrice,
+                    preCorrectionCost: Math.round(tFP*costUnitPrice),
+                    sizeCoeff: sC, sizeLabel:`규모보정(${sC.toFixed(4)})`,
+                    linkCoeff: COST_LINK[costLinkIdx].v, linkLabel: COST_LINK[costLinkIdx].l,
+                    perfCoeff: COST_PERF[costPerfIdx].v, perfLabel: COST_PERF[costPerfIdx].l,
+                    envCoeff: COST_ENV[costEnvIdx].v, envLabel: COST_ENV[costEnvIdx].l,
+                    secCoeff: COST_SEC[costSecIdx].v, secLabel: COST_SEC[costSecIdx].l,
+                    totalCoeff: tC,
+                    devCost: dev,
+                    directCost: Number(costDirectExp||0),
+                    profit: Math.round(dev*costProfitRate/100),
+                    profitRate: costProfitRate,
+                    totalDevCost: tot,
+                    totalWithVAT: Math.round(tot*1.1),
+                  });
+                }} style={{marginTop:6,width:'100%',padding:'7px',background:'#16a34a',color:'#fff',border:'none',borderRadius:7,fontSize:12,fontWeight:700,cursor:'pointer'}}>
+                  📥 개발비 Excel 출력
+                </button>
               </div>
               <div style={{minWidth:170}}>
                 <button onClick={()=>setCostReverseMode(v=>!v)} style={{padding:'5px 12px',fontSize:11,fontWeight:600,border:'none',borderRadius:5,cursor:'pointer',background:costReverseMode?'#f59e0b':'#e5e7eb',color:costReverseMode?'#fff':'#374151',marginBottom:8}}>🔄 예산역산 {costReverseMode?'ON':'OFF'}</button>
