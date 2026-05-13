@@ -794,8 +794,8 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
       if (!ok) return;
     }
 
-    const totalChunks = Math.ceil(functions.length / 10);
-    const estMin = Math.ceil(totalChunks * 7 / 60);
+    const totalChunks = Math.ceil(functions.length / 5);
+    const estMin = Math.ceil(totalChunks * 3 / 60);
     setLoading(true);
     setLoadingMsg(`FP 산정 중... (0/${totalChunks} 완료) — 약 ${estMin}분 소요`);
     try {

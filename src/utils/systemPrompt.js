@@ -28,18 +28,23 @@ LV1 3~5개, LV2당 4~6개 LV3, 공통필수: 사용자관리/권한관리/시스
 `;
 
 // ── FP 산정 ───────────────────────────────────────────────────
-export const getFPPrompt = (functions) => `
-${FP_CORE}
+export const getFPPrompt = (functions) => {
+  // 입력 압축: idx/l2/l3만 전달 (토큰 최소화)
+  const compact = functions.map((f, i) => ({
+    i,
+    l2: f.lv2,
+    l3: f.lv3.slice(0, 15),
+  }));
+  return `${FP_CORE}
 ${FP_WEIGHTS}
 
-산정순서: 1)ILF먼저(업무당1개이상) 2)EIF(외부연동) 3)EI/EO/EQ
-ILF lv2="(데이터)", EIF lv2="(외부연계)"
-EI복잡도: FTR≤1→L, FTR=2/DET≤4→L, FTR=2/DET5-15→A, FTR=2/DET16+→H, FTR3+/DET5+→H
-JSON만 응답:
-${JSON.stringify(functions)}
+규칙: ILF=업무당1개, EI=등록/수정/삭제, EO=통계/보고서, EQ=조회/검색
+입력 ${compact.length}개 전부 출력 필수. idx=i값 그대로.
+lv1/lv2/lv3 생략해서 응답 최소화:
+${JSON.stringify(compact)}
 
-{"fpList":[{"lv1":"","lv2":"","lv3":"","definition":"","fpType":"ILF","ftr":1,"det":10,"reuseType":"신규개발"}]}
-`;
+{"fpList":[{"idx":0,"fpType":"EI","ftr":1,"det":5,"reuseType":"신규개발"}]}`;
+};
 
 // ── 파싱 ─────────────────────────────────────────────────────
 export const getParsePrompt = (text) => `
