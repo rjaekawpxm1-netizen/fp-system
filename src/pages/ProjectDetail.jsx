@@ -426,6 +426,108 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
     setLoading(true);
     setLoadingMsg('기능정의서 파싱 중...');
     try {
+      // ── xlsx: 병합셀 직접 처리 (AI 불필요, 정확도 100%) ──
+      if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+        setLoadingMsg('Excel 기능정의서 파싱 중... (병합셀 처리)');
+        const arrayBuffer = await file.arrayBuffer();
+        const wb = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
+        const wsName = wb.SheetNames[0];
+        const ws = wb.Sheets[wsName];
+
+        // 병합셀 정보 추출
+        const merges = ws['!merges'] || [];
+        // 병합셀 값 채우기: 첫 셀 값을 병합 범위 전체에 복사
+        const cellMap = {};
+        // 먼저 기존 값 전부 cellMap에
+        const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+        for (let R = range.s.r; R <= range.e.r; R++) {
+          for (let C = range.s.c; C <= range.e.c; C++) {
+            const addr = XLSX.utils.encode_cell({ r: R, c: C });
+            cellMap[`${R}_${C}`] = ws[addr]?.v ?? null;
+          }
+        }
+        // 병합된 범위는 첫 셀 값으로 채움
+        for (const merge of merges) {
+          const topVal = cellMap[`${merge.s.r}_${merge.s.c}`];
+          for (let R = merge.s.r; R <= merge.e.r; R++) {
+            for (let C = merge.s.c; C <= merge.e.c; C++) {
+              if (R === merge.s.r && C === merge.s.c) continue;
+              cellMap[`${R}_${C}`] = topVal;
+            }
+          }
+        }
+
+        // 컬럼 자동 탐지: LV1/LV2/LV3/definition 컬럼 찾기
+        // 전략: 값이 가장 많은 컬럼 4개를 순서대로 LV1~definition으로 사용
+        // 단, 첫 컬럼(인덱스0)이 번호 컬럼이면 제외
+        const totalRows = range.e.r - range.s.r + 1;
+        const totalCols = range.e.c - range.s.c + 1;
+
+        // 각 컬럼의 비어있지 않은 고유값 수 계산
+        const colStats = [];
+        for (let C = 0; C < totalCols; C++) {
+          const vals = new Set();
+          let nonNull = 0;
+          for (let R = 1; R <= Math.min(range.e.r, 200); R++) {
+            const v = cellMap[`${R}_${C}`];
+            if (v != null && String(v).trim()) {
+              nonNull++;
+              vals.add(String(v).trim());
+            }
+          }
+          colStats.push({ c: C, nonNull, unique: vals.size });
+        }
+
+        // 값이 있는 컬럼만 필터링 (10개 이상)
+        const validCols = colStats.filter(s => s.nonNull >= 10);
+        // 고유값이 적은 순 = LV1, 많은 순 = LV3/definition
+        const sorted = [...validCols].sort((a, b) => a.unique - b.unique);
+
+        let lv1Col, lv2Col, lv3Col, defCol;
+        if (sorted.length >= 4) {
+          lv1Col = sorted[0].c;
+          lv2Col = sorted[1].c;
+          lv3Col = sorted[2].c;
+          defCol = sorted[3].c;
+        } else if (sorted.length === 3) {
+          lv1Col = sorted[0].c;
+          lv2Col = sorted[1].c;
+          lv3Col = sorted[2].c;
+          defCol = sorted[2].c;
+        } else {
+          // 폴백: 순서대로
+          lv1Col = 1; lv2Col = 2; lv3Col = 3; defCol = 4;
+        }
+
+        // 기능 추출
+        const seen = new Set();
+        const funcs = [];
+        for (let R = 1; R <= range.e.r; R++) {
+          const lv1 = String(cellMap[`${R}_${lv1Col}`] || '').trim();
+          const lv2 = String(cellMap[`${R}_${lv2Col}`] || '').trim();
+          const lv3 = String(cellMap[`${R}_${lv3Col}`] || '').trim();
+          const def = String(cellMap[`${R}_${defCol}`] || '').trim();
+          if (!lv1 || !lv2 || !lv3) continue;
+          // 데이터정보 행, 헤더 행 제외
+          if (def.endsWith('데이터정보') || lv3.endsWith('데이터정보')) continue;
+          if (lv1 === 'LV1' || lv1 === '대분류') continue;
+          const key = `${lv1}|${lv2}|${lv3}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          funcs.push({ lv1, lv2, lv3, definition: def || `${lv3}을 처리한다` });
+        }
+
+        if (funcs.length === 0) throw new Error('LV1/LV2/LV3 컬럼을 찾을 수 없습니다.\n파일 구조: LV1, LV2, LV3, 기능정의 컬럼이 있어야 합니다.');
+
+        const withId = funcs.map((f, i) => ({ ...f, id: Date.now() + i }));
+        setFunctions(withId);
+        saveProject({ functions: withId });
+        setTab('functions');
+        alert(`✅ 기능정의서 파싱 완료!\n총 ${withId.length}개 기능 추출 (${wsName} 시트)`);
+        return;
+      }
+
+      // ── 그 외 형식: AI 파싱 ──
       let text = '';
       let imageFile = null;
       if (isImageFile(file)) {
@@ -436,17 +538,12 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
         const arrayBuffer = await file.arrayBuffer();
         const result = await mammoth.extractRawText({ arrayBuffer });
         text = result.value;
-      } else if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
-        const arrayBuffer = await file.arrayBuffer();
-        const wb = XLSX.read(arrayBuffer);
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        text = XLSX.utils.sheet_to_csv(ws);
+      } else {
+        throw new Error('지원 형식: xlsx, pdf, docx');
       }
       setLoadingMsg('AI가 기능 목록 추출 중...');
       const parsed = await parseDocument(text, imageFile);
-      if (!parsed || parsed.length === 0) {
-        throw new Error('기능 목록을 추출할 수 없습니다. 파일 형식을 확인하세요.');
-      }
+      if (!parsed || parsed.length === 0) throw new Error('기능 목록을 추출할 수 없습니다.');
       const withId = parsed.map((f, i) => ({ ...f, id: Date.now() + i }));
       setFunctions(withId);
       saveProject({ functions: withId });
