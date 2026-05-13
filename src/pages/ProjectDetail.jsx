@@ -1787,15 +1787,6 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                           setQualityResult(r2);
                           saveProject({ qualityResult: r2 });
 
-                          // 3단계: FP 역검증 (5초 딜레이)
-                          setValidationStep(3);
-                          await sleep(5000);
-                          const raw3 = await callClaudeText(getFPValidationPrompt(fpList, totalFPVal), 1500);
-                          let r3; try { r3 = safeParseJSON(raw3); } catch(e) { r3 = { fpScore: 0, issues: [], summary: '파싱 실패' }; }
-                          if (r3.fpScore === undefined) r3.fpScore = 0;
-                          setFpValidResult(r3);
-                          saveProject({ fpValidResult: r3 });
-
                           setValidationStep(0);
                         } catch (err) {
                           alert('검증 오류: ' + err.message);
@@ -1816,7 +1807,6 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                         {[
                           [1, '요구사항 커버리지'],
                           [2, '기능 품질'],
-                          [3, 'FP 역검증'],
                         ].map(([step, label]) => (
                           <div key={step} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', fontSize: 11 }}>
                             <span>{validationStep > step ? '✅' : validationStep === step ? '⚙️' : '⬜'}</span>
@@ -2059,43 +2049,6 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                               }} style={{ background:'#7c3aed', color:'#fff', border:'none', borderRadius:4, padding:'2px 6px', fontSize:10, cursor:'pointer', flexShrink:0 }}>추가</button>
                             </div>
                           ))}
-                        </div>
-                      );
-                    })() : (
-                      <div style={{ textAlign:'center', padding:'30px 0', color:'#9ca3af', fontSize:12 }}>검증 실행 후 결과가 표시됩니다</div>
-                    )}
-                  </div>
-
-                  {/* 결과③ FP 역검증 */}
-                  <div style={{ background: '#fff', border: '1px solid #bae6fd', borderRadius: 12, padding: '14px 16px' }}>
-                    <p style={{ margin: '0 0 10px', fontSize: 13, fontWeight: 700, color: '#0369a1' }}>🔁 FP 역검증</p>
-                    {fpValidResult ? (() => {
-                      const score = fpValidResult.fpScore || 0;
-                      const errors = (fpValidResult.issues||[]).filter(i=>i.severity==='error');
-                      const warnings = (fpValidResult.issues||[]).filter(i=>i.severity==='warning');
-                      const scoreColor = score>=80?'#0369a1':score>=60?'#d97706':'#dc2626';
-                      return (
-                        <div>
-                          <div style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 10px', background:'#f0f9ff', borderRadius:8, marginBottom:8 }}>
-                            <div style={{ fontSize:32, fontWeight:900, color:scoreColor, lineHeight:1 }}>{score}</div>
-                            <div>
-                              <div style={{ display:'flex', gap:6 }}>
-                                {errors.length>0&&<span style={{ fontSize:11, color:'#dc2626', fontWeight:600 }}>❌ {errors.length}오류</span>}
-                                {warnings.length>0&&<span style={{ fontSize:11, color:'#d97706', fontWeight:600 }}>⚠️ {warnings.length}경고</span>}
-                                {!errors.length&&!warnings.length&&<span style={{ fontSize:11, color:'#16a34a', fontWeight:600 }}>✅ 이슈없음</span>}
-                              </div>
-                              <p style={{ margin:0, fontSize:10, color:'#6b7280' }}>{fpValidResult.summary?.slice(0,40)}</p>
-                            </div>
-                          </div>
-                          <div style={{ maxHeight:200, overflowY:'auto', display:'flex', flexDirection:'column', gap:3 }}>
-                            {(fpValidResult.issues||[]).map((issue,i) => (
-                              <div key={i} style={{ padding:'5px 8px', background:issue.severity==='error'?'#fef2f2':issue.severity==='warning'?'#fffbeb':'#eff6ff', borderRadius:6, fontSize:11 }}>
-                                <span style={{ fontWeight:600 }}>{issue.severity==='error'?'❌':'⚠️'} [{issue.type}]</span>
-                                <p style={{ margin:'2px 0 0', color:'#6b7280', fontSize:10 }}>{issue.message}</p>
-                                {issue.suggestion&&<p style={{ margin:'1px 0 0', color:'#2563eb', fontSize:10 }}>💡 {issue.suggestion}</p>}
-                              </div>
-                            ))}
-                          </div>
                         </div>
                       );
                     })() : (
