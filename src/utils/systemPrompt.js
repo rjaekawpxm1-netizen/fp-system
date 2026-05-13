@@ -129,7 +129,10 @@ ${rfp}
 기능목록(${functions.length}개):
 ${funcs}
 
-{"coverage":{"score":0,"items":[{"req":"요구사항 원문","status":"✅","functions":["관련기능LV3"],"comment":""}]},"summary":"한줄요약"}`;
+## score 계산 방법
+전체 items 중 ✅ 비율 × 100 = score (예: 10개 중 8개 ✅ → score: 80)
+
+{"coverage":{"score":75,"items":[{"req":"요구사항 원문","status":"✅","functions":["관련기능LV3"],"comment":""}]},"summary":"한줄요약"}`;
 };
 
 // ── 기능 품질 검증 (Tier1 최적화) ────────────────────────────
@@ -138,7 +141,10 @@ export const getQualityCheckPrompt = (functions) => {
   return `BA품질검토. JSON만.
 기능(${functions.length}개): ${funcs}
 검증: 모호기능명/definition누락/CRUD불완전/중복
-{"qualityScore":85,"issues":[{"type":"모호한기능명","severity":"warning","lv2":"","lv3":"","message":"","suggestion":""}],"crudGaps":[{"lv2":"","missing":[],"existing":[]}],"summary":""}`;
+## qualityScore 계산
+100점 기준, 오류(-10점), 경고(-5점), 기능명 명확성/CRUD완전성 종합 판단
+
+{"qualityScore":75,"issues":[{"type":"모호한기능명","severity":"warning","lv2":"","lv3":"","message":"","suggestion":""}],"crudGaps":[{"lv2":"","missing":["수정","삭제"],"existing":["등록","조회"]}],"summary":""}`;
 };
 
 // ── FP 역검증 (Tier1 최적화) ─────────────────────────────────

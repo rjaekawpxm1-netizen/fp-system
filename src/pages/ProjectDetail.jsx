@@ -2055,6 +2055,7 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                                 const newFuncs = g.missing.map((m,j) => ({lv1,lv2:g.lv2,lv3:`${g.lv2} ${m}`,definition:`${g.lv2} 정보를 ${m}한다`,id:Date.now()+j}));
                                 const merged = [...functions,...newFuncs];
                                 setFunctions(merged); saveProject({functions:merged});
+                                alert(`✅ ${newFuncs.length}개 추가됐습니다.\n${newFuncs.map(f=>f.lv3).join(', ')}`);
                               }} style={{ background:'#7c3aed', color:'#fff', border:'none', borderRadius:4, padding:'2px 6px', fontSize:10, cursor:'pointer', flexShrink:0 }}>추가</button>
                             </div>
                           ))}
