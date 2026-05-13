@@ -138,22 +138,49 @@ export const generateFunctions = async (systemInfo, keyword) => {
 };
 
 // ============================================================
-// FP 산정 (청크당 4000 - 잘림 방지)
+// FP 산정 (Rate Limit 방지 - 딜레이 + 재시도)
 // ============================================================
-export const generateFPList = async (functions) => {
-  const CHUNK = 20;  // 청크 크기 줄여서 안정성 향상
+const sleep = (ms) => new Promise(res => setTimeout(res, ms));
+
+const callClaudeWithRetry = async (prompt, maxTokens, retries = 3) => {
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      return await callClaude(prompt, maxTokens);
+    } catch (err) {
+      const isRateLimit = err.message?.includes('rate limit') || err.message?.includes('10,000');
+      if (isRateLimit && attempt < retries - 1) {
+        const waitSec = (attempt + 1) * 15; // 15초, 30초, 45초
+        console.warn(`Rate limit 감지. ${waitSec}초 후 재시도 (${attempt + 1}/${retries})`);
+        await sleep(waitSec * 1000);
+      } else {
+        throw err;
+      }
+    }
+  }
+};
+
+export const generateFPList = async (functions, onProgress) => {
+  const CHUNK = 15; // 청크 줄여서 토큰 분산
+  const DELAY_MS = 4000; // 청크 사이 4초 대기
+
   if (functions.length <= CHUNK) {
     const prompt = getFPPrompt(functions);
-    const result = await callClaude(prompt, 4000);
+    const result = await callClaudeWithRetry(prompt, 4000);
     return result.fpList || [];
   }
 
   let allFP = [];
-  for (let i = 0; i < functions.length; i += CHUNK) {
-    const chunk = functions.slice(i, i + CHUNK);
-    const prompt = getFPPrompt(chunk);
-    const result = await callClaude(prompt, 4000);
+  const chunks = [];
+  for (let i = 0; i < functions.length; i += CHUNK)
+    chunks.push(functions.slice(i, i + CHUNK));
+
+  for (let i = 0; i < chunks.length; i++) {
+    if (onProgress) onProgress(i + 1, chunks.length);
+    const prompt = getFPPrompt(chunks[i]);
+    const result = await callClaudeWithRetry(prompt, 4000);
     allFP = [...allFP, ...(result.fpList || [])];
+    // 마지막 청크가 아니면 딜레이
+    if (i < chunks.length - 1) await sleep(DELAY_MS);
   }
   return allFP;
 };

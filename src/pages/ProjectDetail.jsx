@@ -789,15 +789,18 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
   const handleGenerateFP = async () => {
     if (functions.length === 0) return alert('기능 목록을 먼저 생성하세요.');
 
-    // E. AI 재생성 경고
     if (fpList.length > 0) {
       const ok = window.confirm(`기존 FP 산정표 ${fpList.length}개가 있습니다.\nAI 재산정 시 기존 데이터가 덮어쓰기 됩니다.\n계속하시겠습니까?`);
       if (!ok) return;
     }
+
+    const totalChunks = Math.ceil(functions.length / 15);
     setLoading(true);
-    setLoadingMsg('AI가 FP 산정 중...');
+    setLoadingMsg(`FP 산정 중... (0/${totalChunks} 완료)`);
     try {
-      const result = await generateFPList(functions);
+      const result = await generateFPList(functions, (current, total) => {
+        setLoadingMsg(`FP 산정 중... (${current}/${total} 완료)${current < total ? ' — 잠시 대기 중' : ''}`);
+      });
       const withId = result.map((f, i) => {
         const base = {
           ...f,
