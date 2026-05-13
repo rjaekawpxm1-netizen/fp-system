@@ -1773,7 +1773,8 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                           // 1단계: 요구사항 검증
                           setValidationStep(1);
                           const t1 = await callClaude(getValidationPrompt(rfpText, functions), 3000);
-                          let r1; try { r1 = safeParseJSON(t1); } catch(e) { r1 = { coverage: { score: 0, items: [] }, crudCheck: [], commonCheck: { userMgmt: false, authMgmt: false, sysMgmt: false }, suggestions: [], summary: '응답이 잘렸습니다.' }; }
+                          // callClaude가 이미 JSON 파싱된 객체 반환 - 직접 사용
+                          const r1 = (t1 && t1.coverage) ? t1 : { coverage: { score: 0, items: [] }, summary: '파싱 실패' };
                           setValidationResult(r1);
                           saveProject({ validationResult: r1, rfpText });
 
@@ -1781,7 +1782,7 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                           setValidationStep(2);
                           await sleep(5000);
                           const t2 = await callClaude(getQualityCheckPrompt(functions), 1000);
-                          let r2; try { r2 = safeParseJSON(t2); } catch(e) { r2 = { qualityScore: 0, issues: [], crudGaps: [], summary: '응답이 잘렸습니다.' }; }
+                          const r2 = (t2 && t2.qualityScore !== undefined) ? t2 : { qualityScore: 0, issues: [], crudGaps: [], summary: '파싱 실패' };
                           setQualityResult(r2);
                           saveProject({ qualityResult: r2 });
 
@@ -1789,7 +1790,7 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                           setValidationStep(3);
                           await sleep(5000);
                           const t3 = await callClaude(getFPValidationPrompt(fpList, totalFPVal), 1000);
-                          let r3; try { r3 = safeParseJSON(t3); } catch(e) { r3 = { fpScore: 0, issues: [], summary: '응답이 잘렸습니다.' }; }
+                          const r3 = (t3 && t3.fpScore !== undefined) ? t3 : { fpScore: 0, issues: [], summary: '파싱 실패' };
                           setFpValidResult(r3);
                           saveProject({ fpValidResult: r3 });
 
@@ -1867,30 +1868,54 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                       </div>
                       {gap > 0 && (
                         <button onClick={async () => {
-                          const ok = window.confirm(`부족한 기능 약 ${gap}개를 AI로 추가 생성할까요?`);
+                          const ok = window.confirm(`목표 ${estFuncCount}개까지 기능을 추가 생성합니다.\n현재 ${functions.length}개 → 목표 ${estFuncCount}개 (약 ${gap}개 추가 필요)\n\n시간이 걸릴 수 있습니다. 진행할까요?`);
                           if (!ok) return;
                           setLoading(true);
-                          let merged = [...functions]; let totalAdded = 0;
-                          const maxRounds = Math.min(Math.ceil(gap / 50), 10);
-                          const sleep = ms => new Promise(r => setTimeout(r, ms));
+                          let merged = [...functions];
+                          let totalAdded = 0;
+                          let noProgressCount = 0;
+                          const sleepMs = ms => new Promise(r => setTimeout(r, ms));
+                          // 기존 LV1/LV2 조합 파악
+                          const existingLV2s = [...new Set(merged.map(f => `${f.lv1}>${f.lv2}`))];
                           try {
-                            for (let round = 0; round < maxRounds; round++) {
-                              if (merged.length >= estFuncCount) break;
-                              setLoadingMsg(`추가 생성 중... (${round+1}/${maxRounds}회 · ${merged.length}개 → ${estFuncCount}개)`);
-                              if (round > 0) await sleep(3000);
-                              const existingLV3 = new Set(merged.map(f => f.lv3));
+                            let round = 0;
+                            while (merged.length < estFuncCount && noProgressCount < 3) {
+                              round++;
+                              const stillNeed = estFuncCount - merged.length;
+                              setLoadingMsg(`추가 생성 중... (${round}회차 · 현재 ${merged.length}개 · 목표 ${estFuncCount}개 · ${stillNeed}개 부족)`);
+                              if (round > 1) await sleepMs(3000);
+
+                              // 기존 LV3 전체 목록 (중복 방지)
+                              const existingLV3Set = new Set(merged.map(f => f.lv3?.trim()));
+                              // 아직 없는 LV2 업무 힌트
+                              const currentLV2s = [...new Set(merged.map(f => `${f.lv1}>${f.lv2}`))];
+                              const keyword = `추가기능생성.현재LV2:[${currentLV2s.slice(0,10).join(',')}].기존LV3중복금지.새로운LV2또는기존LV2의누락LV3추가.필요수량:${Math.min(stillNeed,30)}개`;
+
                               try {
-                                const result = await generateFunctions(systemInfo, `추가기능(목표${estFuncCount}개중현재${merged.length}개,중복제외새기능만)`);
-                                const newFuncs = result.filter(f => !existingLV3.has(f.lv3)).map((f,i) => ({...f, id: Date.now()+totalAdded+i}));
-                                if (!newFuncs.length) break;
-                                merged = [...merged, ...newFuncs]; totalAdded += newFuncs.length;
-                                setFunctions([...merged]); saveProject({ functions: merged });
-                              } catch(e) { break; }
+                                const result = await generateFunctions(systemInfo, keyword);
+                                const newFuncs = (result || [])
+                                  .filter(f => f.lv1 && f.lv2 && f.lv3)
+                                  .filter(f => !existingLV3Set.has(f.lv3?.trim()))
+                                  .map((f, i) => ({...f, id: Date.now() + totalAdded + i}));
+
+                                if (newFuncs.length === 0) {
+                                  noProgressCount++;
+                                } else {
+                                  noProgressCount = 0;
+                                  merged = [...merged, ...newFuncs];
+                                  totalAdded += newFuncs.length;
+                                  setFunctions([...merged]);
+                                  saveProject({ functions: merged });
+                                }
+                              } catch(e) {
+                                noProgressCount++;
+                              }
                             }
-                            alert(`✅ ${totalAdded}개 추가 (총 ${merged.length}개)`);
+                            const reason = noProgressCount >= 3 ? ' (더 이상 새 기능 생성 불가)' : '';
+                            alert(`✅ ${totalAdded}개 추가 완료 (총 ${merged.length}개)${reason}`);
                           } finally { setLoading(false); setLoadingMsg(''); }
                         }} style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-                          ✨ AI 추가 생성
+                          ✨ AI 추가 생성 (목표 ${estFuncCount}개까지)
                         </button>
                       )}
                     </div>
