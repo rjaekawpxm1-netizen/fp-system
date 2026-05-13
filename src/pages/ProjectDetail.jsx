@@ -1772,8 +1772,25 @@ ${JSON.stringify(functions.map(f => ({ lv1: f.lv1, lv2: f.lv2, lv3: f.lv3, defin
                         try {
                           // 1단계: 요구사항 검증
                           setValidationStep(1);
-                          const raw1 = await callClaudeText(getValidationPrompt(rfpText, functions), 3000);
-                          let r1; try { r1 = safeParseJSON(raw1); } catch(e) { r1 = { coverage: { score: 0, items: [] }, summary: '파싱 실패: ' + e.message }; }
+                          const raw1 = await callClaudeText(getValidationPrompt(rfpText, functions), 4000);
+                          let r1;
+                          try {
+                            r1 = safeParseJSON(raw1);
+                          } catch(e) {
+                            // 잘린 경우 items 부분만이라도 복구 시도
+                            try {
+                              const scoreMatch = raw1.match(/"score"\s*:\s*(\d+)/);
+                              const itemMatches = [...raw1.matchAll(/"req"\s*:\s*"([^"]+)"\s*,\s*"status"\s*:\s*"([^"]+)"/g)];
+                              if (itemMatches.length > 0) {
+                                const score = scoreMatch ? Number(scoreMatch[1]) : Math.round(itemMatches.filter(m=>m[2]==='✅').length/itemMatches.length*100);
+                                r1 = { coverage: { score, items: itemMatches.map(m=>({req:m[1],status:m[2],functions:[],comment:''})) }, summary: `부분 복구 (${itemMatches.length}개 항목)` };
+                              } else {
+                                r1 = { coverage: { score: 0, items: [] }, summary: 'JSON 파싱 실패 (응답이 잘렸습니다)' };
+                              }
+                            } catch(e2) {
+                              r1 = { coverage: { score: 0, items: [] }, summary: 'JSON 파싱 실패 (응답이 잘렸습니다)' };
+                            }
+                          }
                           if (!r1.coverage) r1 = { coverage: { score: 0, items: [] }, summary: '응답 구조 오류' };
                           setValidationResult(r1);
                           saveProject({ validationResult: r1, rfpText });

@@ -109,38 +109,36 @@ ${text.slice(0, 3000)}
 
 // ── 요구사항 검증 (Tier1 최적화: 입력 최소화) ────────────────
 export const getValidationPrompt = (rfpText, functions) => {
-  // RFP에서 요구사항 섹션 우선 추출 (FR-xxx, CNR-xxx, "~해야한다" 패턴 포함 행)
+  // RFP에서 요구사항 라인 우선 추출
   const lines = rfpText.split('\n');
   const reqLines = lines.filter(l =>
     /FR-|CNR-|REQ-|SFR-|해야 한다|해야한다|하여야|할 수 있|기능을 제공|구축|시스템/.test(l) && l.trim().length > 10
-  ).slice(0, 60);
-  // 요구사항 섹션이 충분히 없으면 전체 앞부분 사용
+  ).slice(0, 40);
   const rfp = reqLines.length >= 5
-    ? reqLines.join('\n').slice(0, 3000)
-    : rfpText.slice(0, 3000);
+    ? reqLines.join('\n').slice(0, 2000)
+    : rfpText.slice(0, 2000);
 
-  const funcs = functions.slice(0, 80).map(f => `${f.lv1}>${f.lv2}>${f.lv3}`).join('\n');
+  const funcs = functions.slice(0, 60).map(f => `${f.lv2}>${f.lv3}`).join('\n');
 
-  return `공공SW사업 BA전문가. 요구사항 커버리지 검증. JSON만.
+  return `공공SW사업 BA전문가. 요구사항 커버리지 검증. JSON만. 응답을 반드시 완성할 것.
 
-## 검증 방법
-1. RFP 내용에서 발주기관이 요구하는 기능/업무를 항목별로 추출
-2. 각 항목이 기능목록에 반영됐는지 확인
-3. 반영: ✅ / 미반영: ❌ / 부분반영: ⚠️
+RFP에서 요구사항 항목 추출 후 기능목록 반영 여부 확인.
+반영✅ 미반영❌ 부분⚠️
+score = ✅수/전체×100 (반드시 계산)
 
-## score 계산 (반드시 실제 계산할 것)
-전체 items 수 중 ✅ 개수 비율 × 100 = score
-예: 10개 items 중 ✅ 7개 → score: 70
+## 출력 규칙 (토큰 절약 - 반드시 준수)
+- req: 20자 이내로 요약
+- functions: 최대 2개
+- comment: 미반영시만 작성, 생략 가능
+- items: 최대 15개
 
-## 주의: items는 반드시 10개 이상 추출할 것
-
-RFP 내용:
+RFP:
 ${rfp}
 
-기능목록(${functions.length}개):
+기능(${functions.length}개):
 ${funcs}
 
-{"coverage":{"score":75,"items":[{"req":"요구사항 내용","status":"✅","functions":["관련LV3"],"comment":""}]},"summary":"요약"}`;
+{"coverage":{"score":75,"items":[{"req":"요구사항요약","status":"✅","functions":["LV3명"],"comment":""}]},"summary":"요약"}`;
 };
 
 // ── 기능 품질 검증 (Tier1 최적화) ────────────────────────────
