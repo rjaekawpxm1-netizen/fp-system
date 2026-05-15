@@ -128,8 +128,15 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
 
   // ── PDF 텍스트 추출 ──────────────────────────────────────────
   const extractPdfText = async (file) => {
-    const pdfjsLib = await import('pdfjs-dist/build/pdf');
-    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
+    const pdfjsLib = await import('pdfjs-dist');
+    try {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+        'pdfjs-dist/build/pdf.worker.min.mjs',
+        import.meta.url,
+      ).toString();
+    } catch {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+    }
     const ab = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
     let text = '';
