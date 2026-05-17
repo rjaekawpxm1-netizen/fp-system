@@ -320,7 +320,7 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
   const handleExpandAreas = async () => {
     const areasToExpand = [
       ...selectedAreas.map(i => areaSuggestions.suggestions[i]),
-      ...(customArea.trim() ? [{ lv1: customArea.trim(), description: `${customArea.trim()} 관련 기능`, expectedFunctions: 20, sampleLv2: [] }] : []),
+      ...(customArea.trim() ? [{ lv1: customArea.trim(), description: `${customArea.trim()} 관련 기능`, expectedFunctions: 40, sampleLv2: [] }] : []),
     ].filter(Boolean);
 
     if (areasToExpand.length === 0) return alert('추가할 영역을 선택해주세요.');
@@ -332,18 +332,25 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
     try {
       for (let i = 0; i < areasToExpand.length; i++) {
         const area = areasToExpand[i];
-        setLoadingMsg(`[${i+1}/${areasToExpand.length}] "${area.lv1}" 기능 생성 중...`);
+        setLoadingMsg(`[${i+1}/${areasToExpand.length}] "${area.lv1}" 기능 생성 중... (현재 ${currentFunctions.length}개)`);
         try {
           const newFuncs = await expandArea(area, systemName, currentFunctions);
-          const withId = newFuncs.map((f,j)=>({...f,id:Date.now()+totalAdded+j}));
-          currentFunctions = [...currentFunctions, ...withId];
-          totalAdded += withId.length;
-          setFunctions([...currentFunctions]);
-          saveProject({functions: currentFunctions});
+          if (newFuncs.length > 0) {
+            const withId = newFuncs.map((f,j)=>({...f,id:Date.now()+totalAdded+j}));
+            currentFunctions = [...currentFunctions, ...withId];
+            totalAdded += withId.length;
+            // 즉시 반영 (영역마다)
+            setFunctions([...currentFunctions]);
+            saveProject({functions: currentFunctions});
+          }
         } catch (e) {
           console.warn(`"${area.lv1}" 실패:`, e.message);
         }
-        if (i < areasToExpand.length - 1) await new Promise(r => setTimeout(r, 3000));
+        // Tier1 Rate Limit 방지: 영역 사이 5초 대기
+        if (i < areasToExpand.length - 1) {
+          setLoadingMsg(`[${i+1}/${areasToExpand.length}] "${area.lv1}" 완료 (${totalAdded}개 추가) — 다음 영역 준비 중...`);
+          await new Promise(r => setTimeout(r, 5000));
+        }
       }
       setAreaSuggestions(null);
       setSelectedAreas([]);

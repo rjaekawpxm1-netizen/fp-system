@@ -232,9 +232,18 @@ export const suggestAreas = async (systemName, rfpText, functions, targetCount) 
 export const expandArea = async (area, systemName, existingFunctions, onProgress) => {
   const report = (msg, pct) => onProgress && onProgress(msg, pct);
   report(`"${area.lv1}" 기능 생성 중...`, 0);
+
+  // 기존 LV2 목록 (전체 - 이미 있는 LV2 파악용)
+  const existingLV2s = [...new Set(existingFunctions.map(f => f.lv2))];
+
+  // 같은 LV1 안의 LV3만 중복 방지용으로 전달 (토큰 절약)
+  const sameLV1LV3s = existingFunctions
+    .filter(f => f.lv1 === area.lv1)
+    .map(f => f.lv3);
+
   const raw = await callAPI(
-    getAreaExpandPrompt(area, systemName, existingFunctions),
-    3000
+    getAreaExpandPrompt(area, systemName, existingLV2s, sameLV1LV3s),
+    4000  // 토큰 증가 - 40개+ 생성 위해
   );
   const parsed = parseJSON(raw);
   const funcs = (parsed.functions || [])
@@ -246,9 +255,11 @@ export const expandArea = async (area, systemName, existingFunctions, onProgress
       definition: f.definition || `${f.lv3}을 처리한다`,
     }));
 
-  // 중복 제거
+  // 중복 제거는 코드에서 처리 (AI에게 맡기지 않음)
+  // 전체 lv1|lv2|lv3 키로 완전 중복 제거
   const existingKeys = new Set(existingFunctions.map(f => `${f.lv1}|${f.lv2}|${f.lv3}`));
   const newFuncs = funcs.filter(f => !existingKeys.has(`${f.lv1}|${f.lv2}|${f.lv3}`));
+
   report(`${newFuncs.length}개 추가 완료`, 100);
   return newFuncs;
 };

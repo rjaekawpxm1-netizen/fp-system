@@ -139,34 +139,47 @@ ${rfpSnippet}
 2. 이 시스템에서 실제로 필요할 가능성이 높은 것
 3. 각 영역 추가 시 생성 가능한 예상 기능 수 포함
 4. 5~10개 영역 제안
+5. expectedFunctions: 실제로 생성 가능한 현실적 수치 (LV2수×8 기준, 최대 80)
 
 {"suggestions":[{
   "lv1":"업무영역명",
   "description":"이 영역이 필요한 이유",
-  "expectedFunctions":15,
-  "sampleLv2":["예상LV2-1","예상LV2-2"],
+  "expectedFunctions":40,
+  "sampleLv2":["예상LV2-1","예상LV2-2","예상LV2-3","예상LV2-4","예상LV2-5"],
   "relatedRequirement":"관련 요구사항 또는 근거"
 }],"analysis":"현재 기능목록 분석 요약"}`;
 };
 
 // 선택된 영역 기능 확장 (영역 추가용)
-export const getAreaExpandPrompt = (area, systemName, existingFunctions) => {
-  const existingLV3 = existingFunctions.map(f => f.lv3).join(', ');
+export const getAreaExpandPrompt = (area, systemName, existingLV2s, sameLV1LV3s) => {
+  // existingLV2s: 전체 기존 LV2 목록 (이 LV2들은 이미 있음)
+  // sameLV1LV3s: 같은 LV1 안의 기존 LV3 목록만 (중복 방지용, 최대 50개)
   return `공공SW사업 BA 전문가. "${systemName}" > "${area.lv1}" 영역 기능목록 생성. JSON만.
 
-## 절대 중복 금지
-기존 LV3 (포함하면 안됨): ${existingLV3.slice(0,500)}
+## 기존 LV2 현황 (참고용 - 이미 존재하는 LV2)
+${existingLV2s.slice(0, 30).join(', ')}
+
+## 같은 LV1("${area.lv1}") 안의 기존 LV3 (중복 생성 금지)
+${sameLV1LV3s.slice(0, 50).join(', ') || '없음'}
+
+## 생성 전략
+1. 위 기존 LV2와 다른 새로운 LV2 우선 생성
+2. 기존 LV2가 있더라도 누락된 CRUD 기능이 있으면 추가
+3. 기존 LV3와 동일한 기능명은 생성 금지
 
 ## 생성 대상
 영역: ${area.lv1}
 설명: ${area.description}
 예상 LV2: ${(area.sampleLv2||[]).join(', ')}
 
-## 규칙
-- 기존 LV3와 동일하거나 유사한 기능 생성 금지
-- CRUD 완전 적용 (등록/수정/삭제/목록조회/상세조회)
-- LV2: 4~6개, LV3: LV2당 6~10개
-- 최소 ${area.expectedFunctions || 20}개 생성
+## CRUD 완전 적용 (각 LV2마다)
+등록 / 수정 / 삭제 / 목록조회 / 상세조회 / 처리(업무특화) / 통계/현황
+
+## 출력 규칙
+- LV2: 5~8개 생성 (새로운 업무 단위 중심)
+- LV3: LV2당 6~10개
+- 최소 40개 이상 생성 필수
+- definition: "~을 ~한다" 20자 이내
 
 {"functions":[{"lv1":"${area.lv1}","lv2":"","lv3":"","definition":""}]}`;
 };
