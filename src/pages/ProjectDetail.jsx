@@ -107,6 +107,9 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
   const [showAreaPanel, setShowAreaPanel] = useState(false);
   const [areaSuggestions, setAreaSuggestions] = useState(null);
   const [selectedAreas, setSelectedAreas] = useState([]);
+  // 검색/필터
+  const [searchKeyword, setSearchKeyword] = useState('');
+  const [filterLV1, setFilterLV1] = useState('');
   const [customArea, setCustomArea] = useState('');
   const [areaTargetCount, setAreaTargetCount] = useState('');
 
@@ -777,9 +780,47 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
           {tab === 'functions' && (
             <div>
+              {/* 검색/필터 바 */}
+              <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap',alignItems:'center'}}>
+                <div style={{position:'relative',flex:1,minWidth:180}}>
+                  <span style={{position:'absolute',left:10,top:'50%',transform:'translateY(-50%)',color:'#9ca3af',fontSize:14}}>🔍</span>
+                  <input
+                    value={searchKeyword}
+                    onChange={e=>setSearchKeyword(e.target.value)}
+                    placeholder="LV1/LV2/LV3/기능정의 통합 검색..."
+                    style={{...S.input,paddingLeft:32,fontSize:13}}
+                  />
+                </div>
+                <select
+                  value={filterLV1}
+                  onChange={e=>setFilterLV1(e.target.value)}
+                  style={{padding:'8px 12px',border:'1px solid #e5e7eb',borderRadius:7,fontSize:13,background:'#fff',minWidth:160}}>
+                  <option value="">전체 LV1 ({functions.length}개)</option>
+                  {[...new Set(functions.map(f=>f.lv1).filter(Boolean))].sort().map(lv1=>(
+                    <option key={lv1} value={lv1}>
+                      {lv1} ({functions.filter(f=>f.lv1===lv1).length}개)
+                    </option>
+                  ))}
+                </select>
+                {(searchKeyword || filterLV1) && (
+                  <button onClick={()=>{setSearchKeyword('');setFilterLV1('');}} style={S.btnOutline('#6b7280')}>
+                    ✕ 초기화
+                  </button>
+                )}
+              </div>
               {/* 헤더 */}
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexWrap:'wrap',gap:8}}>
-                <p style={{fontSize:14,color:'#6b7280',margin:0}}>총 {functions.length}개 기능 · 셀 클릭하여 수정 가능</p>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12,flexWrap:'wrap',gap:8}}>
+                <p style={{fontSize:14,color:'#6b7280',margin:0}}>
+                  {(searchKeyword||filterLV1)
+                    ? `${functions.filter(f=>{
+                        const kw = searchKeyword.toLowerCase();
+                        const matchKw = !kw || [f.lv1,f.lv2,f.lv3,f.definition].some(v=>(v||'').toLowerCase().includes(kw));
+                        const matchLv1 = !filterLV1 || f.lv1===filterLV1;
+                        return matchKw && matchLv1;
+                      }).length}개 표시 중 (전체 ${functions.length}개)`
+                    : `총 ${functions.length}개 기능 · 셀 클릭하여 수정 가능`
+                  }
+                </p>
                 <div style={{display:'flex',gap:8}}>
                   <button onClick={()=>{setShowAreaPanel(v=>!v);setAreaSuggestions(null);}} style={S.btn(showAreaPanel?'#7c3aed':'#6b7280')}>
                     {showAreaPanel?'닫기':'+ 영역 추가'}
@@ -921,7 +962,21 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
                         </tr>
                       </thead>
                       <tbody>
-                        {functions.map((f,idx)=>(
+                        {functions.filter(f=>{
+                          const kw = searchKeyword.toLowerCase();
+                          const matchKw = !kw || [f.lv1,f.lv2,f.lv3,f.definition].some(v=>(v||'').toLowerCase().includes(kw));
+                          const matchLv1 = !filterLV1 || f.lv1===filterLV1;
+                          return matchKw && matchLv1;
+                        }).length === 0 && (searchKeyword||filterLV1) ? (
+                          <tr><td colSpan={5} style={{padding:'30px',textAlign:'center',color:'#9ca3af',fontSize:13}}>
+                            검색 결과가 없습니다. <button onClick={()=>{setSearchKeyword('');setFilterLV1('');}} style={{color:'#3b82f6',background:'none',border:'none',cursor:'pointer',textDecoration:'underline'}}>초기화</button>
+                          </td></tr>
+                        ) : functions.filter(f=>{
+                          const kw = searchKeyword.toLowerCase();
+                          const matchKw = !kw || [f.lv1,f.lv2,f.lv3,f.definition].some(v=>(v||'').toLowerCase().includes(kw));
+                          const matchLv1 = !filterLV1 || f.lv1===filterLV1;
+                          return matchKw && matchLv1;
+                        }).map((f,idx)=>(
                           <tr key={f.id} style={{borderBottom:'1px solid #f3f4f6',background:idx%2===0?'#fff':'#fafafa'}}>
                             {(['lv1','lv2','lv3','definition']).map(field=>(
                               <td key={field} style={{padding:'6px 8px'}}>
