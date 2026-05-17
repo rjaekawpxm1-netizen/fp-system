@@ -233,7 +233,11 @@ function buildGeneric(wb, name, headers, rows, widths=[]) {
   headers.forEach((h,ci)=>applyCell(ws.getCell(1,ci+1),h,{bg:C.HEADER1,bold:true}));
   rows.forEach((row,ri)=>{
     const r=ri+2;
-    headers.forEach((h,ci)=>applyCell(ws.getCell(r,ci+1),row[h]??'',{align:'left'}));
+    headers.forEach((h,ci)=>{
+      // 배열이면 인덱스로, 객체이면 헤더명으로 접근
+      const val = Array.isArray(row) ? (row[ci]??'') : (row[h]??'');
+      applyCell(ws.getCell(r,ci+1),val,{align:'left'});
+    });
   });
 }
 
