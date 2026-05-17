@@ -78,8 +78,9 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
   const [systemName, setSystemName] = useState(project?.systemName || '');
   const [systemOverview, setSystemOverview] = useState(project?.systemOverview || '');
   const [userInput, setUserInput] = useState(project?.userInput || '');
-  const [rfpText, setRfpText] = useState(project?.rfpText || '');
-  const [uploadedFileName, setUploadedFileName] = useState('');
+  const [rfpText, setRfpText] = useState(project?.rfpText || ''); // 합산 텍스트 (하위호환)
+  const [uploadedFiles, setUploadedFiles] = useState(project?.uploadedFiles || []); // [{name,text,type,size}]
+  const [xlsxFunctions, setXlsxFunctions] = useState(project?.xlsxFunctions || []); // xlsx에서 파싱된 기능
 
   // ── 기능목록 상태 ────────────────────────────────────────────
   const [functions, setFunctions] = useState(project?.functions || []);
@@ -212,46 +213,87 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
   };
 
   // ── 파일 업로드 핸들러 ───────────────────────────────────────
+  // ── 파일 추가 핸들러 (다중 파일 지원) ──────────────────────
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     e.target.value = '';
     setLoading(true);
-    setLoadingMsg('파일 읽는 중...');
+    setLoadingMsg(`"${file.name}" 읽는 중...`);
     try {
       const result = await readFile(file);
-      setUploadedFileName(file.name);
 
-      // xlsx 기능정의서 → 바로 기능목록으로
+      // xlsx 기능정의서 → xlsxFunctions에 저장
       if (result?.isXlsx) {
         if (result.functions.length > 0) {
+          const newXlsx = [...xlsxFunctions, ...result.functions];
+          setXlsxFunctions(newXlsx);
+          // 기능목록에도 바로 반영
           const withId = result.functions.map((f,i)=>({...f,id:Date.now()+i}));
-          setFunctions(withId);
-          saveProject({functions:withId});
-          alert(`✅ 기능정의서 파싱 완료!\n${withId.length}개 기능 추출`);
-          setTab('functions');
+          const merged = [...functions, ...withId];
+          // 중복 제거
+          const seen = new Set();
+          const deduped = merged.filter(f=>{
+            const k = `${f.lv1}|${f.lv2}|${f.lv3}`;
+            if(seen.has(k)) return false;
+            seen.add(k); return true;
+          });
+          setFunctions(deduped);
+          saveProject({functions:deduped, xlsxFunctions:newXlsx});
+          alert(`✅ 기능정의서 추가 완료!\n${result.functions.length}개 기능 추가 (총 ${deduped.length}개)`);
         }
         return;
       }
 
-      // 텍스트 문서 → rfpText에 저장
+      // 텍스트 문서 → uploadedFiles 배열에 추가
       const text = result;
-      const rfpFull = text.slice(0, 20000);
-      setRfpText(rfpFull);
-      saveProject({rfpText: rfpFull});
+      const fileEntry = {
+        name: file.name,
+        text: text.slice(0, 8000), // 파일당 최대 8000자
+        type: file.name.split('.').pop().toLowerCase(),
+        size: Math.round(text.length / 1000),
+        addedAt: new Date().toISOString(),
+      };
 
-      // 시스템 정보 자동 추출
-      setLoadingMsg('시스템 정보 추출 중...');
-      const info = await extractProjectInfo(text.slice(0,3000));
-      if (info.systemName && !systemName) { setSystemName(info.systemName); saveProject({systemName:info.systemName}); }
-      if (info.systemOverview && !systemOverview) { setSystemOverview(info.systemOverview); saveProject({systemOverview:info.systemOverview}); }
-      alert(`✅ 파일 업로드 완료!\n"시스템명, 개요"를 확인하고 필요하면 수정 후 "기능 생성" 버튼을 눌러주세요.`);
+      // 같은 이름 파일이면 교체, 아니면 추가
+      const existing = uploadedFiles.findIndex(f => f.name === file.name);
+      const newFiles = existing >= 0
+        ? uploadedFiles.map((f,i) => i===existing ? fileEntry : f)
+        : [...uploadedFiles, fileEntry];
+
+      setUploadedFiles(newFiles);
+
+      // 합산 텍스트 업데이트 (20000자 이내)
+      const combinedText = newFiles.map(f => f.text).join('\n\n---\n\n');
+      const rfpFull = combinedText.slice(0, 20000);
+      setRfpText(rfpFull);
+      saveProject({uploadedFiles: newFiles, rfpText: rfpFull});
+
+      // 첫 파일이면 시스템 정보 자동 추출
+      if (newFiles.length === 1 || !systemName) {
+        setLoadingMsg('시스템 정보 추출 중...');
+        const info = await extractProjectInfo(text.slice(0,3000));
+        if (info.systemName && !systemName) { setSystemName(info.systemName); saveProject({systemName:info.systemName}); }
+        if (info.systemOverview && !systemOverview) { setSystemOverview(info.systemOverview); saveProject({systemOverview:info.systemOverview}); }
+      }
+
+      alert(`✅ "${file.name}" 추가 완료!\n총 ${newFiles.length}개 파일 업로드됨\n\n"기능 생성" 버튼으로 전체 파일을 종합해서 기능을 생성하세요.`);
     } catch (err) {
       alert('파일 읽기 오류: ' + err.message);
     } finally {
       setLoading(false);
       setLoadingMsg('');
     }
+  };
+
+  // 파일 삭제
+  const handleRemoveFile = (fileName) => {
+    const newFiles = uploadedFiles.filter(f => f.name !== fileName);
+    const combinedText = newFiles.map(f => f.text).join('\n\n---\n\n');
+    const rfpFull = combinedText.slice(0, 20000);
+    setUploadedFiles(newFiles);
+    setRfpText(rfpFull);
+    saveProject({uploadedFiles: newFiles, rfpText: rfpFull});
   };
 
   // ── 기능 생성 핸들러 ─────────────────────────────────────────
@@ -634,31 +676,54 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
                 <div style={S.card}>
                   <div style={S.cardHeader}>
                     <span style={{fontSize:14,fontWeight:700,color:'#374151'}}>📁 파일 업로드</span>
-                    {uploadedFileName && <span style={S.tag('#dcfce7','#16a34a')}>✅ {uploadedFileName}</span>}
+                    <span style={S.tag(uploadedFiles.length>0||xlsxFunctions.length>0?'#dcfce7':'#f3f4f6', uploadedFiles.length>0||xlsxFunctions.length>0?'#16a34a':'#9ca3af')}>
+                      {uploadedFiles.length + (xlsxFunctions.length>0?1:0)}개 파일
+                    </span>
                   </div>
                   <div style={{padding:'16px 20px'}}>
-                    <p style={{fontSize:12,color:'#6b7280',marginBottom:12}}>RFP 또는 기능정의서를 업로드하면 AI가 자동으로 분석합니다.</p>
-                    <div style={{display:'flex',flexDirection:'column',gap:8}}>
-                      {[
-                        {icon:'📑', label:'RFP / 제안요청서', desc:'PDF, DOCX, TXT', accept:'.pdf,.docx,.txt'},
-                        {icon:'📋', label:'기능정의서 (Excel)', desc:'XLSX - LV1/LV2/LV3 자동 파싱', accept:'.xlsx,.xls'},
-                        {icon:'📄', label:'기타 문서', desc:'시스템 설명 문서', accept:'.pdf,.docx,.txt'},
-                      ].map(item=>(
-                        <label key={item.label} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 14px',border:'1px dashed #e5e7eb',borderRadius:8,cursor:'pointer',background:'#f9fafb',transition:'border-color 0.2s'}}
-                          onMouseEnter={e=>e.currentTarget.style.borderColor='#3b82f6'}
-                          onMouseLeave={e=>e.currentTarget.style.borderColor='#e5e7eb'}>
-                          <input type="file" accept={item.accept} onChange={handleFileUpload} style={{display:'none'}}/>
-                          <span style={{fontSize:20}}>{item.icon}</span>
-                          <div>
-                            <div style={{fontSize:13,fontWeight:600,color:'#374151'}}>{item.label}</div>
-                            <div style={{fontSize:11,color:'#9ca3af'}}>{item.desc}</div>
+                    <p style={{fontSize:12,color:'#6b7280',marginBottom:10}}>
+                      파일을 여러 개 올릴수록 기능 정확도가 높아집니다. 나중에 파일이 생기면 추가 업로드 후 재생성하세요.
+                    </p>
+
+                    {/* 업로드된 파일 목록 */}
+                    {(uploadedFiles.length > 0 || xlsxFunctions.length > 0) && (
+                      <div style={{marginBottom:12,display:'flex',flexDirection:'column',gap:6}}>
+                        {xlsxFunctions.length > 0 && (
+                          <div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 12px',background:'#f0fdf4',border:'1px solid #86efac',borderRadius:7}}>
+                            <span style={{fontSize:16}}>📋</span>
+                            <div style={{flex:1}}>
+                              <div style={{fontSize:12,fontWeight:600,color:'#16a34a'}}>기능정의서 (Excel)</div>
+                              <div style={{fontSize:10,color:'#6b7280'}}>{xlsxFunctions.length}개 기능 로드됨</div>
+                            </div>
+                            <button onClick={()=>{setXlsxFunctions([]);saveProject({xlsxFunctions:[]});}} style={{background:'none',border:'none',color:'#9ca3af',cursor:'pointer',fontSize:14}}>✕</button>
                           </div>
-                        </label>
-                      ))}
-                    </div>
-                    {rfpText && (
-                      <div style={{marginTop:12,background:'#eff6ff',borderRadius:7,padding:'8px 12px',fontSize:11,color:'#1d4ed8'}}>
-                        ✅ RFP 저장됨 ({Math.round(rfpText.length/1000)}KB)
+                        )}
+                        {uploadedFiles.map(f=>(
+                          <div key={f.name} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 12px',background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:7}}>
+                            <span style={{fontSize:16}}>{f.type==='pdf'?'📄':f.type==='docx'?'📝':'📑'}</span>
+                            <div style={{flex:1}}>
+                              <div style={{fontSize:12,fontWeight:600,color:'#1d4ed8'}}>{f.name}</div>
+                              <div style={{fontSize:10,color:'#6b7280'}}>{f.size}KB 읽음</div>
+                            </div>
+                            <button onClick={()=>handleRemoveFile(f.name)} style={{background:'none',border:'none',color:'#9ca3af',cursor:'pointer',fontSize:14}}>✕</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* 파일 추가 버튼 */}
+                    <label style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8,padding:'10px',border:'2px dashed #e5e7eb',borderRadius:8,cursor:'pointer',background:'#fafafa',transition:'all 0.2s'}}
+                      onMouseEnter={e=>{e.currentTarget.style.borderColor='#3b82f6';e.currentTarget.style.background='#eff6ff';}}
+                      onMouseLeave={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.background='#fafafa';}}>
+                      <input type="file" accept=".pdf,.docx,.txt,.xlsx,.xls" onChange={handleFileUpload} style={{display:'none'}}/>
+                      <span style={{fontSize:16}}>➕</span>
+                      <span style={{fontSize:13,fontWeight:600,color:'#6b7280'}}>파일 추가 (PDF / DOCX / XLSX / TXT)</span>
+                    </label>
+
+                    {uploadedFiles.length > 0 && (
+                      <div style={{marginTop:10,background:'#fffbeb',border:'1px solid #fde68a',borderRadius:7,padding:'8px 12px',fontSize:11,color:'#92400e'}}>
+                        💡 파일이 {uploadedFiles.length}개 있습니다. "기능 생성" 버튼을 누르면 전체 파일을 종합해서 생성합니다.
+                        {uploadedFiles.length >= 2 && <span style={{color:'#d97706',fontWeight:700}}> (다중 파일 → 정확도 향상)</span>}
                       </div>
                     )}
                   </div>

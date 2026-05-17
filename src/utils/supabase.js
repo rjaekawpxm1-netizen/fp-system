@@ -64,6 +64,10 @@ const dbToProject = (row) => ({
   systemOverview: row.system_overview || '',
   mainFunctions: row.main_functions || '',
   relatedOrgs: row.related_orgs || '',
+  userInput: row.user_input || '',
+  rfpText: row.rfp_text || '',
+  uploadedFiles: (() => { try { return JSON.parse(row.uploaded_files || '[]'); } catch { return []; } })(),
+  xlsxFunctions: (() => { try { return JSON.parse(row.xlsx_functions || '[]'); } catch { return []; } })(),
   functions: row.functions || [],
   fpList: row.fp_list || [],
   fpSummary: row.fp_summary || { newDev: 0, changed: 0 },
@@ -88,6 +92,10 @@ const projectToDb = (project) => {
   if (project.systemOverview !== undefined) db.system_overview = project.systemOverview;
   if (project.mainFunctions !== undefined) db.main_functions = project.mainFunctions;
   if (project.relatedOrgs !== undefined) db.related_orgs = project.relatedOrgs;
+  if (project.userInput !== undefined) db.user_input = project.userInput;
+  if (project.rfpText !== undefined) db.rfp_text = project.rfpText;
+  if (project.uploadedFiles !== undefined) db.uploaded_files = JSON.stringify(project.uploadedFiles);
+  if (project.xlsxFunctions !== undefined) db.xlsx_functions = JSON.stringify(project.xlsxFunctions);
   if (project.functions !== undefined) db.functions = project.functions;
   if (project.fpList !== undefined) db.fp_list = project.fpList;
   if (project.fpSummary !== undefined) db.fp_summary = project.fpSummary;
