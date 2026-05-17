@@ -742,21 +742,25 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
                       {/* 예산 입력으로 목표 기능 수 자동 계산 */}
                       <div style={{display:'flex',alignItems:'center',gap:6,background:'#fff',border:'1px solid #e9d5ff',borderRadius:8,padding:'6px 10px'}}>
                         <span style={{fontSize:11,color:'#7c3aed',fontWeight:600,whiteSpace:'nowrap'}}>예산</span>
-                        <input type="number" placeholder="억원 입력"
-                          style={{...S.input,width:90,fontSize:11}}
+                        <input type="number" placeholder="억원"
+                          style={{...S.input,width:80,fontSize:11}}
                           onChange={e=>{
                             const budgetWon = Number(e.target.value) * 1e8;
                             if (!budgetWon) { setAreaTargetCount(''); return; }
-                            // 역산: 필요FP = (예산 - 직접경비) / (단가 × 총보정계수 × (1+이윤율/100))
-                            const sC = calcSizeCoeff(functions.length * 3); // 예상 FP 기준 규모보정
-                            const tC = sC * COST_LINK[costLinkIdx].v * COST_PERF[costPerfIdx].v * COST_ENV[costEnvIdx].v * COST_SEC[costSecIdx].v;
-                            const needFP = Math.round((budgetWon - Number(costDirectExp||0)) / (costUnitPrice * tC * (1 + costProfitRate/100)));
-                            // FP → 기능 수 (평균 FP 3.5 기준)
-                            const avgFP = fpList.length > 0
-                              ? (Number(calcTotalFP(fpList,'standard').newDev) / Math.max(fpList.length,1))
+                            // 규모보정계수 수렴 계산 (3회 반복 - 항상 동일한 결과)
+                            const baseCoeff = COST_LINK[costLinkIdx].v * COST_PERF[costPerfIdx].v * COST_ENV[costEnvIdx].v * COST_SEC[costSecIdx].v;
+                            const profitMul = 1 + costProfitRate/100;
+                            let estFP = (budgetWon - Number(costDirectExp||0)) / (costUnitPrice * baseCoeff * profitMul);
+                            for (let iter = 0; iter < 3; iter++) {
+                              const sC = calcSizeCoeff(estFP);
+                              estFP = (budgetWon - Number(costDirectExp||0)) / (costUnitPrice * sC * baseCoeff * profitMul);
+                            }
+                            const needFP = Math.round(estFP);
+                            const avgFPVal = fpList.length > 0
+                              ? (Number(calcTotalFP(fpList,'standard').newDev) / Math.max(fpList.filter(f=>f.reuseType==='신규개발').length,1))
                               : 3.5;
-                            const needFuncs = Math.round(needFP / Math.max(avgFP, 1));
-                            setAreaTargetCount(String(Math.max(needFuncs, functions.length + 10)));
+                            const needFuncs = Math.round(needFP / Math.max(avgFPVal,1));
+                            setAreaTargetCount(String(Math.max(needFuncs, functions.length+1)));
                           }}
                         />
                         <span style={{fontSize:11,color:'#9ca3af'}}>억원</span>
@@ -768,6 +772,17 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
                       <span style={{color:'#d1d5db',fontSize:12}}>또는</span>
                       <input type="number" value={areaTargetCount} onChange={e=>setAreaTargetCount(e.target.value)}
                         placeholder="목표 기능 수 직접 입력" style={{...S.input,width:140,fontSize:12}}/>
+                      {areaTargetCount && Number(areaTargetCount) > functions.length && (
+                        <div style={{background:'#faf5ff',border:'1px solid #e9d5ff',borderRadius:7,padding:'5px 10px',fontSize:11,color:'#7c3aed',whiteSpace:'nowrap'}}>
+                          현재 {functions.length.toLocaleString()}개 →
+                          <span style={{fontWeight:700,color:'#dc2626'}}> {(Number(areaTargetCount)-functions.length).toLocaleString()}개 더 필요</span>
+                        </div>
+                      )}
+                      {areaTargetCount && Number(areaTargetCount) <= functions.length && (
+                        <div style={{background:'#f0fdf4',border:'1px solid #86efac',borderRadius:7,padding:'5px 10px',fontSize:11,color:'#16a34a',whiteSpace:'nowrap'}}>
+                          ✅ 목표 달성! (현재 {functions.length.toLocaleString()}개)
+                        </div>
+                      )}
                       <button onClick={handleSuggestAreas} style={S.btn('#7c3aed')}>AI 분석</button>
                     </div>
                   </div>
