@@ -199,9 +199,24 @@ export const generateFunctionsFromDoc = async (text, userInput, onProgress) => {
     if (i < domains.length - 1) await sleep(3000);
   }
 
-  // ── 후처리: 중복 제거 ────────────────────────────────────
+  // ── 후처리: 컨설팅 과업 필터링 + 중복 제거 ─────────────────
+  // 시스템 기능이 아닌 LV1 키워드 필터
+  const BAD_LV1 = ['AI/ML','AIOps','클라우드 및 인프라','아키텍처 설계',
+    '실시간 데이터 스트리밍','인프라 고도화','지능형 운영','운영 자동화',
+    '포렌식','비즈니스연속성','사이버보안 통합'];
+  // LV3 금지 패턴
+  const BAD_LV3 = [/자동화\s*구현/,/지능화\s*적용/,/고도화\s*수행/,/아키텍처\s*설계/,/인프라\s*구성/,/정책\s*수립/];
+
+  const filtered = allFunctions.filter(f => {
+    if (!f.lv1 || !f.lv2 || !f.lv3?.trim()) return false;
+    if (BAD_LV1.some(kw => f.lv1.includes(kw))) return false;
+    if (BAD_LV3.some(p => p.test(f.lv3))) return false;
+    if (f.lv3.trim() === f.lv2.trim()) return false; // LV3=LV2 제외
+    return true;
+  });
+
   const seen = new Set();
-  const deduped = allFunctions.filter(f => {
+  const deduped = filtered.filter(f => {
     const key = `${f.lv1}|${f.lv2}|${f.lv3}`;
     if (seen.has(key)) return false;
     seen.add(key);
