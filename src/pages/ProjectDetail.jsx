@@ -731,9 +731,36 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
                 <div style={{...S.card,marginBottom:16,border:'2px solid #7c3aed'}}>
                   <div style={{...S.cardHeader,background:'#faf5ff'}}>
                     <span style={{fontSize:14,fontWeight:700,color:'#7c3aed'}}>🔍 추가 업무 영역 제안</span>
-                    <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                    <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+                      {/* 예산 입력으로 목표 기능 수 자동 계산 */}
+                      <div style={{display:'flex',alignItems:'center',gap:6,background:'#fff',border:'1px solid #e9d5ff',borderRadius:8,padding:'6px 10px'}}>
+                        <span style={{fontSize:11,color:'#7c3aed',fontWeight:600,whiteSpace:'nowrap'}}>예산</span>
+                        <input type="number" placeholder="억원 입력"
+                          style={{...S.input,width:90,fontSize:11}}
+                          onChange={e=>{
+                            const budgetWon = Number(e.target.value) * 1e8;
+                            if (!budgetWon) { setAreaTargetCount(''); return; }
+                            // 역산: 필요FP = (예산 - 직접경비) / (단가 × 총보정계수 × (1+이윤율/100))
+                            const sC = calcSizeCoeff(functions.length * 3); // 예상 FP 기준 규모보정
+                            const tC = sC * COST_LINK[costLinkIdx].v * COST_PERF[costPerfIdx].v * COST_ENV[costEnvIdx].v * COST_SEC[costSecIdx].v;
+                            const needFP = Math.round((budgetWon - Number(costDirectExp||0)) / (costUnitPrice * tC * (1 + costProfitRate/100)));
+                            // FP → 기능 수 (평균 FP 3.5 기준)
+                            const avgFP = fpList.length > 0
+                              ? (Number(calcTotalFP(fpList,'standard').newDev) / Math.max(fpList.length,1))
+                              : 3.5;
+                            const needFuncs = Math.round(needFP / Math.max(avgFP, 1));
+                            setAreaTargetCount(String(Math.max(needFuncs, functions.length + 10)));
+                          }}
+                        />
+                        <span style={{fontSize:11,color:'#9ca3af'}}>억원</span>
+                        <span style={{fontSize:10,color:'#c4b5fd'}}>→</span>
+                        <span style={{fontSize:11,color:'#7c3aed',fontWeight:700}}>
+                          {areaTargetCount ? `목표 ${Number(areaTargetCount).toLocaleString()}개` : '?'}
+                        </span>
+                      </div>
+                      <span style={{color:'#d1d5db',fontSize:12}}>또는</span>
                       <input type="number" value={areaTargetCount} onChange={e=>setAreaTargetCount(e.target.value)}
-                        placeholder="목표 기능 수" style={{...S.input,width:120}}/>
+                        placeholder="목표 기능 수 직접 입력" style={{...S.input,width:140,fontSize:12}}/>
                       <button onClick={handleSuggestAreas} style={S.btn('#7c3aed')}>AI 분석</button>
                     </div>
                   </div>
@@ -925,6 +952,12 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
                           <th style={{padding:'8px',textAlign:'center',color:'#374151',background:'#e8f4ff'}}>복잡도</th>
                           <th style={{padding:'8px',textAlign:'center',color:'#374151',background:'#e8f4ff'}}>점수</th>
                           <th style={{padding:'8px',textAlign:'center',color:'#374151'}}>재사용유형</th>
+                          <th style={{padding:'8px',textAlign:'center',color:'#374151',background:'#fef9c3',minWidth:55}}>FTR변경</th>
+                          <th style={{padding:'8px',textAlign:'center',color:'#374151',background:'#fef9c3',minWidth:55}}>DET변경</th>
+                          <th style={{padding:'8px',textAlign:'center',color:'#374151',background:'#fef9c3',minWidth:55}}>변경률%</th>
+                          <th style={{padding:'8px',textAlign:'center',color:'#374151',background:'#fef9c3',minWidth:55}}>영향계수</th>
+                          <th style={{padding:'8px',textAlign:'center',color:'#374151',background:'#f0fdf4',minWidth:55}}>FP점수</th>
+                          <th style={{padding:'8px',textAlign:'center',color:'#374151'}}>비고</th>
                           <th style={{padding:'8px',textAlign:'center',color:'#374151'}}>삭제</th>
                         </tr>
                       </thead>
@@ -933,6 +966,12 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
                           const c = getComplexity(f.fpType,f.ftr,f.det);
                           const cColor = COMPLEXITY_COLORS[c]||{};
                           const w = fpMethod==='simple'?getAvgWeight(f.fpType):getWeight(f.fpType,f.ftr,f.det);
+                          const isChanged = f.reuseType === '기능변경';
+                          const ftrPct = getChangePct(f.ftrChange||0, f.ftr);
+                          const detPct = getChangePct(f.detChange||0, f.det);
+                          const funcPct = getFuncChangePct(ftrPct, detPct, f.fpType);
+                          const impact = getImpactFactor(funcPct);
+                          const fpPoint = isChanged ? Math.round(w * impact * 100)/100 : w;
                           return (
                             <tr key={f.id} id={`fp-row-${f.id}`} style={{borderBottom:'1px solid #f3f4f6',background:idx%2===0?'#fff':'#fafafa'}}>
                               {['lv1','lv2','lv3','definition'].map(field=>(
@@ -959,6 +998,31 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
                                 <select value={f.reuseType||'신규개발'} onChange={e=>updateFP(f.id,'reuseType',e.target.value)} style={{border:'1px solid #e5e7eb',borderRadius:4,fontSize:10,padding:'2px 4px',background:'#fff'}}>
                                   {REUSE_TYPES.map(t=><option key={t}>{t}</option>)}
                                 </select>
+                              </td>
+                              {/* 변경량 컬럼 - 기능변경일 때만 활성 */}
+                              <td style={{padding:'5px 6px',textAlign:'center',background:isChanged?'#fefce8':'#fafafa'}}>
+                                <input type="number" value={f.ftrChange||0} onChange={e=>updateFP(f.id,'ftrChange',Number(e.target.value))}
+                                  disabled={!isChanged}
+                                  style={{width:38,border:'1px solid #e5e7eb',borderRadius:4,fontSize:11,padding:'2px 3px',textAlign:'center',background:isChanged?'#fff':'#f3f4f6',color:isChanged?'#374151':'#9ca3af'}}/>
+                              </td>
+                              <td style={{padding:'5px 6px',textAlign:'center',background:isChanged?'#fefce8':'#fafafa'}}>
+                                <input type="number" value={f.detChange||0} onChange={e=>updateFP(f.id,'detChange',Number(e.target.value))}
+                                  disabled={!isChanged}
+                                  style={{width:38,border:'1px solid #e5e7eb',borderRadius:4,fontSize:11,padding:'2px 3px',textAlign:'center',background:isChanged?'#fff':'#f3f4f6',color:isChanged?'#374151':'#9ca3af'}}/>
+                              </td>
+                              <td style={{padding:'5px 6px',textAlign:'center',background:isChanged?'#fefce8':'#fafafa',color:isChanged?'#d97706':'#9ca3af',fontWeight:isChanged?700:400,fontSize:11}}>
+                                {isChanged ? `${Math.round(funcPct)}%` : '-'}
+                              </td>
+                              <td style={{padding:'5px 6px',textAlign:'center',background:isChanged?'#fefce8':'#fafafa',color:isChanged?'#d97706':'#9ca3af',fontWeight:isChanged?700:400,fontSize:11}}>
+                                {isChanged ? impact.toFixed(2) : '-'}
+                              </td>
+                              <td style={{padding:'5px 6px',textAlign:'center',background:'#f0fdf4',fontWeight:700,color:'#16a34a',fontSize:12}}>
+                                {fpPoint}
+                              </td>
+                              <td style={{padding:'5px 6px',textAlign:'center'}}>
+                                <input value={f.bigo||''} onChange={e=>updateFP(f.id,'bigo',e.target.value)}
+                                  style={{width:60,border:'1px solid #e5e7eb',borderRadius:4,fontSize:10,padding:'2px 4px',textAlign:'center'}}
+                                  placeholder="-"/>
                               </td>
                               <td style={{padding:'5px 8px',textAlign:'center'}}>
                                 <button onClick={()=>{
