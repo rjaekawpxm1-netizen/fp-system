@@ -234,33 +234,53 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
 
       // xlsx 기능정의서 → xlsxFunctions에 저장
       if (result?.isXlsx) {
-        if (result.functions.length > 0) {
-          const newXlsx = [...xlsxFunctions, ...result.functions];
-          setXlsxFunctions(newXlsx);
-          const isUpgrade = functions.length > 0 && window.confirm(
-            `📋 ${result.functions.length}개 기능 파싱 완료!\n\n고도화 모드로 불러올까요?\n\n[확인] 고도화 모드 — 재사용 표시 후 기존 기능에 추가\n[취소] 일반 모드 — 현재 기능목록 교체`
-          );
-          const withId = result.functions.map((f,i)=>({
-            ...f, id:Date.now()+i,
-            reuseType: isUpgrade ? '재사용' : '신규개발'
-          }));
-          const base = isUpgrade ? functions : [];
-          const merged = [...base, ...withId];
-          const seen = new Set();
-          const deduped = merged.filter(f=>{
-            const k = `${f.lv1}|${f.lv2}|${f.lv3}`;
-            if(seen.has(k)) return false;
-            seen.add(k); return true;
-          });
-          setFunctions(deduped);
-          if (isUpgrade) setUpgradeMode(true);
-          saveProject({functions:deduped, xlsxFunctions:newXlsx});
-          alert(isUpgrade
-            ? `✅ 고도화 모드 적용!\n${result.functions.length}개 기능 재사용으로 추가 (총 ${deduped.length}개)\nFP 산정표에서 신규 기능만 "신규개발"로 변경하세요.`
-            : `✅ 기능정의서 파싱 완료!\n${withId.length}개 기능 추출`
-          );
-          setTab('functions');
+        if (result.functions.length === 0) {
+          alert('기능 데이터를 찾을 수 없습니다. LV1/LV2/LV3 컬럼이 있는지 확인하세요.');
+          return;
         }
+        const newXlsx = [...xlsxFunctions, ...result.functions];
+        setXlsxFunctions(newXlsx);
+
+        // xlsx도 파일 목록에 표시 (이름만, 텍스트 없이)
+        const xlsxEntry = {
+          name: file.name,
+          text: '', // xlsx는 텍스트 없음
+          type: 'xlsx',
+          size: Math.round(file.size / 1024),
+          addedAt: new Date().toISOString(),
+          isXlsx: true,
+          functionCount: result.functions.length,
+        };
+        const existingIdx = uploadedFiles.findIndex(f => f.name === file.name);
+        const newUploadedFiles = existingIdx >= 0
+          ? uploadedFiles.map((f,i) => i===existingIdx ? xlsxEntry : f)
+          : [...uploadedFiles, xlsxEntry];
+        setUploadedFiles(newUploadedFiles);
+        saveProject({uploadedFiles: newUploadedFiles, xlsxFunctions: newXlsx});
+
+        const isUpgrade = functions.length > 0 && window.confirm(
+          `📋 ${result.functions.length}개 기능 파싱 완료!\n\n고도화 모드로 불러올까요?\n\n[확인] 고도화 모드 — 재사용 표시 후 기존 기능에 추가\n[취소] 일반 모드 — 현재 기능목록 교체`
+        );
+        const withId = result.functions.map((f,i)=>({
+          ...f, id:Date.now()+i,
+          reuseType: isUpgrade ? '재사용' : '신규개발'
+        }));
+        const base = isUpgrade ? functions : [];
+        const merged = [...base, ...withId];
+        const seen = new Set();
+        const deduped = merged.filter(f=>{
+          const k = `${f.lv1}|${f.lv2}|${f.lv3}`;
+          if(seen.has(k)) return false;
+          seen.add(k); return true;
+        });
+        setFunctions(deduped);
+        if (isUpgrade) setUpgradeMode(true);
+        saveProject({functions: deduped, xlsxFunctions: newXlsx});
+        setTab('functions'); // 탭 먼저 전환
+        setTimeout(()=>alert(isUpgrade
+          ? `✅ 고도화 모드 적용!\n${result.functions.length}개 기능이 재사용으로 추가됐습니다 (총 ${deduped.length}개)\nFP 산정 시 신규 기능만 "신규개발"로 변경하세요.`
+          : `✅ 기능정의서 파싱 완료!\n${withId.length}개 기능 추출됐습니다.`
+        ), 100);
         return;
       }
 
@@ -735,11 +755,13 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
                           </div>
                         )}
                         {uploadedFiles.map(f=>(
-                          <div key={f.name} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 12px',background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:7}}>
-                            <span style={{fontSize:16}}>{f.type==='pdf'?'📄':f.type==='docx'?'📝':'📑'}</span>
+                          <div key={f.name} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 12px',background:f.isXlsx?'#f0fdf4':'#eff6ff',border:`1px solid ${f.isXlsx?'#86efac':'#bfdbfe'}`,borderRadius:7}}>
+                            <span style={{fontSize:16}}>{f.isXlsx?'📋':f.type==='pdf'?'📄':f.type==='docx'?'📝':'📑'}</span>
                             <div style={{flex:1}}>
-                              <div style={{fontSize:12,fontWeight:600,color:'#1d4ed8'}}>{f.name}</div>
-                              <div style={{fontSize:10,color:'#6b7280'}}>{f.size}KB 읽음</div>
+                              <div style={{fontSize:12,fontWeight:600,color:f.isXlsx?'#16a34a':'#1d4ed8'}}>{f.name}</div>
+                              <div style={{fontSize:10,color:'#6b7280'}}>
+                                {f.isXlsx ? `${f.functionCount || 0}개 기능 파싱됨` : `${f.size}KB 읽음`}
+                              </div>
                             </div>
                             <button onClick={()=>handleRemoveFile(f.name)} style={{background:'none',border:'none',color:'#9ca3af',cursor:'pointer',fontSize:14}}>✕</button>
                           </div>

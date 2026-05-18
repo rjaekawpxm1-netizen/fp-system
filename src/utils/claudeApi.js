@@ -209,9 +209,9 @@ export const generateFunctionsFromDoc = async (text, userInput, onProgress) => {
         .filter(f => f.lv2 && f.lv3)
         .map(f => ({
           lv1: domain.lv1,
-          lv2: f.lv2,
-          lv3: f.lv3.replace(/^[A-Z]{2,}-\d+[-\w]*:\s*/i,'').replace(/^[A-Z]{2,}-\d+\s*/i,'').trim(),
-          definition: f.definition || `${f.lv3}을 처리한다`,
+          lv2: f.lv2 || '',
+          lv3: (f.lv3 || '').replace(/^[A-Z]{2,}-\d+[-\w]*:\s*/i,'').replace(/^[A-Z]{2,}-\d+\s*/i,'').trim(),
+          definition: f.definition || `${f.lv3 || f.lv2}을 처리한다`,
         }))
         .filter(f => f.lv3.length > 0);
       allFunctions = [...allFunctions, ...funcs];
@@ -259,12 +259,19 @@ export const generateFunctionsFromDoc = async (text, userInput, onProgress) => {
 
 // ── 추가 영역 제안 ────────────────────────────────────────────
 export const suggestAreas = async (systemName, rfpText, functions, targetCount) => {
+  // rfpText undefined 방어
+  const safeRfp = rfpText || '';
   const raw = await callAPI(
-    getAreaSuggestPrompt(systemName, rfpText, functions, targetCount),
+    getAreaSuggestPrompt(systemName, safeRfp, functions || [], targetCount),
     2000
   );
-  const parsed = parseJSON(raw);
-  return parsed;
+  try {
+    const parsed = parseJSON(raw);
+    return parsed;
+  } catch(e) {
+    console.warn('영역 제안 파싱 실패:', e.message);
+    return { suggestions: [], analysis: '분석 실패' };
+  }
 };
 
 // ── 선택된 영역 기능 생성 ────────────────────────────────────
@@ -289,10 +296,11 @@ export const expandArea = async (area, systemName, existingFunctions, onProgress
     .filter(f => f.lv2 && f.lv3)
     .map(f => ({
       lv1: area.lv1,
-      lv2: f.lv2,
-      lv3: f.lv3.replace(/^[A-Z]{2,}-\d+[-\w]*:\s*/i,'').trim(),
-      definition: f.definition || `${f.lv3}을 처리한다`,
-    }));
+      lv2: f.lv2 || '',
+      lv3: (f.lv3 || '').replace(/^[A-Z]{2,}-\d+[-\w]*:\s*/i,'').trim(),
+      definition: f.definition || `${f.lv3 || f.lv2}을 처리한다`,
+    }))
+    .filter(f => f.lv3.length > 0);
 
   // 중복 제거는 코드에서 처리 (AI에게 맡기지 않음)
   // 전체 lv1|lv2|lv3 키로 완전 중복 제거

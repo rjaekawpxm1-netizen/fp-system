@@ -152,7 +152,7 @@ export const getAreaSuggestPrompt = (systemName, rfpText, functions, targetCount
   const currentLV1 = [...new Set(functions.map(f => f.lv1))];
   const currentLV2 = [...new Set(functions.map(f => f.lv2))];
   const currentCount = functions.length;
-  const rfpSnippet = rfpText.slice(0, 5000); // Tier2: RFP 더 많이 전달
+  const rfpSnippet = (rfpText || '').slice(0, 5000); // rfpText undefined 방어
 
   return `공공SW사업 BA 전문가. 기능목록 확장을 위한 추가 업무 영역 제안. JSON만.
 
