@@ -57,7 +57,7 @@ export const getDomainClassifyPrompt = (requirements, systemName, description, m
 ${userInput ? `추가 설명: ${userInput}` : ''}
 
 요구사항 (${requirements.length}개):
-${requirements.slice(0, 60).map((r, i) => `${i+1}. ${r}`).join('\n')}
+${requirements.slice(0, 120).map((r, i) => `${i+1}. ${r}`).join('\n')} // Tier2
 
 ## 분류 규칙
 - LV1은 실제 사용자가 로그인 후 쓰는 메뉴 대분류 기준
@@ -152,7 +152,7 @@ export const getAreaSuggestPrompt = (systemName, rfpText, functions, targetCount
   const currentLV1 = [...new Set(functions.map(f => f.lv1))];
   const currentLV2 = [...new Set(functions.map(f => f.lv2))];
   const currentCount = functions.length;
-  const rfpSnippet = rfpText.slice(0, 2000);
+  const rfpSnippet = rfpText.slice(0, 5000); // Tier2: RFP 더 많이 전달
 
   return `공공SW사업 BA 전문가. 기능목록 확장을 위한 추가 업무 영역 제안. JSON만.
 
@@ -206,9 +206,9 @@ ${sameLV1LV3s.slice(0, 50).join(', ') || '없음'}
 등록 / 수정 / 삭제 / 목록조회 / 상세조회 / 처리(업무특화) / 통계/현황
 
 ## 출력 규칙
-- LV2: 5~8개 생성 (새로운 업무 단위 중심)
-- LV3: LV2당 6~10개
-- 최소 40개 이상 생성 필수
+- LV2: 6~10개 생성 (새로운 업무 단위 중심) // Tier2
+- LV3: LV2당 8~12개 // Tier2
+- 최소 60개 이상 생성 필수 // Tier2
 - definition: "~을 ~한다" 20자 이내
 
 {"functions":[{"lv1":"${area.lv1}","lv2":"","lv3":"","definition":""}]}`;

@@ -252,7 +252,7 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
       const text = result;
       const fileEntry = {
         name: file.name,
-        text: text.slice(0, 8000), // 파일당 최대 8000자
+        text: text.slice(0, 15000), // Tier2: 파일당 최대 15000자
         type: file.name.split('.').pop().toLowerCase(),
         size: Math.round(text.length / 1000),
         addedAt: new Date().toISOString(),
@@ -268,7 +268,7 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
 
       // 합산 텍스트 업데이트 (20000자 이내)
       const combinedText = newFiles.map(f => f.text).join('\n\n---\n\n');
-      const rfpFull = combinedText.slice(0, 20000);
+      const rfpFull = combinedText.slice(0, 40000); // Tier2
       setRfpText(rfpFull);
       saveProject({uploadedFiles: newFiles, rfpText: rfpFull});
 
@@ -293,7 +293,7 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
   const handleRemoveFile = (fileName) => {
     const newFiles = uploadedFiles.filter(f => f.name !== fileName);
     const combinedText = newFiles.map(f => f.text).join('\n\n---\n\n');
-    const rfpFull = combinedText.slice(0, 20000);
+    const rfpFull = combinedText.slice(0, 40000); // Tier2
     setUploadedFiles(newFiles);
     setRfpText(rfpFull);
     saveProject({uploadedFiles: newFiles, rfpText: rfpFull});

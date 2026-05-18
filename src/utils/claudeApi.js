@@ -13,6 +13,7 @@ import {
 } from './systemPrompt';
 
 const TEMPERATURE = 0; // 재현성 보장
+const MODEL = 'claude-sonnet-4-5'; // Tier2: Haiku → Sonnet 업그레이드
 
 // ── 기본 API 호출 ─────────────────────────────────────────────
 const callAPI = async (content, maxTokens = 2000) => {
@@ -20,6 +21,7 @@ const callAPI = async (content, maxTokens = 2000) => {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
+      model: MODEL,
       max_tokens: maxTokens,
       temperature: TEMPERATURE,
       messages: [{ role: 'user', content }],
@@ -112,7 +114,7 @@ export const generateFunctionsFromDoc = async (text, userInput, onProgress) => {
 
   // ── 2단계: 요구사항 수집 (청크) ─────────────────────────
   const CHUNK = 2500;
-  const MAX_TEXT = 20000;
+  const MAX_TEXT = 40000; // Tier2: 텍스트 제한 확대
   const bounded = text.slice(0, MAX_TEXT);
   const chunks = [];
   for (let i = 0; i < bounded.length; i += CHUNK)
@@ -134,7 +136,7 @@ export const generateFunctionsFromDoc = async (text, userInput, onProgress) => {
     allReqs = [...allReqs, ...userLines];
   }
 
-  allReqs = [...new Set(allReqs)].slice(0, 80);
+  allReqs = [...new Set(allReqs)].slice(0, 150); // Tier2: 요구사항 수집 확대
 
   // 폴백: 텍스트에서 직접 라인 추출
   if (allReqs.length < 5) {
@@ -178,7 +180,7 @@ export const generateFunctionsFromDoc = async (text, userInput, onProgress) => {
     report(4, `[${i+1}/${domains.length}] "${domain.lv1}" 기능 확장 중...`, pct);
 
     try {
-      const raw = await callAPI(getDomainExpandPrompt(domain, systemName, mainUsers), 3000);
+      const raw = await callAPI(getDomainExpandPrompt(domain, systemName, mainUsers), 6000); // Tier2
       const parsed = parseJSON(raw);
       const funcs = (parsed.functions || [])
         .filter(f => f.lv2 && f.lv3)
@@ -195,8 +197,7 @@ export const generateFunctionsFromDoc = async (text, userInput, onProgress) => {
       console.warn(`"${domain.lv1}" 확장 실패:`, e.message);
     }
 
-    // Tier1 Rate Limit 방지: 도메인 사이 3초 대기
-    if (i < domains.length - 1) await sleep(3000);
+    // Tier2: Rate Limit 딜레이 없음
   }
 
   // ── 후처리: 컨설팅 과업 필터링 + 중복 제거 ─────────────────
@@ -258,7 +259,7 @@ export const expandArea = async (area, systemName, existingFunctions, onProgress
 
   const raw = await callAPI(
     getAreaExpandPrompt(area, systemName, existingLV2s, sameLV1LV3s),
-    4000  // 토큰 증가 - 40개+ 생성 위해
+    6000  // Tier2: 토큰 확대
   );
   const parsed = parseJSON(raw);
   const funcs = (parsed.functions || [])
@@ -280,10 +281,10 @@ export const expandArea = async (area, systemName, existingFunctions, onProgress
 };
 
 // ── FP 산정 ───────────────────────────────────────────────────
-const SLEEP_BETWEEN_CHUNKS = 3000;
+const SLEEP_BETWEEN_CHUNKS = 0; // Tier2: 딜레이 없음
 
 export const generateFPList = async (functions, onProgress) => {
-  const CHUNK = 5;
+  const CHUNK = 50; // Tier2: 청크 크기 50개
   const chunks = [];
   for (let i = 0; i < functions.length; i += CHUNK)
     chunks.push(functions.slice(i, i + CHUNK));
@@ -326,7 +327,7 @@ export const generateFPList = async (functions, onProgress) => {
       console.warn(`FP 청크 ${ci+1} 실패 (기본값 유지):`, e.message);
     }
 
-    if (ci < chunks.length - 1) await sleep(SLEEP_BETWEEN_CHUNKS);
+    if (SLEEP_BETWEEN_CHUNKS > 0 && ci < chunks.length - 1) await sleep(SLEEP_BETWEEN_CHUNKS);
   }
 
   return Object.values(resultMap).sort((a, b) => a.idx - b.idx);
