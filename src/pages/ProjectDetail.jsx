@@ -110,6 +110,12 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
   // 검색/필터
   const [searchKeyword, setSearchKeyword] = useState('');
   const [filterLV1, setFilterLV1] = useState('');
+  // 고도화 모드
+  const [upgradeMode, setUpgradeMode] = useState(false);
+  // 일괄 선택/수정
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [bulkLV1, setBulkLV1] = useState('');
+  const [showBulkEdit, setShowBulkEdit] = useState(false);
   const [customArea, setCustomArea] = useState('');
   const [areaTargetCount, setAreaTargetCount] = useState('');
 
@@ -231,10 +237,15 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
         if (result.functions.length > 0) {
           const newXlsx = [...xlsxFunctions, ...result.functions];
           setXlsxFunctions(newXlsx);
-          // 기능목록에도 바로 반영
-          const withId = result.functions.map((f,i)=>({...f,id:Date.now()+i}));
-          const merged = [...functions, ...withId];
-          // 중복 제거
+          const isUpgrade = functions.length > 0 && window.confirm(
+            `📋 ${result.functions.length}개 기능 파싱 완료!\n\n고도화 모드로 불러올까요?\n\n[확인] 고도화 모드 — 재사용 표시 후 기존 기능에 추가\n[취소] 일반 모드 — 현재 기능목록 교체`
+          );
+          const withId = result.functions.map((f,i)=>({
+            ...f, id:Date.now()+i,
+            reuseType: isUpgrade ? '재사용' : '신규개발'
+          }));
+          const base = isUpgrade ? functions : [];
+          const merged = [...base, ...withId];
           const seen = new Set();
           const deduped = merged.filter(f=>{
             const k = `${f.lv1}|${f.lv2}|${f.lv3}`;
@@ -242,8 +253,13 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
             seen.add(k); return true;
           });
           setFunctions(deduped);
+          if (isUpgrade) setUpgradeMode(true);
           saveProject({functions:deduped, xlsxFunctions:newXlsx});
-          alert(`✅ 기능정의서 추가 완료!\n${result.functions.length}개 기능 추가 (총 ${deduped.length}개)`);
+          alert(isUpgrade
+            ? `✅ 고도화 모드 적용!\n${result.functions.length}개 기능 재사용으로 추가 (총 ${deduped.length}개)\nFP 산정표에서 신규 기능만 "신규개발"로 변경하세요.`
+            : `✅ 기능정의서 파싱 완료!\n${withId.length}개 기능 추출`
+          );
+          setTab('functions');
         }
         return;
       }
@@ -521,6 +537,23 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
           <div style={{fontSize:10,color:'rgba(255,255,255,0.4)',fontWeight:700,letterSpacing:'0.8px',padding:'0 8px',marginBottom:6,textTransform:'uppercase'}}>이동</div>
           <div style={S.navItem(false)} onClick={()=>navigate('/ba')}>
             <span>← 목록으로</span>
+          </div>
+          <div style={S.navItem(false)} onClick={()=>{
+            const name = window.prompt('복사할 프로젝트 이름:', project.name + ' (복사)');
+            if (!name) return;
+            if (onUpdateProject) {
+              const copied = {
+                ...project,
+                id: Date.now().toString(),
+                name,
+                createdAt: new Date().toISOString(),
+              };
+              // App.js의 handleCopyProject 호출
+              window.dispatchEvent(new CustomEvent('copyProject', {detail: copied}));
+              alert(`✅ "${name}"으로 복사됐습니다.\n목록으로 이동해서 확인하세요.`);
+            }
+          }}>
+            <span>📋 프로젝트 복사</span>
           </div>
           <div style={S.navItem(false)} onClick={()=>setShowCostPanel(v=>!v)}>
             <span>💰 개발비 산출</span>
@@ -810,18 +843,37 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
               </div>
               {/* 헤더 */}
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12,flexWrap:'wrap',gap:8}}>
-                <p style={{fontSize:14,color:'#6b7280',margin:0}}>
-                  {(searchKeyword||filterLV1)
-                    ? `${functions.filter(f=>{
-                        const kw = searchKeyword.toLowerCase();
-                        const matchKw = !kw || [f.lv1,f.lv2,f.lv3,f.definition].some(v=>(v||'').toLowerCase().includes(kw));
-                        const matchLv1 = !filterLV1 || f.lv1===filterLV1;
-                        return matchKw && matchLv1;
-                      }).length}개 표시 중 (전체 ${functions.length}개)`
-                    : `총 ${functions.length}개 기능 · 셀 클릭하여 수정 가능`
-                  }
-                </p>
-                <div style={{display:'flex',gap:8}}>
+                <div style={{display:'flex',alignItems:'center',gap:8}}>
+                  <p style={{fontSize:14,color:'#6b7280',margin:0}}>
+                    {(searchKeyword||filterLV1)
+                      ? `${functions.filter(f=>{const kw=searchKeyword.toLowerCase();return(!kw||[f.lv1,f.lv2,f.lv3,f.definition].some(v=>(v||'').toLowerCase().includes(kw)))&&(!filterLV1||f.lv1===filterLV1);}).length}개 표시 (전체 ${functions.length}개)`
+                      : `총 ${functions.length}개 기능`}
+                  </p>
+                  {upgradeMode && <span style={{fontSize:11,background:'#fef3c7',color:'#d97706',padding:'2px 8px',borderRadius:8,fontWeight:600}}>🔧 고도화 모드</span>}
+                  {selectedIds.size>0 && <span style={{fontSize:11,background:'#eff6ff',color:'#1d4ed8',padding:'2px 8px',borderRadius:8,fontWeight:600}}>{selectedIds.size}개 선택</span>}
+                </div>
+                <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                  {/* 일괄 편집 패널 토글 */}
+                  {selectedIds.size>0 && (
+                    <div style={{display:'flex',gap:4,alignItems:'center',background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:7,padding:'4px 8px'}}>
+                      <span style={{fontSize:11,color:'#1d4ed8'}}>선택 항목:</span>
+                      <input value={bulkLV1} onChange={e=>setBulkLV1(e.target.value)} placeholder="LV1 일괄수정" style={{...S.input,width:100,fontSize:11,padding:'3px 6px'}}/>
+                      <button onClick={()=>{
+                        if(!bulkLV1.trim()) return;
+                        const updated = functions.map(f=>selectedIds.has(f.id)?{...f,lv1:bulkLV1.trim()}:f);
+                        setFunctions(updated); saveProject({functions:updated});
+                        setSelectedIds(new Set()); setBulkLV1('');
+                        alert(`✅ ${selectedIds.size}개 LV1을 "${bulkLV1}"으로 수정했습니다.`);
+                      }} style={{...S.btn('#1d4ed8'),padding:'3px 8px',fontSize:11}}>수정</button>
+                      <button onClick={()=>{
+                        if(!window.confirm(`선택한 ${selectedIds.size}개를 삭제할까요?`)) return;
+                        const updated = functions.filter(f=>!selectedIds.has(f.id));
+                        setFunctions(updated); saveProject({functions:updated});
+                        setSelectedIds(new Set());
+                      }} style={{...S.btn('#ef4444'),padding:'3px 8px',fontSize:11}}>삭제</button>
+                      <button onClick={()=>setSelectedIds(new Set())} style={{background:'none',border:'none',color:'#6b7280',cursor:'pointer',fontSize:13}}>✕</button>
+                    </div>
+                  )}
                   <button onClick={()=>{setShowAreaPanel(v=>!v);setAreaSuggestions(null);}} style={S.btn(showAreaPanel?'#7c3aed':'#6b7280')}>
                     {showAreaPanel?'닫기':'+ 영역 추가'}
                   </button>
@@ -977,7 +1029,8 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
                           const matchLv1 = !filterLV1 || f.lv1===filterLV1;
                           return matchKw && matchLv1;
                         }).map((f,idx)=>(
-                          <tr key={f.id} style={{borderBottom:'1px solid #f3f4f6',background:idx%2===0?'#fff':'#fafafa'}}>
+                          <tr key={f.id} style={{borderBottom:'1px solid #f3f4f6',background:selectedIds.has(f.id)?'#eff6ff':idx%2===0?'#fff':'#fafafa'}}>
+                            <td style={{padding:'6px 8px',textAlign:'center',width:32}}><input type="checkbox" checked={selectedIds.has(f.id)} onChange={e=>{const n=new Set(selectedIds);e.target.checked?n.add(f.id):n.delete(f.id);setSelectedIds(n);}}/></td>
                             {(['lv1','lv2','lv3','definition']).map(field=>(
                               <td key={field} style={{padding:'6px 8px'}}>
                                 <input value={f[field]||''} onChange={e=>{
@@ -1084,6 +1137,14 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
                     <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
                       <thead>
                         <tr style={{background:'#f8fafc',borderBottom:'2px solid #e5e7eb'}}>
+                          <th style={{padding:'8px',width:32}}>
+                            <input type="checkbox"
+                              checked={selectedIds.size>0 && functions.every(f=>selectedIds.has(f.id))}
+                              onChange={e=>{
+                                if(e.target.checked) setSelectedIds(new Set(functions.map(f=>f.id)));
+                                else setSelectedIds(new Set());
+                              }}/>
+                          </th>
                           <th style={{padding:'8px',minWidth:80,textAlign:'left',color:'#374151'}}>LV1</th>
                           <th style={{padding:'8px',minWidth:80,textAlign:'left',color:'#374151'}}>LV2</th>
                           <th style={{padding:'8px',minWidth:100,textAlign:'left',color:'#374151'}}>LV3</th>

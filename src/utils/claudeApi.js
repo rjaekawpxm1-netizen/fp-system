@@ -12,28 +12,51 @@ import {
   getAreaExpandPrompt,
 } from './systemPrompt';
 
-const TEMPERATURE = 0; // 재현성 보장
-const MODEL = 'claude-sonnet-4-5'; // Tier2: Haiku → Sonnet 업그레이드
+const TEMPERATURE = 0;
+const MODEL = 'claude-sonnet-4-5';
 
-// ── 기본 API 호출 ─────────────────────────────────────────────
-const callAPI = async (content, maxTokens = 2000) => {
-  const res = await fetch('/api/claude', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: maxTokens,
-      temperature: TEMPERATURE,
-      messages: [{ role: 'user', content }],
-    }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error?.message || `API 오류 (${res.status})`);
+// ── 기본 API 호출 (재시도 포함) ──────────────────────────────
+const callAPI = async (content, maxTokens = 2000, retries = 3) => {
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const res = await fetch('/api/claude', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: MODEL,
+          max_tokens: maxTokens,
+          temperature: TEMPERATURE,
+          messages: [{ role: 'user', content }],
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        const status = res.status;
+        // 529 Overloaded → 재시도
+        if (status === 529 || status === 503) {
+          const wait = (attempt + 1) * 5000;
+          console.warn(`Overloaded (${status}), ${wait/1000}초 후 재시도... (${attempt+1}/${retries})`);
+          await sleep(wait);
+          continue;
+        }
+        // 429 Rate Limit → 재시도
+        if (status === 429) {
+          const wait = (attempt + 1) * 10000;
+          console.warn(`Rate Limit, ${wait/1000}초 후 재시도... (${attempt+1}/${retries})`);
+          await sleep(wait);
+          continue;
+        }
+        throw new Error(err.error?.message || `API 오류 (${status})`);
+      }
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      return data.content?.map(c => c.type === 'text' ? c.text : '').join('') || '';
+    } catch (e) {
+      if (attempt === retries - 1) throw e;
+      console.warn(`시도 ${attempt+1} 실패: ${e.message}`);
+      await sleep(3000);
+    }
   }
-  const data = await res.json();
-  if (data.error) throw new Error(data.error);
-  return data.content?.map(c => c.type === 'text' ? c.text : '').join('') || '';
 };
 
 // ── JSON 파싱 (잘림 복구) ────────────────────────────────────
@@ -81,7 +104,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // ── 문서에서 프로젝트 정보 추출 ──────────────────────────────
 export const extractProjectInfo = async (text) => {
-  const raw = await callAPI(getProjectInfoPrompt(text), 1500);
+  const raw = await callAPI(getProjectInfoPrompt(text), 2000);
   try { return parseJSON(raw); } catch (_) { return {}; }
 };
 
@@ -101,7 +124,7 @@ export const generateFunctionsFromDoc = async (text, userInput, onProgress) => {
   report(1, '문서에서 시스템 정보 추출 중...', 5);
   let info = {};
   try {
-    const infoRaw = await callAPI(getProjectInfoPrompt(text + (userInput ? '\n\n추가설명:\n' + userInput : '')), 1500);
+    const infoRaw = await callAPI(getProjectInfoPrompt(text + (userInput ? '\n\n추가설명:\n' + userInput : '')), 2000);
     info = parseJSON(infoRaw);
   } catch (e) { console.warn('정보 추출 실패:', e.message); }
 
@@ -124,7 +147,7 @@ export const generateFunctionsFromDoc = async (text, userInput, onProgress) => {
   for (let i = 0; i < chunks.length; i++) {
     report(2, `요구사항 수집 중... (${i+1}/${chunks.length})`, 10 + Math.round((i/chunks.length)*25));
     try {
-      const raw = await callAPI(getRequirementCollectPrompt(chunks[i], i+1, systemName), 1500);
+      const raw = await callAPI(getRequirementCollectPrompt(chunks[i], i+1, systemName), 2000);
       const parsed = parseJSON(raw);
       allReqs = [...allReqs, ...(parsed.requirements||[]).filter(r => r?.length > 5)];
     } catch (e) { console.warn(`청크 ${i+1} 실패`); }
@@ -306,7 +329,7 @@ export const generateFPList = async (functions, onProgress) => {
     const chunkOffset = ci * CHUNK;
 
     try {
-      const raw = await callAPI(getFPPrompt(chunks[ci]), 1500);
+      const raw = await callAPI(getFPPrompt(chunks[ci]), 2500); // Sonnet: 토큰 상향
       const parsed = parseJSON(raw);
       (parsed.fpList || []).forEach(fp => {
         const globalIdx = chunkOffset + (fp.idx ?? 0);
