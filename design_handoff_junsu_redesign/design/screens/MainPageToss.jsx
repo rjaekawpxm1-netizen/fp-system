@@ -1,27 +1,28 @@
-import { useNavigate } from 'react-router-dom';
-import { color, button, card } from '../styles/tokens';
+// ─── Variation D · Toss Style ───
+// Bold, confident, single strong blue accent · 토스/카카오뱅크 톤
 
-const { blue: BLUE, ink: INK, sub: SUB, mute: MUTE, line: LINE, bg: BG_2 } = color;
+const MainPageToss = () => {
+  const tools = [
+    { key: 'BA', features: ['기능점수(FP) 산정', '요구사항 정의서', '화면 목록', 'WBS', '개발비 산출'], available: true },
+    { key: 'AA', features: ['시스템 아키텍처', '컴포넌트 설계', '인터페이스 설계', '표준 산출물'], available: false },
+    { key: 'DA', features: ['데이터 표준화', 'ERD 설계', '테이블 정의서', '품질 진단'], available: true },
+    { key: 'TA', features: ['서버 규모 산정', '네트워크 설계', '보안 아키텍처', '인프라 설계'], available: false },
+  ];
 
-const tools = [
-  { key: 'BA', features: ['기능점수(FP) 산정', '요구사항 정의서', '화면 목록', 'WBS', '개발비 산출'], available: true, path: '/ba' },
-  { key: 'AA', features: ['시스템 아키텍처', '컴포넌트 설계', '인터페이스 설계', '표준 산출물'], available: false },
-  { key: 'DA', features: ['데이터 표준화', 'ERD 설계', '테이블 정의서', '품질 진단'], available: true, path: '/da' },
-  { key: 'TA', features: ['서버 규모 산정', '네트워크 설계', '보안 아키텍처', '인프라 설계'], available: false },
-];
-
-const Home = () => {
-  const navigate = useNavigate();
+  const BLUE = '#3182F6';
+  const INK = '#191F28';
+  const SUB = '#4E5968';
+  const MUTE = '#8B95A1';
+  const LINE = '#F2F4F6';
+  const BG_2 = '#F9FAFB';
 
   return (
     <div style={{
-      width: '100%',
-      minHeight: '100vh',
+      width: '100%', height: '100%',
       background: '#FFFFFF',
       color: INK,
       fontFamily: "'Pretendard', 'Apple SD Gothic Neo', system-ui, sans-serif",
-      display: 'flex',
-      flexDirection: 'column',
+      display: 'flex', flexDirection: 'column',
     }}>
       {/* ─── Header ─── */}
       <header style={{
@@ -122,20 +123,15 @@ const Home = () => {
         <div style={{ maxWidth: 1280, margin: '0 auto' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
             {tools.map(t => (
-              <div
-                key={t.key}
-                onClick={() => t.available && t.path && navigate(t.path)}
-                style={{
-                  background: '#fff',
-                  border: `1px solid ${LINE}`,
-                  borderRadius: 20,
-                  padding: '28px 24px',
-                  minHeight: 360,
-                  display: 'flex', flexDirection: 'column',
-                  position: 'relative',
-                  cursor: t.available ? 'pointer' : 'default',
-                }}
-              >
+              <div key={t.key} style={{
+                background: '#fff',
+                border: `1px solid ${LINE}`,
+                borderRadius: 20,
+                padding: '28px 24px',
+                minHeight: 360,
+                display: 'flex', flexDirection: 'column',
+                position: 'relative',
+              }}>
                 {/* status pill */}
                 <div style={{
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -190,18 +186,15 @@ const Home = () => {
                   ))}
                 </ul>
 
-                <button
-                  onClick={(e) => { e.stopPropagation(); if (t.available && t.path) navigate(t.path); }}
-                  style={{
-                    marginTop: 24,
-                    width: '100%', height: 48, borderRadius: 12,
-                    background: t.available ? INK : '#F2F4F6',
-                    color: t.available ? '#fff' : MUTE,
-                    border: 'none', fontSize: 14, fontWeight: 700,
-                    cursor: t.available ? 'pointer' : 'not-allowed',
-                    letterSpacing: '-0.01em',
-                  }}
-                >
+                <button style={{
+                  marginTop: 24,
+                  width: '100%', height: 48, borderRadius: 12,
+                  background: t.available ? INK : '#F2F4F6',
+                  color: t.available ? '#fff' : MUTE,
+                  border: 'none', fontSize: 14, fontWeight: 700,
+                  cursor: t.available ? 'pointer' : 'not-allowed',
+                  letterSpacing: '-0.01em',
+                }}>
                   {t.available ? `${t.key} 시작하기` : '곧 출시'}
                 </button>
               </div>
@@ -210,7 +203,6 @@ const Home = () => {
         </div>
       </section>
 
-      {/* ─── Footer ─── */}
       <footer style={{
         padding: '32px 40px',
         background: '#fff',
@@ -218,12 +210,7 @@ const Home = () => {
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: MUTE, fontSize: 13 }}>
-          <div style={{
-            width: 22, height: 22, borderRadius: 6,
-            background: BLUE, color: '#fff',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 10, fontWeight: 900,
-          }}>j</div>
+          <div style={{ width: 22, height: 22, borderRadius: 6, background: BLUE, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 900 }}>j</div>
           <span>© 2026 junsu</span>
         </div>
         <span style={{ fontSize: 13, color: MUTE, fontWeight: 500 }}>안녕하세요, 처음이신가요?</span>
@@ -232,4 +219,4 @@ const Home = () => {
   );
 };
 
-export default Home;
+window.MainPageToss = MainPageToss;

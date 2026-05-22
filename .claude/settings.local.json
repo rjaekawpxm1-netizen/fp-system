@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e ' *)",
+      "Bash(npx react-scripts *)",
+      "Bash(node node_modules/.bin/react-scripts build)"
+    ]
+  }
+}

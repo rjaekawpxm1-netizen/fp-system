@@ -242,9 +242,13 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
         setXlsxFunctions(newXlsx);
 
         // xlsx도 파일 목록에 표시 (이름만, 텍스트 없이)
+        // 기능목록을 텍스트로 변환해서 rfpText에도 포함 (기능 생성 시 활용)
+        const xlsxAsText = result.functions
+          .map(f => `${f.lv1} > ${f.lv2} > ${f.lv3}: ${f.definition || ''}`)
+          .join('\n');
         const xlsxEntry = {
           name: file.name,
-          text: '', // xlsx는 텍스트 없음
+          text: xlsxAsText.slice(0, 5000), // xlsx 기능목록 텍스트로 변환
           type: 'xlsx',
           size: Math.round(file.size / 1024),
           addedAt: new Date().toISOString(),
@@ -258,9 +262,7 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
         setUploadedFiles(newUploadedFiles);
         saveProject({uploadedFiles: newUploadedFiles, xlsxFunctions: newXlsx});
 
-        const isUpgrade = functions.length > 0 && window.confirm(
-          `📋 ${result.functions.length}개 기능 파싱 완료!\n\n고도화 모드로 불러올까요?\n\n[확인] 고도화 모드 — 재사용 표시 후 기존 기능에 추가\n[취소] 일반 모드 — 현재 기능목록 교체`
-        );
+        const isUpgrade = upgradeMode; // 버튼으로 이미 선택된 모드 사용
         const withId = result.functions.map((f,i)=>({
           ...f, id:Date.now()+i,
           reuseType: isUpgrade ? '재사용' : '신규개발'
@@ -357,18 +359,33 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
       if (result.systemName && !systemName) setSystemName(result.systemName);
       if (result.overview && !systemOverview) setSystemOverview(result.overview);
 
-      const withId = (result.functions||[]).map((f,i)=>({...f,id:Date.now()+i}));
-      setFunctions(withId);
+      const newFuncs = (result.functions||[]).map((f,i)=>({...f,id:Date.now()+i}));
+
+      let finalFunctions;
+      if (upgradeMode && functions.length > 0) {
+        // 고도화 모드: 기존 기능 유지 + 신규만 추가 (중복 제거)
+        const existingKeys = new Set(functions.map(f=>`${f.lv1}|${f.lv2}|${f.lv3}`));
+        const onlyNew = newFuncs.filter(f=>!existingKeys.has(`${f.lv1}|${f.lv2}|${f.lv3}`));
+        finalFunctions = [...functions, ...onlyNew];
+      } else {
+        finalFunctions = newFuncs;
+      }
+
+      setFunctions(finalFunctions);
       setParseStep(0);
       saveProject({
-        functions: withId,
+        functions: finalFunctions,
         systemName: result.systemName || systemName,
         systemOverview: result.overview || systemOverview,
         rfpText,
         userInput,
       });
       setTab('functions');
-      alert(`✅ 기능 생성 완료!\n총 ${withId.length}개 기능목록 생성`);
+      if (!upgradeMode) {
+        alert(`✅ 기능 생성 완료!\n총 ${finalFunctions.length}개 기능목록 생성`);
+      } else {
+        alert(`✅ 고도화 기능 추가 완료!\n기존 유지 + 신규 ${newFuncs.length}개 추가\n총 ${finalFunctions.length}개`);
+      }
     } catch (err) {
       alert('기능 생성 오류: ' + err.message);
     } finally {
@@ -428,10 +445,7 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
           console.warn(`"${area.lv1}" 실패:`, e.message);
         }
         // Tier1 Rate Limit 방지: 영역 사이 5초 대기
-        if (i < areasToExpand.length - 1) {
-          setLoadingMsg(`[${i+1}/${areasToExpand.length}] "${area.lv1}" 완료 (${totalAdded}개 추가) — 다음 영역 준비 중...`);
-          await new Promise(r => setTimeout(r, 5000));
-        }
+        // Tier2: 딜레이 없음
       }
       setAreaSuggestions(null);
       setSelectedAreas([]);
@@ -462,18 +476,31 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
   const handleGenerateFP = async () => {
     if (functions.length === 0) return alert('기능목록을 먼저 생성하세요.');
     if (fpList.length > 0 && !window.confirm(`기존 FP ${fpList.length}개를 재산정할까요?`)) return;
-    const totalChunks = Math.ceil(functions.length / 5);
+    const totalChunks = Math.ceil(functions.length / 50);
     setLoading(true);
     setLoadingMsg(`FP 산정 중... (0/${totalChunks})`);
     try {
       const result = await generateFPList(functions, (cur, total) => {
         setLoadingMsg(`FP 산정 중... (${cur}/${total})`);
       });
-      const withId = result.map((f,i) => autoCalcRow({...f, id:Date.now()+i, ftrChange:0, detChange:0, bigo:'-'}, fpMethod));
+      const withId = result.map((f,i) => {
+        // 고도화 모드: 기존 기능의 reuseType 유지
+        const originalFunc = functions.find(fn => fn.lv1===f.lv1 && fn.lv2===f.lv2 && fn.lv3===f.lv3);
+        const reuseType = (upgradeMode && originalFunc?.reuseType && originalFunc.reuseType !== '신규개발')
+          ? originalFunc.reuseType
+          : (f.reuseType || '신규개발');
+        return autoCalcRow({...f, id:Date.now()+i, ftrChange:0, detChange:0, bigo:'-', reuseType}, fpMethod);
+      });
       setFpList(withId);
       const summary = calcTotalFP(withId, fpMethod);
       saveProject({fpList:withId, fpSummary:summary});
       setTab('fp');
+      if (upgradeMode) {
+        const reuseCount = withId.filter(f=>f.reuseType==='재사용').length;
+        const changeCount = withId.filter(f=>f.reuseType==='기능변경').length;
+        const newCount = withId.filter(f=>f.reuseType==='신규개발').length;
+        alert(`✅ FP 산정 완료!\n재사용: ${reuseCount}개 / 기능변경: ${changeCount}개 / 신규개발: ${newCount}개`);
+      }
     } catch (err) {
       alert('FP 산정 오류: ' + err.message);
     } finally {
@@ -727,6 +754,26 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
           {tab === 'setup' && (
             <div>
+              {/* ── 신규 / 고도화 선택 ── */}
+              <div style={{display:'flex',gap:10,marginBottom:20}}>
+                {[
+                  {key:false, label:'🆕 신규 구축', desc:'RFP/기능정의서 기반으로 기능목록 새로 생성'},
+                  {key:true,  label:'🔧 고도화 사업', desc:'기존 기능 업로드 후 신규 기능만 추가 생성'},
+                ].map(({key,label,desc})=>(
+                  <div key={String(key)} onClick={()=>setUpgradeMode(key)}
+                    style={{flex:1,padding:'14px 20px',borderRadius:10,cursor:'pointer',
+                      border:`2px solid ${upgradeMode===key?'#1d4ed8':'#e5e7eb'}`,
+                      background:upgradeMode===key?'#eff6ff':'#fff',transition:'all 0.2s'}}>
+                    <div style={{fontSize:14,fontWeight:700,color:upgradeMode===key?'#1d4ed8':'#374151',marginBottom:4}}>{label}</div>
+                    <div style={{fontSize:11,color:'#6b7280'}}>{desc}</div>
+                  </div>
+                ))}
+              </div>
+              {upgradeMode && (
+                <div style={{background:'#fffbeb',border:'1px solid #fde68a',borderRadius:8,padding:'10px 16px',marginBottom:16,fontSize:12,color:'#92400e'}}>
+                  🔧 <strong>고도화 모드:</strong> 기존 기능정의서(xlsx)를 먼저 업로드하세요. 기존 기능은 <strong>재사용</strong>으로 표시되고, AI는 신규 기능만 추가 생성합니다.
+                </div>
+              )}
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:20,marginBottom:20}}>
                 {/* 파일 업로드 */}
                 <div style={S.card}>
@@ -815,15 +862,19 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
               <div style={{...S.card,background:'linear-gradient(135deg,#1e3a8a,#1d4ed8)'}}>
                 <div style={{padding:'24px 28px',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:16}}>
                   <div>
-                    <div style={{fontSize:16,fontWeight:700,color:'#fff',marginBottom:4}}>✨ AI 기능목록 생성</div>
-                    <div style={{fontSize:12,color:'rgba(255,255,255,0.7)'}}>
-                      파일과 입력 내용을 분석해서 정확한 기능목록을 생성합니다.
-                      시간이 걸려도 정확도를 최우선으로 합니다.
+                    <div style={{fontSize:16,fontWeight:700,color:'#fff',marginBottom:4}}>
+                      {upgradeMode ? '🔧 고도화 기능 추가 생성' : '✨ AI 기능목록 생성'}
                     </div>
-                    {functions.length>0 && <div style={{marginTop:6,fontSize:11,color:'#93c5fd'}}>현재 {functions.length}개 기능 있음 — 재생성하면 덮어쓰기 됩니다</div>}
+                    <div style={{fontSize:12,color:'rgba(255,255,255,0.7)'}}>
+                      {upgradeMode
+                        ? '기존 기능(재사용) 위에 RFP 기반 신규 기능만 추가 생성합니다.'
+                        : '파일과 입력 내용을 분석해서 정확한 기능목록을 생성합니다.'}
+                    </div>
+                    {upgradeMode && functions.length===0 && <div style={{marginTop:6,fontSize:11,color:'#fcd34d'}}>⚠️ 먼저 기존 기능정의서(xlsx)를 업로드하세요.</div>}
+                    {functions.length>0 && <div style={{marginTop:6,fontSize:11,color:'#93c5fd'}}>현재 {functions.length}개 기능 {upgradeMode?'(재사용 포함)':'있음 — 재생성하면 덮어쓰기'}</div>}
                   </div>
                   <button onClick={handleGenerate} style={{...S.btn('#fff','#1e3a8a'),padding:'12px 28px',fontSize:14,flexShrink:0}}>
-                    🚀 기능 생성 시작
+                    {upgradeMode ? '🔧 신규 기능 추가' : '🚀 기능 생성 시작'}
                   </button>
                 </div>
               </div>
@@ -1159,13 +1210,30 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
                     <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
                       <thead>
                         <tr style={{background:'#f8fafc',borderBottom:'2px solid #e5e7eb'}}>
-                          <th style={{padding:'8px',width:32}}>
+                          <th style={{padding:'8px',width:32,textAlign:'center'}}>
+                            {/* 전체선택: 필터된 목록 기준 */}
                             <input type="checkbox"
-                              checked={selectedIds.size>0 && functions.every(f=>selectedIds.has(f.id))}
-                              onChange={e=>{
-                                if(e.target.checked) setSelectedIds(new Set(functions.map(f=>f.id)));
-                                else setSelectedIds(new Set());
-                              }}/>
+                              title="전체 선택/해제"
+                              checked={(() => {
+                                const filtered = functions.filter(f => {
+                                  const kw = searchKeyword.toLowerCase();
+                                  return (!kw || [f.lv1,f.lv2,f.lv3,f.definition].some(v=>(v||'').toLowerCase().includes(kw)))
+                                    && (!filterLV1 || f.lv1===filterLV1);
+                                });
+                                return filtered.length > 0 && filtered.every(f => selectedIds.has(f.id));
+                              })()}
+                              onChange={e => {
+                                const filtered = functions.filter(f => {
+                                  const kw = searchKeyword.toLowerCase();
+                                  return (!kw || [f.lv1,f.lv2,f.lv3,f.definition].some(v=>(v||'').toLowerCase().includes(kw)))
+                                    && (!filterLV1 || f.lv1===filterLV1);
+                                });
+                                const next = new Set(selectedIds);
+                                if (e.target.checked) filtered.forEach(f => next.add(f.id));
+                                else filtered.forEach(f => next.delete(f.id));
+                                setSelectedIds(next);
+                              }}
+                            />
                           </th>
                           <th style={{padding:'8px',minWidth:80,textAlign:'left',color:'#374151'}}>LV1</th>
                           <th style={{padding:'8px',minWidth:80,textAlign:'left',color:'#374151'}}>LV2</th>

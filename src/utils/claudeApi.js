@@ -54,7 +54,7 @@ const callAPI = async (content, maxTokens = 2000, retries = 3) => {
     } catch (e) {
       if (attempt === retries - 1) throw e;
       console.warn(`시도 ${attempt+1} 실패: ${e.message}`);
-      await sleep(3000);
+      await sleep(1000); // Tier2: 재시도 대기 단축
     }
   }
 };
@@ -153,10 +153,20 @@ export const generateFunctionsFromDoc = async (text, userInput, onProgress) => {
     } catch (e) { console.warn(`청크 ${i+1} 실패`); }
   }
 
-  // 추가 입력 텍스트도 요구사항으로 처리
+  // 추가 입력 텍스트 → 요구사항으로 처리 (구어체/문장 모두 인식)
   if (userInput?.trim()) {
-    const userLines = userInput.split('\n').filter(l => l.trim().length > 5);
-    allReqs = [...allReqs, ...userLines];
+    const userLines = userInput
+      .split(/[\n,。、]/)  // 줄바꿈 + 쉼표 + 문장부호 분리
+      .map(l => l.trim())
+      .filter(l => l.length > 4);
+    // 구어체 패턴도 요구사항으로 변환
+    const normalized = userLines.map(l =>
+      l.replace(/~이?\s*필요/, '기능 필요')
+       .replace(/~해야\s*한다?/, '처리 필요')
+       .replace(/~있으면\s*좋겠/, '기능 필요')
+       .replace(/^[-•·]\s*/, '') // 불릿 제거
+    );
+    allReqs = [...allReqs, ...normalized];
   }
 
   allReqs = [...new Set(allReqs)].slice(0, 150); // Tier2: 요구사항 수집 확대
@@ -247,13 +257,40 @@ export const generateFunctionsFromDoc = async (text, userInput, onProgress) => {
     return true;
   });
 
-  report(4, `완료! ${deduped.length}개 기능 생성`, 100);
+  // ── LV1 자동 통합 후처리 (15개 초과 시) ──────────────────────
+  const lv1List = [...new Set(deduped.map(f => f.lv1))];
+  let finalFuncs = deduped;
+  if (lv1List.length > 15) {
+    report(4, `LV1 ${lv1List.length}개 → 통합 중...`, 95);
+    // 유사 LV1 통합 규칙
+    const mergeRules = [
+      { pattern: /보안|인증|접근제어|감사/, target: '보안관리' },
+      { pattern: /운영|모니터링|장애|알람|알림/, target: '운영관리' },
+      { pattern: /통계|분석|현황|보고/, target: '통계및분석' },
+      { pattern: /연동|인터페이스|API|Gateway/, target: '연동관리' },
+      { pattern: /사용자|권한|메뉴|코드|공통/, target: '시스템관리' },
+    ];
+    finalFuncs = deduped.map(f => {
+      // 이미 적절한 LV1이면 유지
+      if (lv1List.length <= 15) return f;
+      for (const rule of mergeRules) {
+        if (rule.pattern.test(f.lv1) && f.lv1 !== rule.target) {
+          return { ...f, lv1: rule.target };
+        }
+      }
+      return f;
+    });
+    const newLv1Count = [...new Set(finalFuncs.map(f => f.lv1))].length;
+    report(4, `LV1 ${lv1List.length}개 → ${newLv1Count}개로 통합`, 97);
+  }
+
+  report(4, `완료! ${finalFuncs.length}개 기능 생성`, 100);
 
   return {
     systemName,
     overview: description,
     projectType,
-    functions: deduped,
+    functions: finalFuncs,
   };
 };
 

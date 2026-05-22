@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>fp-system · 디자인 시안</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+  <style>
+    html, body { margin: 0; padding: 0; font-family: 'Pretendard', system-ui, sans-serif; background: #F2F4F7; }
+    /* 한국어 줄바꿈 최적화 — 긴 헤드라인은 균형, 본문은 위젯 방지 */
+    h1, h2, h3 { text-wrap: balance; word-break: keep-all; }
+    p, li, span, button, td, th { word-break: keep-all; overflow-wrap: break-word; }
+    p { text-wrap: pretty; }
+  </style>
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel" src="design-canvas.jsx"></script>
+  <script type="text/babel" src="screens/MainPageToss.jsx"></script>
+  <script type="text/babel" src="screens/InternalPageToss.jsx"></script>
+  <script type="text/babel" src="screens/ProjectListToss.jsx"></script>
+  <script type="text/babel" src="screens/ProjectDetailToss.jsx"></script>
+  <script type="text/babel" src="screens/BAFunctions.jsx"></script>
+  <script type="text/babel" src="screens/BAFPTable.jsx"></script>
+  <script type="text/babel" src="screens/BACost.jsx"></script>
+  <script type="text/babel" src="screens/DAMain.jsx"></script>
+  <script type="text/babel" src="screens/DAConnect.jsx"></script>
+  <script type="text/babel" src="screens/DAStandard.jsx"></script>
+  <script type="text/babel" src="screens/DAResult.jsx"></script>
+  <script type="text/babel" src="screens/DesignTokens.jsx"></script>
+  <script type="text/babel" data-presets="react">
+    const App = () => (
+      <DesignCanvas
+        title="junsu · 전체 화면 시안 (D · Toss Style)"
+        subtitle="메인 + BA + DA + 디자인 시스템"
+      >
+        <DCSection id="public" title="⭐ 공개 페이지">
+          <DCArtboard id="main" label="메인 페이지" width={1440} height={1180}>
+            <MainPageToss />
+          </DCArtboard>
+          <DCArtboard id="internal" label="내부 페이지 (지출결의)" width={1440} height={1100}>
+            <InternalPageToss />
+          </DCArtboard>
+        </DCSection>
+        <DCSection id="ba" title="BA 도우미 플로우">
+          <DCArtboard id="ba-list" label="BA · 프로젝트 목록" width={1440} height={1080}>
+            <ProjectListToss />
+          </DCArtboard>
+          <DCArtboard id="ba-detail" label="BA · 프로젝트 설정" width={1440} height={1100}>
+            <ProjectDetailToss />
+          </DCArtboard>
+          <DCArtboard id="ba-funcs" label="BA · 기능목록" width={1440} height={1100}>
+            <BAFunctions />
+          </DCArtboard>
+          <DCArtboard id="ba-fp" label="BA · FP 산정표" width={1440} height={1100}>
+            <BAFPTable />
+          </DCArtboard>
+          <DCArtboard id="ba-cost" label="BA · 개발비 산출" width={1440} height={1080}>
+            <BACost />
+          </DCArtboard>
+        </DCSection>
+        <DCSection id="da" title="DA 도우미 플로우">
+          <DCArtboard id="da-main" label="DA · 메인" width={1440} height={1280}>
+            <DAMain />
+          </DCArtboard>
+          <DCArtboard id="da-connect" label="DA · DB 연결" width={1440} height={1080}>
+            <DAConnect />
+          </DCArtboard>
+          <DCArtboard id="da-standard" label="DA · AI 표준화 추천" width={1440} height={1100}>
+            <DAStandard />
+          </DCArtboard>
+          <DCArtboard id="da-result" label="DA · 진단 결과" width={1440} height={1100}>
+            <DAResult />
+          </DCArtboard>
+        </DCSection>
+        <DCSection id="system" title="디자인 시스템">
+          <DCArtboard id="tokens" label="컬러 · 타이포 · 컴포넌트" width={1440} height={1100}>
+            <DesignTokens />
+          </DCArtboard>
+        </DCSection>
+      </DesignCanvas>
+    );
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

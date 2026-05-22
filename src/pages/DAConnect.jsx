@@ -1,14 +1,29 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { connectDB, connectOracleHost, connectOracleTNS, connectOracleWallet, connectFile } from '../utils/daApi';
+import { color, button, card } from '../styles/tokens';
 
-const INPUT = {
-  width: '100%', padding: '10px 14px',
-  background: '#fff', border: '1.5px solid #e2e8f0',
-  borderRadius: 8, color: '#1e293b', fontSize: 13,
-  outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit',
+const { blue: BLUE, blueTint: BLUE_TINT, ink: INK, sub: SUB, mute: MUTE, line: LINE, bg: BG } = color;
+
+const INPUT_STYLE = {
+  width: '100%', height: 42, padding: '0 14px',
+  background: BG, border: `1px solid ${LINE}`,
+  borderRadius: 10, color: INK, fontSize: 13.5,
+  fontWeight: 600, outline: 'none', boxSizing: 'border-box',
+  fontFamily: "'Pretendard', system-ui, sans-serif",
+  letterSpacing: '-0.01em',
 };
-const LABEL = { fontSize: 12, color: '#475569', display: 'block', marginBottom: 6, fontWeight: 600 };
+
+const DB_INFO = {
+  postgresql: { label: 'PostgreSQL', short: 'PG', color: '#3182F6' },
+  mysql:      { label: 'MySQL',      short: 'MY', color: '#0F8B47' },
+  'oracle-host':   { label: 'Oracle (Host)',   short: 'OR', color: '#E11D48' },
+  'oracle-tns':    { label: 'Oracle (TNS)',    short: 'OR', color: '#E11D48' },
+  'oracle-wallet': { label: 'Oracle (Wallet)', short: 'OR', color: '#7C3AED' },
+  file: { label: 'CSV / Excel', short: 'FL', color: '#7C3AED' },
+};
+
+const TABS = Object.entries(DB_INFO).map(([key, v]) => ({ key, label: v.label }));
 
 const DAConnect = () => {
   const navigate = useNavigate();
@@ -58,161 +73,207 @@ const DAConnect = () => {
   };
 
   const F = (label, val, setter, field, type = 'text', placeholder = '') => (
-    <div style={{ marginBottom: 14 }}>
-      <label style={LABEL}>{label}</label>
+    <div>
+      <div style={{ fontSize: 12, fontWeight: 800, color: SUB, marginBottom: 6 }}>{label}</div>
       <input
         type={type} value={val[field]}
         onChange={e => setter(v => ({ ...v, [field]: e.target.value }))}
         placeholder={placeholder}
-        style={INPUT}
-        onFocus={e => e.target.style.borderColor = '#059669'}
-        onBlur={e => e.target.style.borderColor = '#e2e8f0'}
+        style={INPUT_STYLE}
+        onFocus={e => e.target.style.borderColor = BLUE}
+        onBlur={e => e.target.style.borderColor = LINE}
       />
     </div>
   );
 
-  const TABS = [
-    { key: 'postgresql', label: '🐘 PostgreSQL' },
-    { key: 'mysql', label: '🐬 MySQL' },
-    { key: 'oracle-host', label: '🔶 Oracle (Host)' },
-    { key: 'oracle-tns', label: '🔶 Oracle (TNS)' },
-    { key: 'oracle-wallet', label: '🔐 Oracle (Wallet)' },
-    { key: 'file', label: '📁 파일 업로드' },
-  ];
+  const dbColor = DB_INFO[tab]?.color || BLUE;
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f0f2f5', fontFamily: "'Apple SD Gothic Neo','Noto Sans KR',sans-serif", padding: '32px 24px' }}>
-      <div style={{ maxWidth: 680, margin: '0 auto' }}>
-
-        {/* 헤더 */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
-          <button onClick={() => navigate('/da')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', fontSize: 20 }}>←</button>
-          <div>
-            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: '#1e293b' }}>🔌 DB 연결</h2>
-            <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>품질진단을 수행할 DB에 접속하세요</p>
-          </div>
+    <div style={{ width: '100%', minHeight: '100vh', background: BG, fontFamily: "'Pretendard', system-ui, sans-serif", color: INK, display: 'flex', flexDirection: 'column' }}>
+      {/* ── Header ── */}
+      <header style={{ height: 64, background: '#fff', borderBottom: `1px solid ${LINE}`, display: 'flex', alignItems: 'center', padding: '0 24px', gap: 24, position: 'sticky', top: 0, zIndex: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 32, height: 32, borderRadius: 10, background: BLUE, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 900, fontSize: 15 }}>j</div>
+          <span style={{ fontWeight: 800, fontSize: 16 }}>junsu</span>
         </div>
+        <div style={{ marginLeft: 16, fontSize: 13, color: SUB, fontWeight: 600 }}>
+          <span style={{ color: MUTE, cursor: 'pointer' }} onClick={() => navigate('/da')}>DA</span>
+          <span style={{ color: MUTE, margin: '0 6px' }}>›</span>
+          DB 연결
+        </div>
+      </header>
 
-        <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
-          {/* 탭 */}
-          <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', flexWrap: 'wrap', background: '#f8fafc' }}>
-            {TABS.map(t => (
-              <button
-                key={t.key}
-                onClick={() => setTab(t.key)}
-                style={{
-                  padding: '12px 16px', fontSize: 12, fontWeight: 600, border: 'none',
-                  cursor: 'pointer', background: tab === t.key ? '#fff' : 'transparent',
-                  color: tab === t.key ? '#059669' : '#64748b',
-                  borderBottom: tab === t.key ? '2px solid #059669' : '2px solid transparent',
-                  marginBottom: -1,
-                }}
-              >
-                {t.label}
-              </button>
+      <div style={{ flex: 1, overflow: 'auto', padding: '32px 32px 40px' }}>
+        <div style={{ maxWidth: 1080, margin: '0 auto' }}>
+          {/* Step indicator */}
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: 24, padding: '14px 20px', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 14, overflow: 'hidden' }}>
+            {[
+              { n: '01', l: 'DB 연결', active: true },
+              { n: '02', l: '진단 항목 설정' },
+              { n: '03', l: '진단 실행' },
+              { n: '04', l: '결과 확인' },
+            ].map((s, i) => (
+              <div key={s.n} style={{ display: 'flex', alignItems: 'center', flex: i < 3 ? 1 : 'none' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: 28, height: 28, borderRadius: '50%', background: s.active ? BLUE : LINE, color: s.active ? '#fff' : MUTE, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, flexShrink: 0 }}>{s.n}</div>
+                  <span style={{ fontSize: 13, fontWeight: s.active ? 800 : 600, color: s.active ? INK : MUTE, whiteSpace: 'nowrap' }}>{s.l}</span>
+                </div>
+                {i < 3 && <div style={{ flex: 1, height: 2, background: LINE, margin: '0 16px' }} />}
+              </div>
             ))}
           </div>
 
-          {/* 폼 */}
-          <div style={{ padding: '24px' }}>
-            {tab === 'postgresql' && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
-                {F('Host', pg, setPg, 'host', 'text', 'localhost')}
-                {F('Port', pg, setPg, 'port', 'text', '5432')}
-                {F('Database', pg, setPg, 'dbname')}
-                {F('User ID', pg, setPg, 'user')}
-                <div style={{ gridColumn: '1/-1' }}>{F('Password', pg, setPg, 'password', 'password')}</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            {/* ── Left: DB type ── */}
+            <section style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 16, padding: '20px 24px' }}>
+              <div style={{ fontSize: 11, fontWeight: 800, color: MUTE, letterSpacing: '0.08em', marginBottom: 14 }}>① DB 종류 선택</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {TABS.map(t => {
+                  const info = DB_INFO[t.key];
+                  return (
+                    <button key={t.key} onClick={() => { setTab(t.key); setResult(null); }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px', borderRadius: 12, background: tab === t.key ? BLUE_TINT : '#fff', border: tab === t.key ? `2px solid ${BLUE}` : `1px solid ${LINE}`, cursor: 'pointer', textAlign: 'left' }}>
+                      <div style={{ width: 38, height: 38, borderRadius: 10, background: info.color + '18', color: info.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900, letterSpacing: '-0.04em', flexShrink: 0 }}>
+                        {info.short}
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: INK }}>{t.label}</div>
+                      </div>
+                      {tab === t.key && (
+                        <span style={{ width: 20, height: 20, borderRadius: '50%', background: BLUE, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 900, flexShrink: 0 }}>✓</span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
-            )}
-            {tab === 'mysql' && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
-                {F('Host', mysql, setMysql, 'host', 'text', 'localhost')}
-                {F('Port', mysql, setMysql, 'port', 'text', '3306')}
-                {F('Database', mysql, setMysql, 'dbname')}
-                {F('User ID', mysql, setMysql, 'user')}
-                <div style={{ gridColumn: '1/-1' }}>{F('Password', mysql, setMysql, 'password', 'password')}</div>
-              </div>
-            )}
-            {tab === 'oracle-host' && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
-                {F('Host', oraHost, setOraHost, 'host')}
-                {F('Port', oraHost, setOraHost, 'port', 'text', '1521')}
-                <div style={{ gridColumn: '1/-1' }}>{F('Service Name (또는 SID)', oraHost, setOraHost, 'service_name')}</div>
-                {F('User ID', oraHost, setOraHost, 'user')}
-                {F('Password', oraHost, setOraHost, 'password', 'password')}
-              </div>
-            )}
-            {tab === 'oracle-tns' && (
-              <div>
-                <div style={{ marginBottom: 14 }}>
-                  <label style={LABEL}>TNS 문자열</label>
-                  <textarea
-                    value={oraTns.tns_string}
-                    onChange={e => setOraTns(v => ({ ...v, tns_string: e.target.value }))}
-                    placeholder={'① TNS명: ORCL\n② Easy Connect: 192.168.1.10:1521/ORCL\n③ Full descriptor: (DESCRIPTION=...)'}
-                    rows={4}
-                    style={{ ...INPUT, resize: 'vertical', lineHeight: 1.6 }}
-                  />
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
-                  {F('User ID', oraTns, setOraTns, 'user')}
-                  {F('Password', oraTns, setOraTns, 'password', 'password')}
-                </div>
-              </div>
-            )}
-            {tab === 'oracle-wallet' && (
-              <div>
-                <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 12, color: '#166534' }}>
-                  💡 Wallet 폴더(cwallet.sso, tnsnames.ora, sqlnet.ora 등)를 모두 선택해 올려주세요
-                </div>
-                <div style={{ marginBottom: 14 }}>
-                  <label style={LABEL}>Wallet 파일들 (다중 선택)</label>
-                  <input type="file" multiple onChange={e => setWalletFiles(Array.from(e.target.files))} style={{ ...INPUT, padding: '8px 14px' }} />
-                  {walletFiles.length > 0 && <p style={{ fontSize: 11, color: '#059669', marginTop: 6 }}>✅ {walletFiles.length}개 파일 선택됨</p>}
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
-                  {F('접속명 (TNS Alias)', oraWallet, setOraWallet, 'tns_alias', 'text', 'dqmdb_high')}
-                  {F('Wallet 비밀번호 (선택)', oraWallet, setOraWallet, 'wallet_password', 'password')}
-                  {F('DB User ID', oraWallet, setOraWallet, 'user')}
-                  {F('DB Password', oraWallet, setOraWallet, 'password', 'password')}
-                </div>
-              </div>
-            )}
-            {tab === 'file' && (
-              <div>
-                <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 12, color: '#1e40af' }}>
-                  💡 CSV 또는 Excel 파일을 업로드하면 자동으로 SQLite DB에 적재되어 진단할 수 있습니다
-                </div>
-                <label style={{ display: 'block', border: '2px dashed #e2e8f0', borderRadius: 12, padding: '40px', textAlign: 'center', cursor: 'pointer', background: '#f8fafc', transition: 'all 0.15s' }}
-                  onMouseEnter={e => { e.currentTarget.style.borderColor = '#059669'; e.currentTarget.style.background = '#f0fdf4'; }}
-                  onMouseLeave={e => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.background = '#f8fafc'; }}
-                >
-                  <div style={{ fontSize: 40, marginBottom: 10 }}>📁</div>
-                  <div style={{ fontSize: 14, color: '#374151', fontWeight: 600, marginBottom: 4 }}>CSV 또는 Excel 파일 선택</div>
-                  <div style={{ fontSize: 12, color: '#94a3b8' }}>.csv, .xls, .xlsx 지원</div>
-                  <input type="file" accept=".csv,.xls,.xlsx" onChange={handleFile} style={{ display: 'none' }} />
-                </label>
-              </div>
-            )}
+            </section>
 
-            {/* 결과 메시지 */}
-            {result && (
-              <div style={{ marginTop: 16, padding: '12px 16px', borderRadius: 8, background: result.success ? '#f0fdf4' : '#fef2f2', border: `1px solid ${result.success ? '#86efac' : '#fca5a5'}`, fontSize: 13, color: result.success ? '#166534' : '#dc2626' }}>
-                {result.success ? '✅ ' : '❌ '}{result.message}
-                {result.success && <span style={{ marginLeft: 8, color: '#059669', fontWeight: 600 }}>→ 진단 항목 설정으로 이동 중...</span>}
+            {/* ── Right: Connection form ── */}
+            <section style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 16, padding: '20px 24px', display: 'flex', flexDirection: 'column' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: MUTE, letterSpacing: '0.08em' }}>② 연결 정보 입력</div>
+                {tab === 'oracle-wallet' && (
+                  <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 6, background: '#FFF3D6', color: '#B26A00' }}>Wallet 지원</span>
+                )}
               </div>
-            )}
 
-            {/* 연결 버튼 */}
-            {tab !== 'file' && (
-              <button
-                onClick={handleConnect}
-                disabled={loading}
-                style={{ marginTop: 20, width: '100%', padding: '13px', background: loading ? '#e2e8f0' : 'linear-gradient(135deg, #059669, #10b981)', color: loading ? '#94a3b8' : '#fff', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: loading ? 'default' : 'pointer' }}
-              >
-                {loading ? '⏳ 연결 중...' : '🔌 연결하기'}
-              </button>
-            )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1 }}>
+                {tab === 'postgresql' && (
+                  <>
+                    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10 }}>
+                      {F('Host', pg, setPg, 'host', 'text', 'localhost')}
+                      {F('Port', pg, setPg, 'port', 'text', '5432')}
+                    </div>
+                    {F('Database', pg, setPg, 'dbname')}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                      {F('User ID', pg, setPg, 'user')}
+                      {F('Password', pg, setPg, 'password', 'password')}
+                    </div>
+                  </>
+                )}
+                {tab === 'mysql' && (
+                  <>
+                    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10 }}>
+                      {F('Host', mysql, setMysql, 'host', 'text', 'localhost')}
+                      {F('Port', mysql, setMysql, 'port', 'text', '3306')}
+                    </div>
+                    {F('Database', mysql, setMysql, 'dbname')}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                      {F('User ID', mysql, setMysql, 'user')}
+                      {F('Password', mysql, setMysql, 'password', 'password')}
+                    </div>
+                  </>
+                )}
+                {tab === 'oracle-host' && (
+                  <>
+                    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10 }}>
+                      {F('Host', oraHost, setOraHost, 'host')}
+                      {F('Port', oraHost, setOraHost, 'port', 'text', '1521')}
+                    </div>
+                    {F('Service Name (또는 SID)', oraHost, setOraHost, 'service_name')}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                      {F('User ID', oraHost, setOraHost, 'user')}
+                      {F('Password', oraHost, setOraHost, 'password', 'password')}
+                    </div>
+                  </>
+                )}
+                {tab === 'oracle-tns' && (
+                  <>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 800, color: SUB, marginBottom: 6 }}>TNS 문자열</div>
+                      <textarea
+                        value={oraTns.tns_string}
+                        onChange={e => setOraTns(v => ({ ...v, tns_string: e.target.value }))}
+                        placeholder={'① TNS명: ORCL\n② Easy Connect: 192.168.1.10:1521/ORCL\n③ Full descriptor: (DESCRIPTION=...)'}
+                        rows={4}
+                        style={{ width: '100%', padding: '10px 14px', background: BG, border: `1px solid ${LINE}`, borderRadius: 10, color: INK, fontSize: 13, outline: 'none', resize: 'vertical', lineHeight: 1.6, fontFamily: "'Pretendard', system-ui, sans-serif", boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                      {F('User ID', oraTns, setOraTns, 'user')}
+                      {F('Password', oraTns, setOraTns, 'password', 'password')}
+                    </div>
+                  </>
+                )}
+                {tab === 'oracle-wallet' && (
+                  <>
+                    <div style={{ background: '#E7F8EF', border: '1px solid #A7F3CC', borderRadius: 10, padding: '10px 14px', fontSize: 12, color: '#0F8B47', fontWeight: 600 }}>
+                      💡 Wallet 폴더(cwallet.sso, tnsnames.ora, sqlnet.ora 등)를 모두 선택해 올려주세요
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 800, color: SUB, marginBottom: 6 }}>Wallet 파일들 (다중 선택)</div>
+                      <input type="file" multiple onChange={e => setWalletFiles(Array.from(e.target.files))} style={{ ...INPUT_STYLE, height: 'auto', padding: '10px 14px' }} />
+                      {walletFiles.length > 0 && <p style={{ fontSize: 11, color: '#0F8B47', marginTop: 6, fontWeight: 700 }}>✓ {walletFiles.length}개 파일 선택됨</p>}
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                      {F('접속명 (TNS Alias)', oraWallet, setOraWallet, 'tns_alias', 'text', 'dqmdb_high')}
+                      {F('Wallet 비밀번호 (선택)', oraWallet, setOraWallet, 'wallet_password', 'password')}
+                      {F('DB User ID', oraWallet, setOraWallet, 'user')}
+                      {F('DB Password', oraWallet, setOraWallet, 'password', 'password')}
+                    </div>
+                  </>
+                )}
+                {tab === 'file' && (
+                  <>
+                    <div style={{ background: BLUE_TINT, border: `1px solid #BDD6FA`, borderRadius: 10, padding: '10px 14px', fontSize: 12, color: BLUE, fontWeight: 600 }}>
+                      💡 CSV 또는 Excel 파일을 업로드하면 자동으로 SQLite DB에 적재되어 진단할 수 있습니다
+                    </div>
+                    <label
+                      style={{ display: 'block', border: `2px dashed ${LINE}`, borderRadius: 14, padding: '40px', textAlign: 'center', cursor: 'pointer', background: BG, transition: 'all 0.15s' }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = BLUE; e.currentTarget.style.background = BLUE_TINT; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = LINE; e.currentTarget.style.background = BG; }}
+                    >
+                      <div style={{ fontSize: 40, marginBottom: 10 }}>📁</div>
+                      <div style={{ fontSize: 14, color: INK, fontWeight: 700, marginBottom: 4 }}>CSV 또는 Excel 파일 선택</div>
+                      <div style={{ fontSize: 12, color: MUTE }}>.csv, .xls, .xlsx 지원</div>
+                      <input type="file" accept=".csv,.xls,.xlsx" onChange={handleFile} style={{ display: 'none' }} />
+                    </label>
+                    {loading && (
+                      <div style={{ textAlign: 'center', padding: '12px', background: BLUE_TINT, borderRadius: 10, fontSize: 13, color: BLUE, fontWeight: 700 }}>⏳ 업로드 중...</div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* Result message */}
+              {result && (
+                <div style={{ marginTop: 14, padding: '12px 16px', borderRadius: 10, background: result.success ? '#E7F8EF' : '#FFEBEB', border: `1px solid ${result.success ? '#A7F3CC' : '#FCA5A5'}`, fontSize: 13, color: result.success ? '#0F8B47' : '#E53935', fontWeight: 600 }}>
+                  {result.success ? '✓ ' : '✕ '}{result.message}
+                  {result.success && <span style={{ marginLeft: 8, fontWeight: 700 }}>→ 진단 항목 설정으로 이동 중...</span>}
+                </div>
+              )}
+
+              {/* Connect button */}
+              {tab !== 'file' && (
+                <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+                  <button onClick={() => navigate('/da')} style={{ height: 44, flex: 1, borderRadius: 10, background: '#fff', color: SUB, border: `1px solid ${LINE}`, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>취소</button>
+                  <button onClick={handleConnect} disabled={loading}
+                    style={{ height: 44, flex: 2, borderRadius: 10, background: loading ? LINE : BLUE, color: loading ? MUTE : '#fff', border: 'none', fontSize: 14, fontWeight: 800, cursor: loading ? 'default' : 'pointer', boxShadow: loading ? 'none' : '0 8px 16px rgba(49,130,246,0.25)' }}>
+                    {loading ? '⏳ 연결 중...' : '연결하기 →'}
+                  </button>
+                </div>
+              )}
+            </section>
           </div>
         </div>
       </div>
