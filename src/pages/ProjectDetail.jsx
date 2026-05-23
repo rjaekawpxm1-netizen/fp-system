@@ -116,6 +116,9 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkLV1, setBulkLV1] = useState('');
   const [showBulkEdit, setShowBulkEdit] = useState(false);
+  const [bulkReuseType, setBulkReuseType] = useState('재사용');
+  // 직접입력 영역 여러개
+  const [customAreas, setCustomAreas] = useState(['']);
   const [customArea, setCustomArea] = useState('');
   const [areaTargetCount, setAreaTargetCount] = useState('');
 
@@ -467,8 +470,13 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
   // ── 선택된 영역 기능 추가 생성 ──────────────────────────────
   const handleExpandAreas = async () => {
     const areasToExpand = [
-      ...selectedAreas.map(i => areaSuggestions.suggestions[i]),
-      ...(customArea.trim() ? [{ lv1: customArea.trim(), description: `${customArea.trim()} 관련 기능`, expectedFunctions: 40, sampleLv2: [] }] : []),
+      ...(areaSuggestions?.suggestions ? selectedAreas.map(i => areaSuggestions.suggestions[i]) : []),
+      ...customAreas.filter(a=>a.trim()).map(a=>({
+        lv1: a.trim(),
+        description: `${a.trim()} 관련 기능`,
+        expectedFunctions: 40,
+        sampleLv2: []
+      })),
     ].filter(Boolean);
 
     if (areasToExpand.length === 0) return alert('추가할 영역을 선택해주세요.');
@@ -499,7 +507,7 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
       }
       setAreaSuggestions(null);
       setSelectedAreas([]);
-      setCustomArea('');
+      setCustomAreas(['']);
       setShowAreaPanel(false);
       alert(`✅ ${totalAdded}개 추가 완료!\n총 ${currentFunctions.length}개 기능`);
     } catch (err) {
@@ -978,16 +986,28 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
                 <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
                   {/* 일괄 편집 패널 토글 */}
                   {selectedIds.size>0 && (
-                    <div style={{display:'flex',gap:4,alignItems:'center',background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:7,padding:'4px 8px'}}>
-                      <span style={{fontSize:11,color:'#1d4ed8'}}>선택 항목:</span>
+                    <div style={{display:'flex',gap:4,alignItems:'center',background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:7,padding:'4px 8px',flexWrap:'wrap'}}>
+                      <span style={{fontSize:11,color:'#1d4ed8',fontWeight:600}}>{selectedIds.size}개 선택:</span>
                       <input value={bulkLV1} onChange={e=>setBulkLV1(e.target.value)} placeholder="LV1 일괄수정" style={{...S.input,width:100,fontSize:11,padding:'3px 6px'}}/>
                       <button onClick={()=>{
                         if(!bulkLV1.trim()) return;
+                        const cnt = selectedIds.size;
                         const updated = functions.map(f=>selectedIds.has(f.id)?{...f,lv1:bulkLV1.trim()}:f);
                         setFunctions(updated); saveProject({functions:updated});
                         setSelectedIds(new Set()); setBulkLV1('');
-                        alert(`✅ ${selectedIds.size}개 LV1을 "${bulkLV1}"으로 수정했습니다.`);
-                      }} style={{...S.btn('#1d4ed8'),padding:'3px 8px',fontSize:11}}>수정</button>
+                        alert(`✅ ${cnt}개 LV1을 "${bulkLV1}"으로 수정했습니다.`);
+                      }} style={{...S.btn('#1d4ed8'),padding:'3px 8px',fontSize:11}}>LV1수정</button>
+                      <select value={bulkReuseType} onChange={e=>setBulkReuseType(e.target.value)}
+                        style={{border:'1px solid #e5e7eb',borderRadius:5,fontSize:11,padding:'3px 6px',background:'#fff'}}>
+                        {['신규개발','기능변경','재사용'].map(t=><option key={t}>{t}</option>)}
+                      </select>
+                      <button onClick={()=>{
+                        const cnt = selectedIds.size;
+                        const updated = functions.map(f=>selectedIds.has(f.id)?{...f,reuseType:bulkReuseType}:f);
+                        setFunctions(updated); saveProject({functions:updated});
+                        setSelectedIds(new Set());
+                        alert(`✅ ${cnt}개를 "${bulkReuseType}"으로 변경했습니다.`);
+                      }} style={{...S.btn('#16a34a'),padding:'3px 8px',fontSize:11}}>유형변경</button>
                       <button onClick={()=>{
                         if(!window.confirm(`선택한 ${selectedIds.size}개를 삭제할까요?`)) return;
                         const updated = functions.filter(f=>!selectedIds.has(f.id));
@@ -1102,15 +1122,33 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
                             </label>
                           ))}
                         </div>
-                        <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                          <input value={customArea} onChange={e=>setCustomArea(e.target.value)}
-                            placeholder="직접 입력: 추가할 업무 영역명" style={{...S.input,flex:1}}/>
-                          <button onClick={handleExpandAreas}
-                            disabled={selectedAreas.length===0 && !customArea.trim()}
-                            style={S.btn('#7c3aed')}>
-                            선택 영역 기능 생성 ({selectedAreas.length + (customArea.trim()?1:0)}개 영역)
+                        {/* 직접 입력 여러개 */}
+                        <div style={{marginBottom:8}}>
+                          <div style={{fontSize:11,color:'#7c3aed',fontWeight:600,marginBottom:6}}>✏️ 직접 입력 (여러 개 가능)</div>
+                          {customAreas.map((area, idx)=>(
+                            <div key={idx} style={{display:'flex',gap:6,marginBottom:5}}>
+                              <input value={area} onChange={e=>{
+                                const next = [...customAreas];
+                                next[idx] = e.target.value;
+                                setCustomAreas(next);
+                              }} placeholder={`추가할 업무 영역명 ${idx+1}`}
+                              style={{...S.input,flex:1,fontSize:12}}/>
+                              {customAreas.length > 1 && (
+                                <button onClick={()=>setCustomAreas(customAreas.filter((_,i)=>i!==idx))}
+                                  style={{background:'none',border:'1px solid #e5e7eb',borderRadius:6,color:'#9ca3af',cursor:'pointer',padding:'0 8px',fontSize:13}}>✕</button>
+                              )}
+                            </div>
+                          ))}
+                          <button onClick={()=>setCustomAreas([...customAreas,''])}
+                            style={{...S.btnOutline('#7c3aed'),fontSize:11,padding:'4px 10px',marginTop:2}}>
+                            + 영역 추가
                           </button>
                         </div>
+                        <button onClick={handleExpandAreas}
+                          disabled={selectedAreas.length===0 && customAreas.every(a=>!a.trim())}
+                          style={{...S.btn('#7c3aed'),width:'100%',padding:'10px'}}>
+                          🚀 선택 영역 기능 생성 ({selectedAreas.length + customAreas.filter(a=>a.trim()).length}개 영역)
+                        </button>
                       </>
                     )}
                   </div>
@@ -1131,9 +1169,12 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
                     <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
                       <thead>
                         <tr style={{background:'#f8fafc',borderBottom:'2px solid #e5e7eb'}}>
-                          {['LV1','LV2','LV3','기능 정의','삭제'].map(h=>(
+                          <th style={{padding:'10px 8px',width:32}}></th>
+                          {['LV1','LV2','LV3','기능 정의'].map(h=>(
                             <th key={h} style={{padding:'10px 12px',textAlign:'left',fontWeight:600,color:'#374151',whiteSpace:'nowrap'}}>{h}</th>
                           ))}
+                          {upgradeMode && <th style={{padding:'10px 8px',textAlign:'center',fontWeight:600,color:'#d97706',background:'#fefce8',whiteSpace:'nowrap'}}>재사용유형</th>}
+                          <th style={{padding:'10px 12px',textAlign:'center',fontWeight:600,color:'#374151'}}>삭제</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1143,7 +1184,7 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
                           const matchLv1 = !filterLV1 || f.lv1===filterLV1;
                           return matchKw && matchLv1;
                         }).length === 0 && (searchKeyword||filterLV1) ? (
-                          <tr><td colSpan={5} style={{padding:'30px',textAlign:'center',color:'#9ca3af',fontSize:13}}>
+                          <tr><td colSpan={upgradeMode?7:6} style={{padding:'30px',textAlign:'center',color:'#9ca3af',fontSize:13}}>
                             검색 결과가 없습니다. <button onClick={()=>{setSearchKeyword('');setFilterLV1('');}} style={{color:'#3b82f6',background:'none',border:'none',cursor:'pointer',textDecoration:'underline'}}>초기화</button>
                           </td></tr>
                         ) : functions.filter(f=>{
@@ -1162,6 +1203,18 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
                                 }} style={{width:'100%',border:'none',outline:'none',fontSize:12,background:'transparent',minWidth:field==='definition'?200:80}}/>
                               </td>
                             ))}
+                            {upgradeMode && (
+                              <td style={{padding:'4px 6px',textAlign:'center',background:'#fefce8'}}>
+                                <select value={f.reuseType||'신규개발'} onChange={e=>{
+                                  const updated = functions.map(fn=>fn.id===f.id?{...fn,reuseType:e.target.value}:fn);
+                                  setFunctions(updated); saveProject({functions:updated});
+                                }} style={{border:'1px solid #e5e7eb',borderRadius:4,fontSize:10,padding:'2px 3px',
+                                  background:f.reuseType==='재사용'?'#f0fdf4':f.reuseType==='기능변경'?'#fffbeb':'#fff',
+                                  color:f.reuseType==='재사용'?'#16a34a':f.reuseType==='기능변경'?'#d97706':'#374151',fontWeight:600}}>
+                                  {['신규개발','기능변경','재사용'].map(t=><option key={t}>{t}</option>)}
+                                </select>
+                              </td>
+                            )}
                             <td style={{padding:'6px 8px',textAlign:'center'}}>
                               <button onClick={()=>{
                                 const updated = functions.filter(fn=>fn.id!==f.id);
