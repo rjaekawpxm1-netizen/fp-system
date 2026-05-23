@@ -295,12 +295,11 @@ export const generateFunctionsFromDoc = async (text, userInput, onProgress) => {
 };
 
 // ── 추가 영역 제안 ────────────────────────────────────────────
-export const suggestAreas = async (systemName, rfpText, functions, targetCount) => {
-  // rfpText undefined 방어
+export const suggestAreas = async (systemName, rfpText, functions, targetCount, upgradeMode = false) => {
   const safeRfp = rfpText || '';
   const raw = await callAPI(
-    getAreaSuggestPrompt(systemName, safeRfp, functions || [], targetCount),
-    2000
+    getAreaSuggestPrompt(systemName, safeRfp, functions || [], targetCount, upgradeMode),
+    3000  // 응답 더 많이 받기 위해 2000→3000
   );
   try {
     const parsed = parseJSON(raw);

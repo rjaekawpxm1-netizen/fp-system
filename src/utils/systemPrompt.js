@@ -156,36 +156,58 @@ ${(domain.requirements||[]).slice(0,15).map(r=>`- ${r}`).join('\n')}
 `;
 
 // ── 단계2: 영역 추가 제안 프롬프트 ──────────────────────────
-export const getAreaSuggestPrompt = (systemName, rfpText, functions, targetCount) => {
+export const getAreaSuggestPrompt = (systemName, rfpText, functions, targetCount, upgradeMode = false) => {
   const currentLV1 = [...new Set(functions.map(f => f.lv1))];
   const currentLV2 = [...new Set(functions.map(f => f.lv2))];
   const currentCount = functions.length;
-  const rfpSnippet = (rfpText || '').slice(0, 5000); // rfpText undefined 방어
+  const rfpSnippet = (rfpText || '').slice(0, 15000); // 5000 → 15000자
+
+  // 고도화 모드: 재사용/신규 구분
+  const reuseFuncs = functions.filter(f => f.reuseType === '재사용' || f.reuseType === '기능변경');
+  const newFuncs = functions.filter(f => !f.reuseType || f.reuseType === '신규개발');
+  const reuseLV1 = [...new Set(reuseFuncs.map(f => f.lv1))];
+  const newLV1 = [...new Set(newFuncs.map(f => f.lv1))];
+
+  // RFP에서 요구사항 키워드 추출 (제안 근거로 활용)
+  const reqLines = (rfpText || '').split('\n')
+    .filter(l => /기능|업무|처리|관리|제공|구현|지원|연동|조회|등록/.test(l) && l.trim().length > 10)
+    .slice(0, 30)
+    .map(l => l.trim().slice(0, 80));
 
   return `공공SW사업 BA 전문가. 기능목록 확장을 위한 추가 업무 영역 제안. JSON만.
 
 시스템: ${systemName}
 현재 기능 수: ${currentCount}개 (목표: ${targetCount}개, 부족: ${targetCount - currentCount}개)
-현재 LV1 (${currentLV1.length}개): ${currentLV1.join(', ')}
-현재 LV2 (${currentLV2.length}개): ${currentLV2.slice(0,20).join(', ')}
+${upgradeMode ? `
+[고도화 모드]
+- 기존 기능(재사용/변경): ${reuseFuncs.length}개 → LV1: ${reuseLV1.join(', ')}
+- 신규 추가된 기능: ${newFuncs.length}개 → LV1: ${newLV1.join(', ')}
+- 제안 우선순위: 기존 기능에 없는 완전 신규 영역 위주로` : ''}
 
-RFP/문서 내용:
+현재 LV1 (${currentLV1.length}개): ${currentLV1.join(', ')}
+현재 LV2 (${currentLV2.length}개): ${currentLV2.slice(0, 50).join(', ')}
+
+RFP/문서 주요 요구사항:
+${reqLines.length > 0 ? reqLines.map((l,i) => `${i+1}. ${l}`).join('\n') : '(문서 없음 - 시스템 특성 기반으로 제안)'}
+
+RFP 전체 내용:
 ${rfpSnippet}
 
 ## 제안 기준
-1. 현재 기능에 없는 업무 영역
-2. 이 시스템에서 실제로 필요할 가능성이 높은 것
-3. 각 영역 추가 시 생성 가능한 예상 기능 수 포함
-4. 5~10개 영역 제안
-5. expectedFunctions: 실제로 생성 가능한 현실적 수치 (LV2수×8 기준, 최대 80)
+1. 현재 LV1/LV2에 없는 업무 영역만 제안
+2. RFP 요구사항에 근거가 있는 것 우선
+3. 근거 없어도 이 시스템에 현실적으로 필요한 것 포함
+4. relatedRequirement: 위 RFP 요구사항 번호 또는 실제 문장 인용
+5. 5~8개 영역 제안
+6. expectedFunctions: LV2 예상 수 × 8 (최대 80)
 
 {"suggestions":[{
   "lv1":"업무영역명",
-  "description":"이 영역이 필요한 이유",
+  "description":"이 영역이 필요한 이유 (RFP 근거 포함)",
   "expectedFunctions":40,
   "sampleLv2":["예상LV2-1","예상LV2-2","예상LV2-3","예상LV2-4","예상LV2-5"],
-  "relatedRequirement":"관련 요구사항 또는 근거"
-}],"analysis":"현재 기능목록 분석 요약"}`;
+  "relatedRequirement":"RFP 원문 또는 근거"
+}],"analysis":"현재 기능목록 분석 및 고도화 방향 요약"}`;
 };
 
 // 선택된 영역 기능 확장 (영역 추가용)

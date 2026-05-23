@@ -453,7 +453,7 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
     setLoading(true);
     setLoadingMsg('AI가 추가 가능한 업무 영역 분석 중...');
     try {
-      const result = await suggestAreas(systemName, rfpText, functions, target);
+      const result = await suggestAreas(systemName, rfpText, functions, target, upgradeMode);
       setAreaSuggestions(result);
       setSelectedAreas([]);
     } catch (err) {
