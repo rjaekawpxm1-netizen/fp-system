@@ -149,11 +149,61 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
     }
     const ab = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
+
+    // 1차: 텍스트 레이어 추출 시도
     let text = '';
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
       const content = await page.getTextContent();
       text += content.items.map(item => item.str).join(' ') + '\n';
+    }
+
+    // 텍스트가 충분히 없으면 (스캔본) → Vision OCR 처리
+    if (text.replace(/\s/g, '').length < 100) {
+      setLoadingMsg('스캔 PDF 감지 — Vision OCR 처리 중...');
+      const ocrTexts = [];
+      const maxPages = Math.min(pdf.numPages, 5); // 최대 5페이지
+      for (let i = 1; i <= maxPages; i++) {
+        setLoadingMsg(`Vision OCR 처리 중... (${i}/${maxPages}페이지)`);
+        const page = await pdf.getPage(i);
+        const viewport = page.getViewport({ scale: 1.5 });
+        const canvas = document.createElement('canvas');
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        const ctx = canvas.getContext('2d');
+        await page.render({ canvasContext: ctx, viewport }).promise;
+
+        // canvas → base64
+        const base64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+
+        // Claude Vision API 호출
+        try {
+          const res = await fetch('/api/claude', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: 'claude-sonnet-4-5',
+              max_tokens: 4000,
+              messages: [{
+                role: 'user',
+                content: [
+                  { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64 } },
+                  { type: 'text', text: '이 문서 이미지에서 텍스트를 모두 추출해주세요. 표가 있다면 표 구조도 유지해주세요. 텍스트만 출력하세요.' }
+                ]
+              }]
+            })
+          });
+          const data = await res.json();
+          const pageText = data.content?.map(c => c.type === 'text' ? c.text : '').join('') || '';
+          ocrTexts.push(`[${i}페이지]\n${pageText}`);
+        } catch (e) {
+          console.warn(`${i}페이지 OCR 실패:`, e.message);
+        }
+      }
+      text = ocrTexts.join('\n\n');
+      if (maxPages < pdf.numPages) {
+        text += `\n\n[참고: 총 ${pdf.numPages}페이지 중 ${maxPages}페이지까지 처리됨]`;
+      }
     }
     return text;
   };
