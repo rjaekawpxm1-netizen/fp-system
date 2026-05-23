@@ -1169,10 +1169,33 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
                     <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
                       <thead>
                         <tr style={{background:'#f8fafc',borderBottom:'2px solid #e5e7eb'}}>
-                          <th style={{padding:'10px 8px',width:32}}></th>
-                          {['LV1','LV2','LV3','기능 정의'].map(h=>(
-                            <th key={h} style={{padding:'10px 12px',textAlign:'left',fontWeight:600,color:'#374151',whiteSpace:'nowrap'}}>{h}</th>
-                          ))}
+                          <th style={{padding:'10px 8px',width:32,textAlign:'center'}}>
+                            <input type="checkbox" title="전체 선택/해제"
+                              checked={(() => {
+                                const filtered = functions.filter(f => {
+                                  const kw = searchKeyword.toLowerCase();
+                                  return (!kw || [f.lv1,f.lv2,f.lv3,f.definition].some(v=>(v||'').toLowerCase().includes(kw)))
+                                    && (!filterLV1 || f.lv1===filterLV1);
+                                });
+                                return filtered.length > 0 && filtered.every(f => selectedIds.has(f.id));
+                              })()}
+                              onChange={e => {
+                                const filtered = functions.filter(f => {
+                                  const kw = searchKeyword.toLowerCase();
+                                  return (!kw || [f.lv1,f.lv2,f.lv3,f.definition].some(v=>(v||'').toLowerCase().includes(kw)))
+                                    && (!filterLV1 || f.lv1===filterLV1);
+                                });
+                                const next = new Set(selectedIds);
+                                if (e.target.checked) filtered.forEach(f => next.add(f.id));
+                                else filtered.forEach(f => next.delete(f.id));
+                                setSelectedIds(next);
+                              }}
+                            />
+                          </th>
+                          <th style={{padding:'10px 12px',textAlign:'left',fontWeight:600,color:'#374151',minWidth:80}}>LV1</th>
+                          <th style={{padding:'10px 12px',textAlign:'left',fontWeight:600,color:'#374151',minWidth:100}}>LV2</th>
+                          <th style={{padding:'10px 12px',textAlign:'left',fontWeight:600,color:'#374151',minWidth:120}}>LV3</th>
+                          <th style={{padding:'10px 12px',textAlign:'left',fontWeight:600,color:'#374151',minWidth:200}}>기능 정의</th>
                           {upgradeMode && <th style={{padding:'10px 8px',textAlign:'center',fontWeight:600,color:'#d97706',background:'#fefce8',whiteSpace:'nowrap'}}>재사용유형</th>}
                           <th style={{padding:'10px 12px',textAlign:'center',fontWeight:600,color:'#374151'}}>삭제</th>
                         </tr>
