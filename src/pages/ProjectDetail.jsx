@@ -68,7 +68,7 @@ const S = {
   tag: (bg, color) => ({ background:bg, color, fontSize:10, padding:'2px 7px', borderRadius:10, fontWeight:600 }),
 };
 
-const ProjectDetail = ({ projects, onUpdateProject }) => {
+const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
   const { id } = useParams();
   const navigate = useNavigate();
   const project = projects.find(p => p.id === id);
@@ -134,6 +134,10 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
   const [loadingMsg, setLoadingMsg] = useState('');
   const [parseStep, setParseStep] = useState(0);
   const [parsePct, setParsePct] = useState(0);
+  const [abortGenerate, setAbortGenerate] = useState(false); // 생성 중단 플래그
+  // Virtual Scroll
+  const [vsStart, setVsStart] = useState(0); // 표시 시작 인덱스
+  const VS_PAGE = 100; // 한 번에 표시할 행 수
 
   const saveProject = useCallback((updates) => {
     if (onUpdateProject) onUpdateProject(id, updates);
@@ -403,6 +407,7 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
     if (!rfpText && !userInput.trim()) {
       return alert('파일을 업로드하거나 시스템 설명을 입력해주세요.');
     }
+    setAbortGenerate(false); // 중단 플래그 초기화
     setLoading(true);
     setParseStep(0);
     setParsePct(0);
@@ -435,6 +440,7 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
     const activeDomains = pendingDomains.filter(d => d.enabled);
     if (activeDomains.length === 0) return alert('최소 1개 이상의 LV1을 선택하세요.');
     setDomainStep(false);
+    setAbortGenerate(false);
     setLoading(true);
     setParseStep(4);
     setParsePct(42);
@@ -574,15 +580,43 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
           : (f.reuseType || '신규개발');
         return autoCalcRow({...f, id:Date.now()+i, ftrChange:0, detChange:0, bigo:'-', reuseType}, fpMethod);
       });
-      setFpList(withId);
-      const summary = calcTotalFP(withId, fpMethod);
-      saveProject({fpList:withId, fpSummary:summary});
+      // ── ILF 자동 배정: LV2 단위로 1개씩 ─────────────────────
+      // 기존 ILF가 없을 때만 자동 배정
+      const existingILFs = withId.filter(f => f.fpType === 'ILF');
+      let finalFpList = withId;
+      if (existingILFs.length === 0) {
+        const lv2Groups = [...new Set(withId.map(f => `${f.lv1}||${f.lv2}`))];
+        const ilfRows = lv2Groups.map((key, i) => {
+          const [lv1, lv2] = key.split('||');
+          return autoCalcRow({
+            id: Date.now() + 100000 + i,
+            lv1, lv2,
+            lv3: `${lv2} (ILF)`,
+            definition: `${lv2} 데이터를 관리한다`,
+            fpType: 'ILF',
+            ftr: 1, det: 10,
+            reuseType: upgradeMode ? '재사용' : '신규개발',
+            ftrChange: 0, detChange: 0, bigo: 'ILF자동배정',
+          }, fpMethod);
+        });
+        finalFpList = [...withId, ...ilfRows];
+        setLoadingMsg(`ILF ${ilfRows.length}개 자동 배정 완료`);
+      }
+      setFpList(finalFpList);
+      const summary = calcTotalFP(finalFpList, fpMethod);
+      saveProject({fpList:finalFpList, fpSummary:summary});
       setTab('fp');
       if (upgradeMode) {
-        const reuseCount = withId.filter(f=>f.reuseType==='재사용').length;
-        const changeCount = withId.filter(f=>f.reuseType==='기능변경').length;
-        const newCount = withId.filter(f=>f.reuseType==='신규개발').length;
-        alert(`✅ FP 산정 완료!\n재사용: ${reuseCount}개 / 기능변경: ${changeCount}개 / 신규개발: ${newCount}개`);
+        const reuseCount = finalFpList.filter(f=>f.reuseType==='재사용').length;
+        const changeCount = finalFpList.filter(f=>f.reuseType==='기능변경').length;
+        const newCount = finalFpList.filter(f=>f.reuseType==='신규개발').length;
+        const ilfCount = finalFpList.filter(f=>f.fpType==='ILF').length;
+        alert(`✅ FP 산정 완료!\n재사용: ${reuseCount}개 / 기능변경: ${changeCount}개 / 신규개발: ${newCount}개\nILF: ${ilfCount}개 자동 배정`);
+      } else {
+        const ilfCount = finalFpList.filter(f=>f.fpType==='ILF').length;
+        if (existingILFs.length === 0) {
+          alert(`✅ FP 산정 완료!\n총 ${finalFpList.length}개 (ILF ${ilfCount}개 자동 배정 포함)`);
+        }
       }
     } catch (err) {
       alert('FP 산정 오류: ' + err.message);
@@ -668,19 +702,15 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
           <div style={S.navItem(false)} onClick={()=>navigate('/ba')}>
             <span>← 목록으로</span>
           </div>
-          <div style={S.navItem(false)} onClick={()=>{
+          <div style={S.navItem(false)} onClick={async ()=>{
             const name = window.prompt('복사할 프로젝트 이름:', project.name + ' (복사)');
-            if (!name) return;
-            if (onUpdateProject) {
-              const copied = {
-                ...project,
-                id: Date.now().toString(),
-                name,
-                createdAt: new Date().toISOString(),
-              };
-              // App.js의 handleCopyProject 호출
-              window.dispatchEvent(new CustomEvent('copyProject', {detail: copied}));
-              alert(`✅ "${name}"으로 복사됐습니다.\n목록으로 이동해서 확인하세요.`);
+            if (!name || !name.trim()) return;
+            if (!onCopyProject) return alert('복사 기능을 사용할 수 없습니다.');
+            try {
+              await onCopyProject(project, name.trim());
+              alert(`✅ "${name.trim()}"으로 복사됐습니다.\n목록에서 확인하세요.`);
+            } catch(e) {
+              alert('복사 실패: ' + e.message);
             }
           }}>
             <span>📋 프로젝트 복사</span>
@@ -1049,14 +1079,14 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
                   <span style={{position:'absolute',left:10,top:'50%',transform:'translateY(-50%)',color:'#9ca3af',fontSize:14}}>🔍</span>
                   <input
                     value={searchKeyword}
-                    onChange={e=>setSearchKeyword(e.target.value)}
+                    onChange={e=>{setSearchKeyword(e.target.value);setVsStart(0);}}
                     placeholder="LV1/LV2/LV3/기능정의 통합 검색..."
                     style={{...S.input,paddingLeft:32,fontSize:13}}
                   />
                 </div>
                 <select
                   value={filterLV1}
-                  onChange={e=>setFilterLV1(e.target.value)}
+                  onChange={e=>{setFilterLV1(e.target.value);setVsStart(0);}}
                   style={{padding:'8px 12px',border:'1px solid #e5e7eb',borderRadius:7,fontSize:13,background:'#fff',minWidth:160}}>
                   <option value="">전체 LV1 ({functions.length}개)</option>
                   {[...new Set(functions.map(f=>f.lv1).filter(Boolean))].sort().map(lv1=>(
@@ -1300,21 +1330,20 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
                         </tr>
                       </thead>
                       <tbody>
-                        {functions.filter(f=>{
+                        {(()=>{
                           const kw = searchKeyword.toLowerCase();
-                          const matchKw = !kw || [f.lv1,f.lv2,f.lv3,f.definition].some(v=>(v||'').toLowerCase().includes(kw));
-                          const matchLv1 = !filterLV1 || f.lv1===filterLV1;
-                          return matchKw && matchLv1;
-                        }).length === 0 && (searchKeyword||filterLV1) ? (
-                          <tr><td colSpan={upgradeMode?7:6} style={{padding:'30px',textAlign:'center',color:'#9ca3af',fontSize:13}}>
-                            검색 결과가 없습니다. <button onClick={()=>{setSearchKeyword('');setFilterLV1('');}} style={{color:'#3b82f6',background:'none',border:'none',cursor:'pointer',textDecoration:'underline'}}>초기화</button>
-                          </td></tr>
-                        ) : functions.filter(f=>{
-                          const kw = searchKeyword.toLowerCase();
-                          const matchKw = !kw || [f.lv1,f.lv2,f.lv3,f.definition].some(v=>(v||'').toLowerCase().includes(kw));
-                          const matchLv1 = !filterLV1 || f.lv1===filterLV1;
-                          return matchKw && matchLv1;
-                        }).map((f,idx)=>(
+                          const filtered = functions.filter(f=>{
+                            const matchKw = !kw || [f.lv1,f.lv2,f.lv3,f.definition].some(v=>(v||'').toLowerCase().includes(kw));
+                            const matchLv1 = !filterLV1 || f.lv1===filterLV1;
+                            return matchKw && matchLv1;
+                          });
+                          if (filtered.length === 0 && (searchKeyword||filterLV1)) return (
+                            <tr><td colSpan={upgradeMode?7:6} style={{padding:'30px',textAlign:'center',color:'#9ca3af',fontSize:13}}>
+                              검색 결과가 없습니다. <button onClick={()=>{setSearchKeyword('');setFilterLV1('');setVsStart(0);}} style={{color:'#3b82f6',background:'none',border:'none',cursor:'pointer',textDecoration:'underline'}}>초기화</button>
+                            </td></tr>
+                          );
+                          const visible = filtered.slice(vsStart, vsStart + VS_PAGE);
+                          return visible.map((f,idx)=>(
                           <tr key={f.id} style={{borderBottom:'1px solid #f3f4f6',background:selectedIds.has(f.id)?'#eff6ff':idx%2===0?'#fff':'#fafafa'}}>
                             <td style={{padding:'6px 8px',textAlign:'center',width:32}}><input type="checkbox" checked={selectedIds.has(f.id)} onChange={e=>{const n=new Set(selectedIds);e.target.checked?n.add(f.id):n.delete(f.id);setSelectedIds(n);}}/></td>
                             {(['lv1','lv2','lv3','definition']).map(field=>(
@@ -1344,10 +1373,35 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
                               }} style={{background:'none',border:'none',color:'#ef4444',cursor:'pointer',fontSize:14}}>✕</button>
                             </td>
                           </tr>
-                        ))}
+                        ))})()}
                       </tbody>
                     </table>
                   </div>
+
+                  {/* Virtual Scroll 페이지네이션 */}
+                  {(()=>{
+                    const kw = searchKeyword.toLowerCase();
+                    const filtered = functions.filter(f=>{
+                      const matchKw = !kw || [f.lv1,f.lv2,f.lv3,f.definition].some(v=>(v||'').toLowerCase().includes(kw));
+                      return matchKw && (!filterLV1 || f.lv1===filterLV1);
+                    });
+                    if (filtered.length <= VS_PAGE) return null;
+                    const totalPages = Math.ceil(filtered.length / VS_PAGE);
+                    const curPage = Math.floor(vsStart / VS_PAGE);
+                    return (
+                      <div style={{display:'flex',justifyContent:'center',alignItems:'center',gap:8,padding:'12px',borderTop:'1px solid #f3f4f6',background:'#f9fafb'}}>
+                        <button onClick={()=>setVsStart(0)} disabled={curPage===0}
+                          style={{padding:'4px 10px',border:'1px solid #e5e7eb',borderRadius:6,background:'#fff',cursor:curPage===0?'default':'pointer',color:curPage===0?'#9ca3af':'#374151',fontSize:12}}>처음</button>
+                        <button onClick={()=>setVsStart(Math.max(0,vsStart-VS_PAGE))} disabled={curPage===0}
+                          style={{padding:'4px 10px',border:'1px solid #e5e7eb',borderRadius:6,background:'#fff',cursor:curPage===0?'default':'pointer',color:curPage===0?'#9ca3af':'#374151',fontSize:12}}>◀ 이전</button>
+                        <span style={{fontSize:12,color:'#6b7280'}}>{curPage+1} / {totalPages} 페이지 ({filtered.length}개)</span>
+                        <button onClick={()=>setVsStart(Math.min((totalPages-1)*VS_PAGE,vsStart+VS_PAGE))} disabled={curPage===totalPages-1}
+                          style={{padding:'4px 10px',border:'1px solid #e5e7eb',borderRadius:6,background:'#fff',cursor:curPage===totalPages-1?'default':'pointer',color:curPage===totalPages-1?'#9ca3af':'#374151',fontSize:12}}>다음 ▶</button>
+                        <button onClick={()=>setVsStart((totalPages-1)*VS_PAGE)} disabled={curPage===totalPages-1}
+                          style={{padding:'4px 10px',border:'1px solid #e5e7eb',borderRadius:6,background:'#fff',cursor:curPage===totalPages-1?'default':'pointer',color:curPage===totalPages-1?'#9ca3af':'#374151',fontSize:12}}>끝</button>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
             </div>
@@ -1584,7 +1638,12 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
                     </div>
                   ))}
                 </div>
-                <div style={{fontSize:11,color:'#9ca3af',marginTop:10}}>Tier1 API — 도메인 수에 따라 수분 소요</div>
+                <div style={{fontSize:11,color:'#9ca3af',marginTop:10}}>도메인 수에 따라 수분 소요</div>
+                <button
+                  onClick={()=>{ setAbortGenerate(true); setLoading(false); setLoadingMsg(''); setParseStep(0); setParsePct(0); setDomainStep(false); }}
+                  style={{marginTop:12,padding:'8px 20px',background:'#ef4444',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer'}}>
+                  ⛔ 생성 중단
+                </button>
               </>
             ) : (
               <>
