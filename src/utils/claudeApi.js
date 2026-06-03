@@ -115,6 +115,150 @@ export const parseDocumentFunctions = async (text) => {
   return parsed.functions || [];
 };
 
+// ── 1단계만: 정보추출 + 요구사항 + 도메인분류 ────────────────
+export const extractDomainsOnly = async (text, userInput, onProgress) => {
+  const report = (step, msg, pct) => onProgress && onProgress(step, msg, pct);
+
+  report(1, '문서에서 시스템 정보 추출 중...', 5);
+  let info = {};
+  try {
+    const infoRaw = await callAPI(getProjectInfoPrompt(text + (userInput ? '\n\n추가설명:\n' + userInput : '')), 2000);
+    info = parseJSON(infoRaw);
+  } catch(e) { console.warn('정보 추출 실패:', e.message); }
+
+  const systemName = info.systemName || '정보시스템';
+  const description = info.systemOverview || '';
+  const mainUsers = info.mainUsers || ['사용자', '관리자'];
+  const projectType = info.projectType || 'SW개발';
+
+  report(1, `시스템: ${systemName}`, 12);
+
+  // 요구사항 수집
+  const CHUNK = 2500;
+  const bounded = text.slice(0, 40000);
+  const chunks = [];
+  for (let i = 0; i < bounded.length; i += CHUNK)
+    chunks.push(bounded.slice(i, i + CHUNK));
+
+  let allReqs = [];
+  for (let i = 0; i < chunks.length; i++) {
+    report(2, `요구사항 수집 중... (${i+1}/${chunks.length})`, 12 + Math.round((i/chunks.length)*25));
+    try {
+      const raw = await callAPI(getRequirementCollectPrompt(chunks[i], i+1, systemName), 2000);
+      const parsed = parseJSON(raw);
+      allReqs = [...allReqs, ...(parsed.requirements||[]).filter(r => r?.length > 5)];
+    } catch(e) { console.warn(`청크 ${i+1} 실패`); }
+  }
+
+  if (userInput?.trim()) {
+    const userLines = userInput.split(/[\n,。、]/).map(l => l.trim()).filter(l => l.length > 4);
+    allReqs = [...allReqs, ...userLines];
+  }
+  allReqs = [...new Set(allReqs)].slice(0, 150);
+
+  if (allReqs.length < 5) {
+    const lines = text.split('\n').map(l=>l.trim()).filter(l=>l.length>10&&l.length<200)
+      .filter(l=>/관리|기능|처리|등록|조회|수정|삭제|승인/.test(l)).slice(0, 40);
+    allReqs = [...allReqs, ...lines];
+  }
+
+  report(2, `요구사항 ${allReqs.length}개 수집`, 37);
+
+  // 도메인 분류
+  report(3, '업무 도메인 분류 중...', 40);
+  let domains = [];
+  try {
+    const domainRaw = await callAPI(
+      getDomainClassifyPrompt(allReqs, systemName, description, mainUsers, projectType, userInput),
+      2000
+    );
+    const parsed = parseJSON(domainRaw);
+    domains = parsed.domains || [];
+  } catch(e) { console.warn('도메인 분류 실패:', e.message); }
+
+  if (domains.length === 0) {
+    domains = [
+      { lv1:'업무관리', description:'핵심 업무', requirements: allReqs.slice(0,15), expectedLv2:[] },
+      { lv1:'현황 및 통계', description:'조회/통계', requirements: allReqs.slice(15,30), expectedLv2:[] },
+      { lv1:'시스템관리', description:'사용자/권한/공통', requirements:[], expectedLv2:['사용자관리','권한관리'] },
+    ];
+  }
+
+  report(3, `LV1 ${domains.length}개 확인 필요`, 100);
+
+  return { systemName, overview: description, projectType, mainUsers, allReqs, domains };
+};
+
+// ── 2단계: 선택된 도메인으로 기능 확장 ────────────────────────
+export const expandDomainsToFunctions = async (domains, info, onProgress) => {
+  const report = (step, msg, pct) => onProgress && onProgress(step, msg, pct);
+  const { systemName, mainUsers = ['사용자','관리자'] } = info || {};
+
+  let allFunctions = [];
+  for (let i = 0; i < domains.length; i++) {
+    const domain = domains[i];
+    const pct = 42 + Math.round((i / domains.length) * 55);
+    report(4, `[${i+1}/${domains.length}] "${domain.lv1}" 기능 확장 중...`, pct);
+    try {
+      const raw = await callAPI(getDomainExpandPrompt(domain, systemName, mainUsers), 6000);
+      const parsed = parseJSON(raw);
+      const funcs = (parsed.functions || [])
+        .filter(f => f.lv2 && f.lv3)
+        .map(f => ({
+          lv1: domain.lv1,
+          lv2: f.lv2 || '',
+          lv3: (f.lv3 || '').replace(/^[A-Z]{2,}-\d+[-\w]*:\s*/i,'').trim(),
+          definition: f.definition || `${f.lv3||f.lv2}을 처리한다`,
+        }))
+        .filter(f => f.lv3.length > 0);
+      allFunctions = [...allFunctions, ...funcs];
+    } catch(e) { console.warn(`"${domain.lv1}" 확장 실패:`, e.message); }
+  }
+
+  // 후처리: 컨설팅 과업 필터 + 중복 제거
+  const BAD_LV1 = ['AI/ML','AIOps','클라우드 및 인프라','아키텍처 설계',
+    '실시간 데이터 스트리밍','인프라 고도화','지능형 운영','운영 자동화',
+    '포렌식','비즈니스연속성','사이버보안 통합'];
+  const BAD_LV3 = [/자동화\s*구현/,/지능화\s*적용/,/고도화\s*수행/,/아키텍처\s*설계/];
+
+  const filtered = allFunctions.filter(f => {
+    if (!f.lv1 || !f.lv2 || !f.lv3?.trim()) return false;
+    if (BAD_LV1.some(kw => f.lv1.includes(kw))) return false;
+    if (BAD_LV3.some(p => p.test(f.lv3))) return false;
+    if (f.lv3.trim() === f.lv2.trim()) return false;
+    return true;
+  });
+
+  const seen = new Set();
+  const deduped = filtered.filter(f => {
+    const key = `${f.lv1}|${f.lv2}|${f.lv3}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  // LV1 자동 통합 (10개 초과 시)
+  const lv1List = [...new Set(deduped.map(f => f.lv1))];
+  let finalFuncs = deduped;
+  if (lv1List.length > 10) {
+    const mergeRules = [
+      { pattern: /보안|인증|접근제어|감사/, target: '보안관리' },
+      { pattern: /운영|모니터링|장애|알람|알림/, target: '운영관리' },
+      { pattern: /통계|분석|현황|보고/, target: '통계및분석' },
+    ];
+    finalFuncs = deduped.map(f => {
+      for (const rule of mergeRules) {
+        if (rule.pattern.test(f.lv1) && f.lv1 !== rule.target)
+          return { ...f, lv1: rule.target };
+      }
+      return f;
+    });
+  }
+
+  report(4, `완료! ${finalFuncs.length}개 기능 생성`, 100);
+  return { systemName, overview: info?.overview || '', functions: finalFuncs };
+};
+
 // ── 핵심: RFP/문서 → 기능목록 생성 파이프라인 ───────────────
 // onProgress(step, msg, pct)
 export const generateFunctionsFromDoc = async (text, userInput, onProgress) => {

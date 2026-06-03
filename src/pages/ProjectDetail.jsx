@@ -1,9 +1,11 @@
-gimport { useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import mammoth from 'mammoth';
 import {
   generateFunctionsFromDoc,
+  extractDomainsOnly,
+  expandDomainsToFunctions,
   generateFPList,
   suggestAreas,
   expandArea,
@@ -112,6 +114,11 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
   const [filterLV1, setFilterLV1] = useState('');
   // 고도화 모드
   const [upgradeMode, setUpgradeMode] = useState(false);
+  // 도메인 확인 단계
+  const [domainStep, setDomainStep] = useState(false); // true=도메인확인중
+  const [pendingDomains, setPendingDomains] = useState([]); // AI가 뽑은 LV1 목록
+  const [pendingInfo, setPendingInfo] = useState(null); // 시스템정보 임시저장
+  const [newDomainInput, setNewDomainInput] = useState(''); // LV1 직접추가
   // 일괄 선택/수정
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkLV1, setBulkLV1] = useState('');
@@ -391,6 +398,7 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
   };
 
   // ── 기능 생성 핸들러 ─────────────────────────────────────────
+  // ── 1단계: 도메인 분류까지만 실행 ─────────────────────────
   const handleGenerate = async () => {
     if (!rfpText && !userInput.trim()) {
       return alert('파일을 업로드하거나 시스템 설명을 입력해주세요.');
@@ -400,45 +408,60 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
     setParsePct(0);
     try {
       const text = rfpText || userInput;
-      const result = await generateFunctionsFromDoc(
-        text,
-        userInput,
-        (step, msg, pct) => {
-          setParseStep(step);
-          setLoadingMsg(msg);
-          setParsePct(pct);
-        }
+      // 도메인 분류까지만 실행 (기능 확장 전 멈춤)
+      const result = await extractDomainsOnly(
+        text, userInput,
+        (step, msg, pct) => { setParseStep(step); setLoadingMsg(msg); setParsePct(pct); }
       );
+      // 시스템 정보 반영
       if (result.systemName && !systemName) setSystemName(result.systemName);
       if (result.overview && !systemOverview) setSystemOverview(result.overview);
+      // 도메인 확인 단계로 이동
+      setPendingDomains(result.domains.map(d => ({...d, enabled: true})));
+      setPendingInfo(result);
+      setDomainStep(true);
+    } catch (err) {
+      alert('분석 오류: ' + err.message);
+    } finally {
+      setLoading(false);
+      setLoadingMsg('');
+      setParseStep(0);
+      setParsePct(0);
+    }
+  };
 
+  // ── 2단계: 도메인 확인 후 기능 확장 실행 ────────────────────
+  const handleConfirmDomains = async () => {
+    const activeDomains = pendingDomains.filter(d => d.enabled);
+    if (activeDomains.length === 0) return alert('최소 1개 이상의 LV1을 선택하세요.');
+    setDomainStep(false);
+    setLoading(true);
+    setParseStep(4);
+    setParsePct(42);
+    try {
+      const result = await expandDomainsToFunctions(
+        activeDomains,
+        pendingInfo,
+        (step, msg, pct) => { setParseStep(step); setLoadingMsg(msg); setParsePct(pct); }
+      );
       const newFuncs = (result.functions||[]).map((f,i)=>({...f,id:Date.now()+i}));
-
       let finalFunctions;
       if (upgradeMode && functions.length > 0) {
-        // 고도화 모드: 기존 기능 유지 + 신규만 추가 (중복 제거)
         const existingKeys = new Set(functions.map(f=>`${f.lv1}|${f.lv2}|${f.lv3}`));
         const onlyNew = newFuncs.filter(f=>!existingKeys.has(`${f.lv1}|${f.lv2}|${f.lv3}`));
         finalFunctions = [...functions, ...onlyNew];
       } else {
         finalFunctions = newFuncs;
       }
-
       setFunctions(finalFunctions);
-      setParseStep(0);
       saveProject({
         functions: finalFunctions,
-        systemName: result.systemName || systemName,
-        systemOverview: result.overview || systemOverview,
-        rfpText,
-        userInput,
+        systemName: pendingInfo.systemName || systemName,
+        systemOverview: pendingInfo.overview || systemOverview,
+        rfpText, userInput,
       });
       setTab('functions');
-      if (!upgradeMode) {
-        alert(`✅ 기능 생성 완료!\n총 ${finalFunctions.length}개 기능목록 생성`);
-      } else {
-        alert(`✅ 고도화 기능 추가 완료!\n기존 유지 + 신규 ${newFuncs.length}개 추가\n총 ${finalFunctions.length}개`);
-      }
+      alert(`✅ 기능 생성 완료!\n총 ${finalFunctions.length}개 기능목록 생성`);
     } catch (err) {
       alert('기능 생성 오류: ' + err.message);
     } finally {
@@ -446,6 +469,8 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
       setLoadingMsg('');
       setParseStep(0);
       setParsePct(0);
+      setPendingDomains([]);
+      setPendingInfo(null);
     }
   };
 
@@ -936,6 +961,80 @@ const ProjectDetail = ({ projects, onUpdateProject }) => {
                   </button>
                 </div>
               </div>
+
+              {/* ── 도메인 확인 단계 ── */}
+              {domainStep && pendingDomains.length > 0 && (
+                <div style={{...S.card,border:'2px solid #1d4ed8',marginTop:0}}>
+                  <div style={{...S.cardHeader,background:'#eff6ff'}}>
+                    <div>
+                      <span style={{fontSize:14,fontWeight:700,color:'#1d4ed8'}}>📋 2단계: LV1 메뉴 구조 확인</span>
+                      <div style={{fontSize:11,color:'#6b7280',marginTop:2}}>AI가 분석한 메뉴 구조입니다. 불필요한 LV1을 제거하거나 추가한 후 "기능 생성 시작"을 누르세요.</div>
+                    </div>
+                    <button onClick={()=>{setDomainStep(false);setPendingDomains([]);setPendingInfo(null);}}
+                      style={{background:'none',border:'none',color:'#9ca3af',cursor:'pointer',fontSize:18}}>✕</button>
+                  </div>
+                  <div style={{padding:'16px 20px'}}>
+                    <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:14}}>
+                      {pendingDomains.map((d,i)=>(
+                        <div key={i} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',
+                          border:`2px solid ${d.enabled?'#1d4ed8':'#e5e7eb'}`,borderRadius:8,
+                          background:d.enabled?'#eff6ff':'#f9fafb',cursor:'pointer'}}
+                          onClick={()=>{
+                            const next=[...pendingDomains];
+                            next[i]={...next[i],enabled:!next[i].enabled};
+                            setPendingDomains(next);
+                          }}>
+                          <input type="checkbox" checked={d.enabled} readOnly
+                            style={{width:16,height:16,flexShrink:0,cursor:'pointer'}}/>
+                          <div style={{flex:1}}>
+                            <input value={d.lv1} onChange={e=>{
+                              const next=[...pendingDomains];
+                              next[i]={...next[i],lv1:e.target.value};
+                              setPendingDomains(next);
+                            }} onClick={e=>e.stopPropagation()}
+                            style={{fontWeight:700,fontSize:13,color:d.enabled?'#1d4ed8':'#9ca3af',
+                              border:'none',outline:'none',background:'transparent',width:'auto',minWidth:100}}/>
+                            <div style={{fontSize:11,color:'#6b7280',marginTop:2}}>{d.description}</div>
+                            {d.expectedLv2?.length>0 && (
+                              <div style={{display:'flex',gap:4,flexWrap:'wrap',marginTop:4}}>
+                                {d.expectedLv2.map((lv2,j)=>(
+                                  <span key={j} style={{fontSize:10,background:'#dbeafe',color:'#1e40af',padding:'1px 6px',borderRadius:8}}>{lv2}</span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          <button onClick={e=>{e.stopPropagation();setPendingDomains(pendingDomains.filter((_,idx)=>idx!==i));}}
+                            style={{background:'none',border:'none',color:'#ef4444',cursor:'pointer',fontSize:14,flexShrink:0}}>✕</button>
+                        </div>
+                      ))}
+                    </div>
+                    {/* LV1 직접 추가 */}
+                    <div style={{display:'flex',gap:8,marginBottom:14}}>
+                      <input value={newDomainInput} onChange={e=>setNewDomainInput(e.target.value)}
+                        onKeyDown={e=>{if(e.key==='Enter'&&newDomainInput.trim()){
+                          setPendingDomains([...pendingDomains,{lv1:newDomainInput.trim(),description:'직접 추가',enabled:true,expectedLv2:[],requirements:[]}]);
+                          setNewDomainInput('');
+                        }}}
+                        placeholder="LV1 직접 추가 (Enter)" style={{...S.input,flex:1}}/>
+                      <button onClick={()=>{
+                        if(!newDomainInput.trim()) return;
+                        setPendingDomains([...pendingDomains,{lv1:newDomainInput.trim(),description:'직접 추가',enabled:true,expectedLv2:[],requirements:[]}]);
+                        setNewDomainInput('');
+                      }} style={S.btnOutline('#1d4ed8')}>+ 추가</button>
+                    </div>
+                    <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+                      <span style={{fontSize:12,color:'#6b7280',alignSelf:'center'}}>
+                        {pendingDomains.filter(d=>d.enabled).length}개 LV1 선택됨
+                      </span>
+                      <button onClick={()=>{setDomainStep(false);setPendingDomains([]);setPendingInfo(null);}}
+                        style={S.btnOutline()}>취소</button>
+                      <button onClick={handleConfirmDomains} style={{...S.btn('#1d4ed8'),padding:'10px 24px',fontSize:14}}>
+                        🚀 이 구조로 기능 생성
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
