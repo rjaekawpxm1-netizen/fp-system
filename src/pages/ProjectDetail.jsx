@@ -677,7 +677,14 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
   const TAB_LABELS = [
     {key:'setup', label:'📋 프로젝트 설정'},
     {key:'functions', label:`⚙️ 기능목록 ${functions.length>0?`(${functions.length})`:''}`.trim()},
-    {key:'fp', label:`📊 FP 산정표 ${fpList.length>0?`(${fpList.length})`:''}`.trim()},
+    {key:'fp', label:(()=>{
+      if (fpList.length === 0) return '📊 FP 산정표';
+      const ilfCount = fpList.filter(f=>f.fpType==='ILF'||f.fpType==='EIF').length;
+      const txCount = fpList.length - ilfCount;
+      return ilfCount > 0
+        ? `📊 FP 산정표 (${txCount}+ILF ${ilfCount})`
+        : `📊 FP 산정표 (${fpList.length})`;
+    })()},
   ];
 
   return (
