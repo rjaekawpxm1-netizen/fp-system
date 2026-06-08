@@ -602,9 +602,37 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
         finalFpList = [...withId, ...ilfRows];
         setLoadingMsg(`ILF ${ilfRows.length}개 자동 배정 완료`);
       }
-      setFpList(finalFpList);
-      const summary = calcTotalFP(finalFpList, fpMethod);
-      saveProject({fpList:finalFpList, fpSummary:summary});
+      // ── EIF 자동 배정: rfpText에서 외부 연동 시스템 추출 ──────
+      let finalFpList2 = finalFpList;
+      const existingEIFs = finalFpList.filter(f => f.fpType === 'EIF');
+      if (existingEIFs.length === 0 && rfpText) {
+        // 연동 대상 시스템명 추출 (줄 단위 파싱)
+        const extSystems = [];
+        rfpText.split('\n').forEach(line => {
+          const m1 = line.match(/연동\s*대상\s*[:：]\s*(.{2,20})/);
+          if (m1) { const n = m1[1].trim(); if (n && !extSystems.includes(n)) extSystems.push(n); }
+          const m2 = line.match(/([가-힣]{2,10}(?:체계|시스템|서버))\s*(?:와|과|및)\s*연동/);
+          if (m2) { const n = m2[1].trim(); if (n && !extSystems.includes(n)) extSystems.push(n); }
+        });
+        if (extSystems.length > 0) {
+          const eifRows = extSystems.slice(0, 5).map((sys, i) =>
+            autoCalcRow({
+              id: Date.now() + 200000 + i,
+              lv1: '연동관리', lv2: sys,
+              lv3: `${sys} (EIF)`,
+              definition: `${sys}에서 참조하는 외부 연계 데이터`,
+              fpType: 'EIF', ftr: 1, det: 5,
+              reuseType: '신규개발',
+              ftrChange: 0, detChange: 0, bigo: 'EIF자동배정',
+            }, fpMethod)
+          );
+          finalFpList2 = [...finalFpList, ...eifRows];
+        }
+      }
+
+      setFpList(finalFpList2);
+      const summary = calcTotalFP(finalFpList2, fpMethod);
+      saveProject({fpList:finalFpList2, fpSummary:summary});
       setTab('fp');
       if (upgradeMode) {
         const reuseCount = finalFpList.filter(f=>f.reuseType==='재사용').length;

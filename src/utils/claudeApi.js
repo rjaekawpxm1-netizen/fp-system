@@ -237,16 +237,22 @@ export const expandDomainsToFunctions = async (domains, info, onProgress) => {
     return true;
   });
 
+  // LV3 동사 통일 ("~한다" 제거)
+  const verbNormalized = deduped.map(f => ({
+    ...f,
+    lv3: (f.lv3 || '').replace(/\s*한다\.?$/, '').replace(/\s*합니다\.?$/, '').trim() || f.lv3,
+  }));
+
   // LV1 자동 통합 (10개 초과 시)
-  const lv1List = [...new Set(deduped.map(f => f.lv1))];
-  let finalFuncs = deduped;
+  const lv1List = [...new Set(verbNormalized.map(f => f.lv1))];
+  let finalFuncs = verbNormalized;
   if (lv1List.length > 10) {
     const mergeRules = [
       { pattern: /보안|인증|접근제어|감사/, target: '보안관리' },
       { pattern: /운영|모니터링|장애|알람|알림/, target: '운영관리' },
       { pattern: /통계|분석|현황|보고/, target: '통계및분석' },
     ];
-    finalFuncs = deduped.map(f => {
+    finalFuncs = verbNormalized.map(f => {
       for (const rule of mergeRules) {
         if (rule.pattern.test(f.lv1) && f.lv1 !== rule.target)
           return { ...f, lv1: rule.target };
@@ -401,10 +407,16 @@ export const generateFunctionsFromDoc = async (text, userInput, onProgress) => {
     return true;
   });
 
-  // ── LV1 자동 통합 후처리 (15개 초과 시) ──────────────────────
-  const lv1List = [...new Set(deduped.map(f => f.lv1))];
-  let finalFuncs = deduped;
-  if (lv1List.length > 15) {
+  // ── LV3 동사 통일 ("~한다" 제거) ────────────────────────────
+  const verbNormalized = deduped.map(f => ({
+    ...f,
+    lv3: (f.lv3 || '').replace(/\s*한다\.?$/, '').replace(/\s*합니다\.?$/, '').trim() || f.lv3,
+  }));
+
+  // ── LV1 자동 통합 후처리 (10개 초과 시) ──────────────────────
+  const lv1List = [...new Set(verbNormalized.map(f => f.lv1))];
+  let finalFuncs = verbNormalized;
+  if (lv1List.length > 10) {
     report(4, `LV1 ${lv1List.length}개 → 통합 중...`, 95);
     // 유사 LV1 통합 규칙
     const mergeRules = [
