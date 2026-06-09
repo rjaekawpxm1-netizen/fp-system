@@ -1524,31 +1524,6 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
                     <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
                       <thead>
                         <tr style={{background:'#f8fafc',borderBottom:'2px solid #e5e7eb'}}>
-                          <th style={{padding:'8px',width:32,textAlign:'center'}}>
-                            {/* 전체선택: 필터된 목록 기준 */}
-                            <input type="checkbox"
-                              title="전체 선택/해제"
-                              checked={(() => {
-                                const filtered = functions.filter(f => {
-                                  const kw = searchKeyword.toLowerCase();
-                                  return (!kw || [f.lv1,f.lv2,f.lv3,f.definition].some(v=>(v||'').toLowerCase().includes(kw)))
-                                    && (!filterLV1 || f.lv1===filterLV1);
-                                });
-                                return filtered.length > 0 && filtered.every(f => selectedIds.has(f.id));
-                              })()}
-                              onChange={e => {
-                                const filtered = functions.filter(f => {
-                                  const kw = searchKeyword.toLowerCase();
-                                  return (!kw || [f.lv1,f.lv2,f.lv3,f.definition].some(v=>(v||'').toLowerCase().includes(kw)))
-                                    && (!filterLV1 || f.lv1===filterLV1);
-                                });
-                                const next = new Set(selectedIds);
-                                if (e.target.checked) filtered.forEach(f => next.add(f.id));
-                                else filtered.forEach(f => next.delete(f.id));
-                                setSelectedIds(next);
-                              }}
-                            />
-                          </th>
                           <th style={{padding:'8px',minWidth:80,textAlign:'left',color:'#374151'}}>LV1</th>
                           <th style={{padding:'8px',minWidth:80,textAlign:'left',color:'#374151'}}>LV2</th>
                           <th style={{padding:'8px',minWidth:100,textAlign:'left',color:'#374151'}}>LV3</th>
