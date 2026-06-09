@@ -39,6 +39,22 @@ const calcSizeCoeff = fp => {
   return Math.round((0.4057 * Math.pow(Math.log(f) - 7.1978, 2) + 0.8878) * 10000) / 10000;
 };
 
+// 예산(원) → 적정 기능수 역산 (보정계수 반복 수렴)
+const calcTargetFuncCount = (budgetWon) => {
+  if (!budgetWon || budgetWon <= 0) return 0;
+  const budget = Number(budgetWon);
+  const unitPrice = 605784;
+  const profitRate = 0.1;
+  // 3회 수렴 계산
+  let fp = budget / (unitPrice * 1.0 * (1 + profitRate));
+  for (let i = 0; i < 3; i++) {
+    const sC = calcSizeCoeff(fp);
+    fp = budget / (unitPrice * sC * (1 + profitRate));
+  }
+  // FP → 기능수 (평균 FP점수 4점 기준)
+  return Math.round(fp / 4);
+};
+
 const autoCalcRow = (row, method) => {
   const c = getComplexity(row.fpType, row.ftr, row.det);
   const w = method === 'simple' ? getAvgWeight(row.fpType) : getWeight(row.fpType, row.ftr, row.det);
@@ -79,6 +95,8 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
   // ── 프로젝트 설정 상태 ───────────────────────────────────────
   const [systemName, setSystemName] = useState(project?.systemName || '');
   const [systemOverview, setSystemOverview] = useState(project?.systemOverview || '');
+  const [projectBudget, setProjectBudget] = useState(project?.projectBudget || ''); // 사업 예산
+  const [projectScale, setProjectScale] = useState(project?.projectScale || ''); // 목표 기능수 (예산에서 자동계산)
   const [userInput, setUserInput] = useState(project?.userInput || '');
   const [rfpText, setRfpText] = useState(project?.rfpText || ''); // 합산 텍스트 (하위호환)
   const [uploadedFiles, setUploadedFiles] = useState(project?.uploadedFiles || []); // [{name,text,type,size}]
@@ -416,7 +434,8 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
       // 도메인 분류까지만 실행 (기능 확장 전 멈춤)
       const result = await extractDomainsOnly(
         text, userInput,
-        (step, msg, pct) => { setParseStep(step); setLoadingMsg(msg); setParsePct(pct); }
+        (step, msg, pct) => { setParseStep(step); setLoadingMsg(msg); setParsePct(pct); },
+        projectScale ? Number(projectScale) : 0  // 목표 기능수 전달
       );
       // 시스템 정보 반영
       if (result.systemName && !systemName) setSystemName(result.systemName);
@@ -464,6 +483,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
         functions: finalFunctions,
         systemName: pendingInfo.systemName || systemName,
         systemOverview: pendingInfo.overview || systemOverview,
+        projectBudget, projectScale,
         rfpText, userInput,
       });
       setTab('functions');
@@ -869,7 +889,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
                   {costReverseMode&&<>
                     <input type="number" value={costTargetBudget} onChange={e=>setCostTargetBudget(e.target.value)} placeholder="목표예산(원)" style={{padding:'5px 8px',border:'1px solid #e5e7eb',borderRadius:5,fontSize:12,width:'100%',marginBottom:5}}/>
                     <div style={{display:'flex',gap:3,flexWrap:'wrap',marginBottom:6}}>
-                      {[[5,5e9],[10,1e10],[20,2e10],[30,3e10],[50,5e10],[70,7e10],[100,1e11]].map(([l,v])=>(
+                      {[[1,1e8],[2,2e8],[3,3e8],[5,5e8],[10,1e9],[20,2e9],[30,3e9],[50,5e9],[100,1e10]].map(([l,v])=>(
                         <button key={l} onClick={()=>setCostTargetBudget(String(v))} style={{fontSize:10,padding:'2px 7px',borderRadius:8,background:'#f3f4f6',color:'#374151',border:'1px solid #e5e7eb',cursor:'pointer'}}>{l}억</button>
                       ))}
                     </div>
@@ -902,6 +922,92 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
           {tab === 'setup' && (
             <div>
+              {/* ── 1. 프로젝트 기본 정보 + 예산 입력 ── */}
+              <div style={{...S.card,marginBottom:16,border:'2px solid #e5e7eb'}}>
+                <div style={{...S.cardHeader,background:'#f8fafc'}}>
+                  <span style={{fontSize:14,fontWeight:700,color:'#374151'}}>📌 프로젝트 기본 정보</span>
+                  <span style={{fontSize:11,color:'#9ca3af'}}>사업명과 예산을 먼저 입력하면 목표 기능수를 자동으로 계산합니다</span>
+                </div>
+                <div style={{padding:'16px 20px',display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+                  {/* 시스템명 */}
+                  <div>
+                    <div style={{fontSize:11,color:'#6b7280',fontWeight:600,marginBottom:4}}>시스템명</div>
+                    <input value={systemName} onChange={e=>{setSystemName(e.target.value);saveProject({systemName:e.target.value});}}
+                      placeholder="예: 국방연동관리체계 고도화"
+                      style={{...S.input,width:'100%',fontSize:13}}/>
+                  </div>
+                  {/* 사업 예산 */}
+                  <div>
+                    <div style={{fontSize:11,color:'#6b7280',fontWeight:600,marginBottom:4}}>사업 예산 (VAT 포함)</div>
+                    <div style={{display:'flex',gap:6,marginBottom:6}}>
+                      <input type="number" value={projectBudget}
+                        onChange={e=>{
+                          setProjectBudget(e.target.value);
+                          const target = calcTargetFuncCount(e.target.value);
+                          setProjectScale(target > 0 ? String(target) : '');
+                          setAreaTargetCount(target > 0 ? String(target) : '');
+                          saveProject({projectBudget:e.target.value});
+                        }}
+                        placeholder="예산 입력 (원)"
+                        style={{...S.input,flex:1,fontSize:13}}/>
+                    </div>
+                    {/* 빠른 입력 버튼 */}
+                    <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
+                      {[[1,1e8],[2,2e8],[3,3e8],[4,4e8],[5,5e8],[10,1e9],[20,2e9],[30,3e9],[50,5e9],[100,1e10]].map(([l,v])=>(
+                        <button key={l} onClick={()=>{
+                          setProjectBudget(String(v));
+                          const target = calcTargetFuncCount(v);
+                          setProjectScale(target > 0 ? String(target) : '');
+                          setAreaTargetCount(target > 0 ? String(target) : '');
+                          saveProject({projectBudget:String(v)});
+                        }} style={{fontSize:10,padding:'2px 8px',borderRadius:8,
+                          background: projectBudget===String(v)?'#1d4ed8':'#f3f4f6',
+                          color: projectBudget===String(v)?'#fff':'#374151',
+                          border:'1px solid '+(projectBudget===String(v)?'#1d4ed8':'#e5e7eb'),cursor:'pointer'}}>
+                          {l}억
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {/* 시스템 설명 */}
+                  <div>
+                    <div style={{fontSize:11,color:'#6b7280',fontWeight:600,marginBottom:4}}>시스템 설명 (선택)</div>
+                    <textarea value={systemOverview} onChange={e=>{setSystemOverview(e.target.value);saveProject({systemOverview:e.target.value});}}
+                      placeholder="시스템 목적, 주요 기능 등 간략히 입력하면 AI 생성 정확도가 높아집니다"
+                      rows={2} style={{...S.input,width:'100%',fontSize:12,resize:'vertical'}}/>
+                  </div>
+                  {/* 목표 기능수 (예산 기반 자동계산) */}
+                  <div>
+                    <div style={{fontSize:11,color:'#6b7280',fontWeight:600,marginBottom:4}}>목표 기능수</div>
+                    {projectBudget && projectScale ? (
+                      <div style={{background:'#eff6ff',border:'2px solid #1d4ed8',borderRadius:8,padding:'12px 16px'}}>
+                        <div style={{fontSize:22,fontWeight:800,color:'#1d4ed8'}}>{Number(projectScale).toLocaleString()}개</div>
+                        <div style={{fontSize:11,color:'#6b7280',marginTop:2}}>
+                          {(Number(projectBudget)/1e8).toFixed(1)}억 예산 기준 적정 기능수
+                        </div>
+                        <div style={{fontSize:10,color:'#9ca3af',marginTop:4}}>
+                          현재 {functions.length}개
+                          {functions.length > 0 && (
+                            <span style={{marginLeft:6,color:functions.length>=Number(projectScale)?'#16a34a':'#ef4444',fontWeight:600}}>
+                              {functions.length>=Number(projectScale) ? '✅ 달성' : `${(Number(projectScale)-functions.length).toLocaleString()}개 부족`}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{background:'#f9fafb',border:'1px dashed #d1d5db',borderRadius:8,padding:'12px 16px',color:'#9ca3af',fontSize:12}}>
+                        예산을 입력하면 자동 계산됩니다
+                      </div>
+                    )}
+                    {/* 직접 입력도 가능 */}
+                    <input type="number" value={projectScale}
+                      onChange={e=>{setProjectScale(e.target.value);setAreaTargetCount(e.target.value);}}
+                      placeholder="직접 입력도 가능"
+                      style={{...S.input,width:'100%',fontSize:12,marginTop:6}}/>
+                  </div>
+                </div>
+              </div>
+
               {/* ── 신규 / 고도화 선택 ── */}
               <div style={{display:'flex',gap:10,marginBottom:20}}>
                 {[

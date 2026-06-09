@@ -44,7 +44,7 @@ ${chunkText}
 `;
 
 // ── 3. 도메인 분류 ────────────────────────────────────────────
-export const getDomainClassifyPrompt = (requirements, systemName, description, mainUsers, projectType, userInput) => `
+export const getDomainClassifyPrompt = (requirements, systemName, description, mainUsers, projectType, userInput, targetFuncCount = 0) => `
 당신은 공공SW사업 BA 전문가입니다. 요구사항을 "${systemName}" 시스템의 업무 도메인(LV1)으로 분류하세요. JSON만 출력.
 
 시스템: ${systemName}
@@ -70,6 +70,11 @@ LV1 = 시스템 상단 메뉴바의 버튼 이름 (사용자가 클릭하는 메
 - 기술용어(API, SLA, 메타데이터, AIOps)는 LV2로 내리기
 - 유사한 업무는 하나의 LV1으로 통합
 - 공통기능(사용자/권한/시스템관리) 반드시 포함
+\${targetFuncCount > 0 ? \`
+### 목표 기능수: \${targetFuncCount}개
+- 이 규모에 맞는 LV1 개수와 범위로 도메인을 구성할 것
+- 목표 기능수가 적으면(<150) LV1을 5개 이하로 좁게
+- 목표 기능수가 많으면(>300) LV1을 7~10개로 넓게\` : ''}
 
 ### 절대 금지 LV1
 ❌ 메타데이터관리, SLA관리, 아키텍처설계, AI/ML, AIOps

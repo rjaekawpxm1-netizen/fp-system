@@ -116,7 +116,7 @@ export const parseDocumentFunctions = async (text) => {
 };
 
 // ── 1단계만: 정보추출 + 요구사항 + 도메인분류 ────────────────
-export const extractDomainsOnly = async (text, userInput, onProgress) => {
+export const extractDomainsOnly = async (text, userInput, onProgress, targetFuncCount = 0) => {
   const report = (step, msg, pct) => onProgress && onProgress(step, msg, pct);
 
   report(1, '문서에서 시스템 정보 추출 중...', 5);
@@ -169,7 +169,7 @@ export const extractDomainsOnly = async (text, userInput, onProgress) => {
   let domains = [];
   try {
     const domainRaw = await callAPI(
-      getDomainClassifyPrompt(allReqs, systemName, description, mainUsers, projectType, userInput),
+      getDomainClassifyPrompt(allReqs, systemName, description, mainUsers, projectType, userInput, targetFuncCount),
       2000
     );
     const parsed = parseJSON(domainRaw);
