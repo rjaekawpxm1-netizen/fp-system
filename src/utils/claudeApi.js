@@ -208,27 +208,57 @@ export const extractDomainsOnly = async (text, userInput, onProgress, targetFunc
 // ── 2단계: 선택된 도메인으로 기능 확장 ────────────────────────
 export const expandDomainsToFunctions = async (domains, info, onProgress) => {
   const report = (step, msg, pct) => onProgress && onProgress(step, msg, pct);
-  const { systemName, mainUsers = ['사용자','관리자'] } = info || {};
+  const { systemName, mainUsers = ['사용자','관리자'], allReqs = [] } = info || {};
+
+  // [안전망] 도메인 분류가 requirements 배분을 비워서 주는 경우가 있다.
+  // 확장 프롬프트는 요구사항 근거 기반이므로, 빈 도메인은 allReqs에서
+  // 키워드 매칭으로 백필한다 (도메인명/예상LV2 토큰 포함 여부).
+  const backfilled = domains.map(d => {
+    if ((d.requirements || []).length > 0) return d;
+    const tokens = [d.lv1, ...(d.expectedLv2 || [])]
+      .join(' ')
+      .split(/[\s/·,()>]+/)
+      .map(t => t.replace(/관리$|조회$|현황$/, '').trim())
+      .filter(t => t.length >= 2);
+    const matched = allReqs.filter(r => tokens.some(t => r.includes(t))).slice(0, 15);
+    return { ...d, requirements: matched };
+  });
 
   let allFunctions = [];
-  for (let i = 0; i < domains.length; i++) {
-    const domain = domains[i];
-    const pct = 42 + Math.round((i / domains.length) * 55);
-    report(4, `[${i+1}/${domains.length}] "${domain.lv1}" 기능 확장 중...`, pct);
-    try {
-      const raw = await callAPI(getDomainExpandPrompt(domain, systemName, mainUsers), 6000);
-      const parsed = parseJSON(raw);
-      const funcs = (parsed.functions || [])
-        .filter(f => f.lv2 && f.lv3)
-        .map(f => ({
-          lv1: domain.lv1,
-          lv2: f.lv2 || '',
-          lv3: (f.lv3 || '').replace(/^[A-Z]{2,}-\d+[-\w]*:\s*/i,'').trim(),
-          definition: f.definition || `${f.lv3||f.lv2}을 처리한다`,
-        }))
-        .filter(f => f.lv3.length > 0);
-      allFunctions = [...allFunctions, ...funcs];
-    } catch(e) { console.warn(`"${domain.lv1}" 확장 실패:`, e.message); }
+  for (let i = 0; i < backfilled.length; i++) {
+    const domain = backfilled[i];
+    const pct = 42 + Math.round((i / backfilled.length) * 55);
+    report(4, `[${i+1}/${backfilled.length}] "${domain.lv1}" 기능 확장 중...`, pct);
+    // [안전망] 결과 0개면 1회 재시도 (모델이 빈 배열을 반환하는 경우 방지)
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const raw = await callAPI(getDomainExpandPrompt(domain, systemName, mainUsers), 6000);
+        const parsed = parseJSON(raw);
+        const funcs = (parsed.functions || [])
+          .filter(f => f.lv2 && f.lv3)
+          .map(f => ({
+            lv1: domain.lv1,
+            lv2: f.lv2 || '',
+            lv3: (f.lv3 || '').replace(/^[A-Z]{2,}-\d+[-\w]*:\s*/i,'').trim(),
+            definition: f.definition || `${f.lv3||f.lv2}을 처리한다`,
+          }))
+          .filter(f => f.lv3.length > 0);
+        if (funcs.length === 0 && attempt === 0) {
+          console.warn(`"${domain.lv1}" 0개 반환 — 재시도`);
+          continue;
+        }
+        allFunctions = [...allFunctions, ...funcs];
+        break;
+      } catch(e) {
+        console.warn(`"${domain.lv1}" 확장 실패 (시도 ${attempt+1}):`, e.message);
+        if (attempt === 0) await sleep(2000);
+      }
+    }
+  }
+
+  // [안전망] 전체 0개면 조용한 "완료! 0개" 대신 명시적 에러
+  if (allFunctions.length === 0) {
+    throw new Error('기능이 생성되지 않았습니다. 업로드 문서에 기능 요구사항이 충분한지, 브라우저 콘솔(F12)의 API 오류를 확인하세요.');
   }
 
   // 후처리: 컨설팅 과업 필터 + 중복 제거
