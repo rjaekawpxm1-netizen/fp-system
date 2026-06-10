@@ -11,11 +11,13 @@ import {
   expandArea,
   extractProjectInfo,
   parseDocumentFunctions,
+  deriveDataGroups,
 } from '../utils/claudeApi';
 import {
   getWeight, getAvgWeight, getComplexity, getComplexityLabel,
   calcTotalFP, getChangePct, getFuncChangePct, getImpactFactor,
 } from '../utils/fpCalculator';
+import { validateAll } from '../utils/fpValidation';
 import { exportFPExcel, exportCostExcel } from '../utils/excelExport';
 
 // ── 상수 ──────────────────────────────────────────────────────
@@ -585,57 +587,108 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
   const handleGenerateFP = async () => {
     if (functions.length === 0) return alert('기능목록을 먼저 생성하세요.');
     if (fpList.length > 0 && !window.confirm(`기존 FP ${fpList.length}개를 재산정할까요?`)) return;
-    const totalChunks = Math.ceil(functions.length / 50);
+    const totalChunks = Math.ceil(functions.length / 25);
     setLoading(true);
     setLoadingMsg(`FP 산정 중... (0/${totalChunks})`);
     try {
-      const result = await generateFPList(functions, (cur, total) => {
-        setLoadingMsg(`FP 산정 중... (${cur}/${total})`);
-      });
+      // ── 0) 데이터그룹(ILF/EIF) 도출 ──────────────────────────
+      // [변경] 기존: LV2(메뉴)당 ILF 1개 자동배정 → ILF는 논리 데이터그룹
+      // 단위여야 하므로 메뉴 단위 배정은 같은 엔터티를 중복 계상 (ILF 43개 사고).
+      // AI가 기능 구조에서 데이터그룹을 도출하고, 그룹명을 FP 분류에도 전달해
+      // FTR 근거(참조 그룹)와 ILF 명칭을 일치시킨다.
+      const existingILFs = fpList.filter(f => f.fpType === 'ILF');
+      const keepExistingDataRows = existingILFs.length > 0;
+      let dataGroups = { ilf: [], eif: [] };
+      if (!keepExistingDataRows) {
+        setLoadingMsg('데이터그룹(ILF/EIF) 도출 중...');
+        try {
+          dataGroups = await deriveDataGroups(functions, systemName, rfpText);
+        } catch (e) {
+          console.warn('데이터그룹 도출 실패 (메뉴 단위 폴백 사용):', e.message);
+        }
+      }
+
+      // ── 1) 트랜잭션 기능 분류 + 결정론적 FTR/DET 도출 ────────
+      const result = await generateFPList(
+        functions,
+        (cur, total) => { setLoadingMsg(`FP 산정 중... (${cur}/${total})`); },
+        dataGroups.ilf.map(g => g.name)
+      );
       const withId = result.map((f,i) => {
         // 고도화 모드: 기존 기능의 reuseType 유지
         const originalFunc = functions.find(fn => fn.lv1===f.lv1 && fn.lv2===f.lv2 && fn.lv3===f.lv3);
         const reuseType = (upgradeMode && originalFunc?.reuseType && originalFunc.reuseType !== '신규개발')
           ? originalFunc.reuseType
           : (f.reuseType || '신규개발');
-        return autoCalcRow({...f, id:Date.now()+i, ftrChange:0, detChange:0, bigo:'-', reuseType}, fpMethod);
+        return autoCalcRow({...f, id:Date.now()+i, ftrChange:0, detChange:0, bigo:f.bigo||'-', reuseType}, fpMethod);
       });
-      // ── ILF 자동 배정: LV2 단위로 1개씩 ─────────────────────
-      // 기존 ILF가 없을 때만 자동 배정
-      const existingILFs = withId.filter(f => f.fpType === 'ILF');
+
+      // ── 2) ILF 행 생성 ────────────────────────────────────────
       let finalFpList = withId;
-      if (existingILFs.length === 0) {
-        const lv2Groups = [...new Set(withId.map(f => `${f.lv1}||${f.lv2}`))];
-        const ilfRows = lv2Groups.map((key, i) => {
-          const [lv1, lv2] = key.split('||');
-          return autoCalcRow({
+      if (!keepExistingDataRows) {
+        let ilfRows = [];
+        if (dataGroups.ilf.length > 0) {
+          // AI 도출 데이터그룹 기반 (ftr 필드 = RET)
+          ilfRows = dataGroups.ilf.map((g, i) => autoCalcRow({
             id: Date.now() + 100000 + i,
-            lv1, lv2,
-            lv3: `${lv2} (ILF)`,
-            definition: `${lv2} 데이터를 관리한다`,
+            lv1: '데이터기능',
+            lv2: (g.relatedLv2 && g.relatedLv2[0]) || '공통',
+            lv3: `${g.name} (ILF)`,
+            definition: `${g.name} 데이터그룹을 관리한다`,
             fpType: 'ILF',
-            ftr: 1, det: 10,
+            ftr: g.ret, det: g.det,
             reuseType: upgradeMode ? '재사용' : '신규개발',
-            ftrChange: 0, detChange: 0, bigo: 'ILF자동배정',
-          }, fpMethod);
-        });
+            ftrChange: 0, detChange: 0,
+            bigo: `ILF | 관련: ${(g.relatedLv2 || []).slice(0, 4).join(', ') || '-'}`,
+          }, fpMethod));
+        } else {
+          // 폴백: 기존 LV2 단위 방식 (검토 필요 표시 — validateAll이 과다 시 경고)
+          const lv2Groups = [...new Set(withId.map(f => `${f.lv1}||${f.lv2}`))];
+          ilfRows = lv2Groups.map((key, i) => {
+            const [lv1, lv2] = key.split('||');
+            return autoCalcRow({
+              id: Date.now() + 100000 + i,
+              lv1, lv2,
+              lv3: `${lv2} (ILF)`,
+              definition: `${lv2} 데이터를 관리한다`,
+              fpType: 'ILF',
+              ftr: 1, det: 10,
+              reuseType: upgradeMode ? '재사용' : '신규개발',
+              ftrChange: 0, detChange: 0, bigo: 'ILF자동배정(메뉴단위-검토필요)',
+            }, fpMethod);
+          });
+        }
         finalFpList = [...withId, ...ilfRows];
-        setLoadingMsg(`ILF ${ilfRows.length}개 자동 배정 완료`);
+        setLoadingMsg(`ILF ${ilfRows.length}개 배정 완료`);
       }
-      // ── EIF 자동 배정: rfpText에서 외부 연동 시스템 추출 ──────
+
+      // ── 3) EIF 행 생성 ────────────────────────────────────────
       let finalFpList2 = finalFpList;
       const existingEIFs = finalFpList.filter(f => f.fpType === 'EIF');
-      if (existingEIFs.length === 0 && rfpText) {
-        // 연동 대상 시스템명 추출 (줄 단위 파싱)
-        const extSystems = [];
-        rfpText.split('\n').forEach(line => {
-          const m1 = line.match(/연동\s*대상\s*[:：]\s*(.{2,20})/);
-          if (m1) { const n = m1[1].trim(); if (n && !extSystems.includes(n)) extSystems.push(n); }
-          const m2 = line.match(/([가-힣]{2,10}(?:체계|시스템|서버))\s*(?:와|과|및)\s*연동/);
-          if (m2) { const n = m2[1].trim(); if (n && !extSystems.includes(n)) extSystems.push(n); }
-        });
-        if (extSystems.length > 0) {
-          const eifRows = extSystems.slice(0, 5).map((sys, i) =>
+      if (existingEIFs.length === 0) {
+        let eifRows = [];
+        if (dataGroups.eif.length > 0) {
+          // AI 도출 (RFP 근거 문장 보유분만 — deriveDataGroups에서 필터됨)
+          eifRows = dataGroups.eif.slice(0, 8).map((g, i) => autoCalcRow({
+            id: Date.now() + 200000 + i,
+            lv1: '연동관리', lv2: g.name,
+            lv3: `${g.name} (EIF)`,
+            definition: `외부에서 참조하는 ${g.name} 데이터`,
+            fpType: 'EIF', ftr: g.ret, det: g.det,
+            reuseType: '신규개발',
+            ftrChange: 0, detChange: 0,
+            bigo: `EIF | 근거: ${g.source}`,
+          }, fpMethod));
+        } else if (rfpText) {
+          // 폴백: rfpText 정규식 추출 (기존 방식)
+          const extSystems = [];
+          rfpText.split('\n').forEach(line => {
+            const m1 = line.match(/연동\s*대상\s*[:：]\s*(.{2,20})/);
+            if (m1) { const n = m1[1].trim(); if (n && !extSystems.includes(n)) extSystems.push(n); }
+            const m2 = line.match(/([가-힣]{2,10}(?:체계|시스템|서버))\s*(?:와|과|및)\s*연동/);
+            if (m2) { const n = m2[1].trim(); if (n && !extSystems.includes(n)) extSystems.push(n); }
+          });
+          eifRows = extSystems.slice(0, 5).map((sys, i) =>
             autoCalcRow({
               id: Date.now() + 200000 + i,
               lv1: '연동관리', lv2: sys,
@@ -643,11 +696,11 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
               definition: `${sys}에서 참조하는 외부 연계 데이터`,
               fpType: 'EIF', ftr: 1, det: 5,
               reuseType: '신규개발',
-              ftrChange: 0, detChange: 0, bigo: 'EIF자동배정',
+              ftrChange: 0, detChange: 0, bigo: 'EIF자동배정(정규식-검토필요)',
             }, fpMethod)
           );
-          finalFpList2 = [...finalFpList, ...eifRows];
         }
+        if (eifRows.length > 0) finalFpList2 = [...finalFpList, ...eifRows];
       }
 
       setFpList(finalFpList2);
@@ -661,9 +714,12 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
         const ilfCount = finalFpList.filter(f=>f.fpType==='ILF').length;
         alert(`✅ FP 산정 완료!\n재사용: ${reuseCount}개 / 기능변경: ${changeCount}개 / 신규개발: ${newCount}개\nILF: ${ilfCount}개 자동 배정`);
       } else {
-        const ilfCount = finalFpList.filter(f=>f.fpType==='ILF').length;
-        if (existingILFs.length === 0) {
-          alert(`✅ FP 산정 완료!\n총 ${finalFpList.length}개 (ILF ${ilfCount}개 자동 배정 포함)`);
+        const ilfCount = finalFpList2.filter(f=>f.fpType==='ILF').length;
+        const eifCount = finalFpList2.filter(f=>f.fpType==='EIF').length;
+        const fallbackCount = finalFpList2.filter(f=>f.classified===false).length;
+        if (!keepExistingDataRows) {
+          alert(`✅ FP 산정 완료!\n총 ${finalFpList2.length}개 (ILF ${ilfCount}개 / EIF ${eifCount}개 포함)`
+            + (fallbackCount > 0 ? `\n⚠ 분류 폴백 ${fallbackCount}개 — 검증 버튼으로 확인하세요.` : ''));
         }
       }
     } catch (err) {
@@ -698,6 +754,8 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
       if (f.fpType==='EQ' && /등록|수정|삭제|처리|승인/.test(f.lv3)) issues.push({severity:'warning',type:'FP유형의심',message:`"${f.lv3}": 등록/수정/삭제는 EI가 맞습니다.`,id:f.id});
       if (f.fpType==='EO' && /조회|목록|상세/.test(f.lv3) && !/통계|집계|보고/.test(f.lv3)) issues.push({severity:'warning',type:'FP유형의심',message:`"${f.lv3}": 단순 조회는 EQ가 맞습니다.`,id:f.id});
     });
+    // 분포 검증 + 기능수 적정성 + elementary process 병합 후보 (fpValidation.js)
+    issues.push(...validateAll(functions, fpList, projectScale));
     return issues;
   };
 
@@ -987,11 +1045,23 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
                         </div>
                         <div style={{fontSize:10,color:'#9ca3af',marginTop:4}}>
                           현재 {functions.length}개
-                          {functions.length > 0 && (
-                            <span style={{marginLeft:6,color:functions.length>=Number(projectScale)?'#16a34a':'#ef4444',fontWeight:600}}>
-                              {functions.length>=Number(projectScale) ? '✅ 달성' : `${(Number(projectScale)-functions.length).toLocaleString()}개 부족`}
-                            </span>
-                          )}
+                          {functions.length > 0 && (() => {
+                            // [변경] 기존: 목표 이상이면 무조건 '✅ 달성' → 초과(인플레)를
+                            // 정상으로 표시해 과다산정을 유도했음. 과다는 미달보다 위험하다.
+                            const target = Number(projectScale);
+                            const ratio = functions.length / target;
+                            if (ratio > 1.2) return (
+                              <span style={{marginLeft:6,color:'#d97706',fontWeight:600}}>
+                                ⚠ {(functions.length-target).toLocaleString()}개 초과 ({Math.round(ratio*100)}%) — 중복/과분해 검토
+                              </span>
+                            );
+                            if (ratio < 0.8) return (
+                              <span style={{marginLeft:6,color:'#ef4444',fontWeight:600}}>
+                                {(target-functions.length).toLocaleString()}개 부족
+                              </span>
+                            );
+                            return <span style={{marginLeft:6,color:'#16a34a',fontWeight:600}}>✅ 적정 범위 (±20%)</span>;
+                          })()}
                         </div>
                       </div>
                     ) : (

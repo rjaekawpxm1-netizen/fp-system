@@ -2,7 +2,8 @@
 // fp-system claudeApi.js - 완전 재작성
 // ============================================================
 import {
-  getFPPrompt,
+  getFPClassifyPrompt,
+  getDataGroupPrompt,
   getProjectInfoPrompt,
   getRequirementCollectPrompt,
   getDomainClassifyPrompt,
@@ -11,6 +12,7 @@ import {
   getAreaSuggestPrompt,
   getAreaExpandPrompt,
 } from './systemPrompt';
+import { deriveFPRow } from './fpDerivation';
 
 const TEMPERATURE = 0;
 const MODEL = 'claude-sonnet-4-5';
@@ -98,6 +100,20 @@ const parseJSON = (text) => {
     try { return JSON.parse(truncated + suffix); } catch (_) {}
   }
   throw new Error('JSON 파싱 실패');
+};
+
+// 공통 후처리: LV1이 달라도 LV2+LV3가 같으면 동일 기능 (도메인 간 중복)
+// 도메인 독립 확장 구조에서 공통기능(사용자/권한/알림 등)이
+// 여러 도메인에 중복 생성되는 것을 막는다.
+const crossLv1Dedup = (funcs) => {
+  const norm = (s) => (s || '').replace(/\s+/g, '');
+  const seen = new Set();
+  return funcs.filter(f => {
+    const key = `${norm(f.lv2)}|${norm(f.lv3)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 };
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -260,6 +276,9 @@ export const expandDomainsToFunctions = async (domains, info, onProgress) => {
       return f;
     });
   }
+
+  // 도메인 간 중복 제거 (LV1이 달라도 LV2+LV3 동일하면 같은 기능)
+  finalFuncs = crossLv1Dedup(finalFuncs);
 
   report(4, `완료! ${finalFuncs.length}개 기능 생성`, 100);
   return { systemName, overview: info?.overview || '', functions: finalFuncs };
@@ -426,9 +445,9 @@ export const generateFunctionsFromDoc = async (text, userInput, onProgress) => {
       { pattern: /연동|인터페이스|API|Gateway/, target: '연동관리' },
       { pattern: /사용자|권한|메뉴|코드|공통/, target: '시스템관리' },
     ];
-    finalFuncs = deduped.map(f => {
-      // 이미 적절한 LV1이면 유지
-      if (lv1List.length <= 15) return f;
+    finalFuncs = verbNormalized.map(f => {
+      // [버그수정] 기존: deduped를 매핑해 동사 정규화가 유실됐고,
+      // lv1List.length <= 15 조기 반환으로 11~15개 구간에서 통합이 동작하지 않았음
       for (const rule of mergeRules) {
         if (rule.pattern.test(f.lv1) && f.lv1 !== rule.target) {
           return { ...f, lv1: rule.target };
@@ -438,6 +457,13 @@ export const generateFunctionsFromDoc = async (text, userInput, onProgress) => {
     });
     const newLv1Count = [...new Set(finalFuncs.map(f => f.lv1))].length;
     report(4, `LV1 ${lv1List.length}개 → ${newLv1Count}개로 통합`, 97);
+  }
+
+  // 도메인 간 중복 제거 (LV1이 달라도 LV2+LV3 동일하면 같은 기능)
+  const beforeDedup = finalFuncs.length;
+  finalFuncs = crossLv1Dedup(finalFuncs);
+  if (beforeDedup !== finalFuncs.length) {
+    report(4, `도메인 간 중복 ${beforeDedup - finalFuncs.length}개 제거`, 98);
   }
 
   report(4, `완료! ${finalFuncs.length}개 기능 생성`, 100);
@@ -504,54 +530,95 @@ export const expandArea = async (area, systemName, existingFunctions, onProgress
 };
 
 // ── FP 산정 ───────────────────────────────────────────────────
+// [구조 변경] 기존: AI가 fpType+FTR+DET를 직접 생성
+//   → 같은 입력에 다른 결과(재현 불가), 청크 실패 시 기본값(EI/1/5=L)이
+//     조용히 유지되어 "복잡도 L 93.6%" 사고의 직접 원인이 됐음.
+// 변경: AI는 fpType + refGroups(참조 데이터그룹 이름)만 분류하고,
+//   FTR/DET 숫자는 fpDerivation.js의 결정론적 규칙표가 산출한다.
+//   → 재현 가능 + 행마다 산정 근거(fpBasis) 보존 + 실패 행은 명시적 마킹.
 const SLEEP_BETWEEN_CHUNKS = 0; // Tier2: 딜레이 없음
+const FP_CHUNK = 25; // [변경] 50 → 25: 응답 잘림(JSON 부분복구→누락행 기본값)이
+                     // L 도배의 한 원인이었음. 잘림 자체를 구조적으로 방지.
 
-export const generateFPList = async (functions, onProgress) => {
-  const CHUNK = 50; // Tier2: 청크 크기 50개
+export const generateFPList = async (functions, onProgress, dataGroupNames = []) => {
   const chunks = [];
-  for (let i = 0; i < functions.length; i += CHUNK)
-    chunks.push(functions.slice(i, i + CHUNK));
+  for (let i = 0; i < functions.length; i += FP_CHUNK)
+    chunks.push(functions.slice(i, i + FP_CHUNK));
 
   if (onProgress) onProgress(0, chunks.length);
 
-  // idx 기반 결과 맵 (누락 방지)
-  const resultMap = {};
-  functions.forEach((f, i) => {
-    resultMap[i] = {
-      idx: i, lv1: f.lv1, lv2: f.lv2, lv3: f.lv3,
-      definition: f.definition,
-      fpType: 'EI', ftr: 1, det: 5, reuseType: '신규개발',
-    };
-  });
+  // idx 기반 결과 맵 — 누락 행은 폴백 분류로 채우되 '분류폴백' 마킹
+  const classifiedMap = {}; // globalIdx → { fpType, refGroups }
 
   for (let ci = 0; ci < chunks.length; ci++) {
     if (onProgress) onProgress(ci + 1, chunks.length);
-    const chunkOffset = ci * CHUNK;
+    const chunkOffset = ci * FP_CHUNK;
 
-    try {
-      const raw = await callAPI(getFPPrompt(chunks[ci]), 2500); // Sonnet: 토큰 상향
-      const parsed = parseJSON(raw);
-      (parsed.fpList || []).forEach(fp => {
-        const globalIdx = chunkOffset + (fp.idx ?? 0);
-        const orig = functions[globalIdx];
-        if (orig) {
-          resultMap[globalIdx] = {
-            idx: globalIdx,
-            lv1: orig.lv1, lv2: orig.lv2, lv3: orig.lv3,
-            definition: orig.definition,
-            fpType: fp.fpType || 'EI',
-            ftr: Number(fp.ftr) || 1,
-            det: Number(fp.det) || 5,
-            reuseType: fp.reuseType || '신규개발',
-          };
-        }
-      });
-    } catch (e) {
-      console.warn(`FP 청크 ${ci+1} 실패 (기본값 유지):`, e.message);
+    // 청크당 1회 재시도 (기존: 실패 시 조용히 기본값 유지)
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const raw = await callAPI(getFPClassifyPrompt(chunks[ci], dataGroupNames), 4000);
+        const parsed = parseJSON(raw);
+        (parsed.fpList || []).forEach(fp => {
+          const globalIdx = chunkOffset + (fp.idx ?? 0);
+          if (functions[globalIdx]) {
+            classifiedMap[globalIdx] = {
+              fpType: fp.fpType,
+              refGroups: Array.isArray(fp.refGroups) ? fp.refGroups : [],
+            };
+          }
+        });
+        break;
+      } catch (e) {
+        console.warn(`FP 분류 청크 ${ci + 1} 시도 ${attempt + 1} 실패:`, e.message);
+        if (attempt === 0) await sleep(2000);
+      }
     }
 
     if (SLEEP_BETWEEN_CHUNKS > 0 && ci < chunks.length - 1) await sleep(SLEEP_BETWEEN_CHUNKS);
   }
 
-  return Object.values(resultMap).sort((a, b) => a.idx - b.idx);
+  // 분류 결과 + 결정론적 FTR/DET 도출 → FP 행 생성
+  return functions.map((f, i) => {
+    const derived = deriveFPRow(f, classifiedMap[i]);
+    return {
+      idx: i,
+      lv1: f.lv1, lv2: f.lv2, lv3: f.lv3,
+      definition: f.definition,
+      fpType: derived.fpType,
+      ftr: derived.ftr,
+      det: derived.det,
+      reuseType: '신규개발',
+      classified: derived.classified,
+      bigo: derived.classified ? derived.fpBasis : `분류폴백 | ${derived.fpBasis}`,
+    };
+  });
+};
+
+// ── 데이터그룹(ILF/EIF) 도출 ─────────────────────────────────
+// [구조 변경] 기존: LV2당 ILF 1개 자동배정 (ftr=1, det=10 고정)
+//   → ILF는 논리 데이터그룹 단위인데 메뉴 단위로 배정하면
+//     같은 엔터티(사용자 등)가 중복 계상됨. DIMS ILF 43개의 원인.
+// 변경: AI가 기능 구조에서 논리 데이터그룹을 도출 (근거 LV2 목록 포함),
+//   EIF는 RFP 근거 문장이 있는 것만.
+export const deriveDataGroups = async (functions, systemName, rfpText = '') => {
+  const raw = await callAPI(getDataGroupPrompt(functions, systemName, rfpText), 3000);
+  const parsed = parseJSON(raw);
+  const ilf = (parsed.ilf || [])
+    .filter(g => g.name)
+    .map(g => ({
+      name: String(g.name).trim(),
+      ret: Math.max(1, Math.min(6, Number(g.ret) || 1)),
+      det: Math.max(1, Math.min(99, Number(g.det) || 15)),
+      relatedLv2: Array.isArray(g.relatedLv2) ? g.relatedLv2 : [],
+    }));
+  const eif = (parsed.eif || [])
+    .filter(g => g.name && g.source) // RFP 근거 없으면 제외
+    .map(g => ({
+      name: String(g.name).trim(),
+      ret: Math.max(1, Math.min(6, Number(g.ret) || 1)),
+      det: Math.max(1, Math.min(99, Number(g.det) || 10)),
+      source: String(g.source).slice(0, 120),
+    }));
+  return { ilf, eif };
 };
