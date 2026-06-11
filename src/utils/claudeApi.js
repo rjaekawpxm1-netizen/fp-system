@@ -13,6 +13,7 @@ import {
   getAreaExpandPrompt,
 } from './systemPrompt';
 import { deriveFPRow } from './fpDerivation';
+import { splitTextChunks, prioritizeRfpText } from './textExtract';
 
 const TEMPERATURE = 0;
 const MODEL = 'claude-sonnet-4-5';
@@ -126,9 +127,26 @@ export const extractProjectInfo = async (text) => {
 
 // ── 문서 파싱 (기능정의서 docx/pdf) ─────────────────────────
 export const parseDocumentFunctions = async (text) => {
-  const raw = await callAPI(getDocParsePrompt(text), 2000);
-  const parsed = parseJSON(raw);
-  return parsed.functions || [];
+  // [변경] 기존: text.slice(0,4000) 1회 호출 → 기능 60~80개 이상 문서는 잘림.
+  // 줄 경계 청크(6000자, 오버랩 200)로 전체를 파싱하고 중복 제거.
+  const chunks = splitTextChunks(text, 6000, 200);
+  let all = [];
+  for (let i = 0; i < chunks.length; i++) {
+    try {
+      const raw = await callAPI(getDocParsePrompt(chunks[i]), 3000);
+      const parsed = parseJSON(raw);
+      all = [...all, ...(parsed.functions || [])];
+    } catch (e) { console.warn(`기능정의서 파싱 청크 ${i + 1} 실패:`, e.message); }
+  }
+  // 오버랩으로 인한 중복 제거
+  const seen = new Set();
+  return all.filter(f => {
+    if (!f.lv3) return false;
+    const k = `${(f.lv1||'').replace(/\s/g,'')}|${(f.lv2||'').replace(/\s/g,'')}|${(f.lv3||'').replace(/\s/g,'')}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
 };
 
 // ── 1단계만: 정보추출 + 요구사항 + 도메인분류 ────────────────
@@ -150,17 +168,14 @@ export const extractDomainsOnly = async (text, userInput, onProgress, targetFunc
   report(1, `시스템: ${systemName}`, 12);
 
   // 요구사항 수집
-  const CHUNK = 2500;
-  const bounded = text.slice(0, 40000);
-  const chunks = [];
-  for (let i = 0; i < bounded.length; i += CHUNK)
-    chunks.push(bounded.slice(i, i + CHUNK));
+  const bounded = prioritizeRfpText(text, 150000);
+  const chunks = splitTextChunks(bounded, 8000, 300);
 
   let allReqs = [];
   for (let i = 0; i < chunks.length; i++) {
     report(2, `요구사항 수집 중... (${i+1}/${chunks.length})`, 12 + Math.round((i/chunks.length)*25));
     try {
-      const raw = await callAPI(getRequirementCollectPrompt(chunks[i], i+1, systemName), 2000);
+      const raw = await callAPI(getRequirementCollectPrompt(chunks[i], i+1, systemName), 3000);
       const parsed = parseJSON(raw);
       allReqs = [...allReqs, ...(parsed.requirements||[]).filter(r => r?.length > 5)];
     } catch(e) { console.warn(`청크 ${i+1} 실패`); }
@@ -170,7 +185,7 @@ export const extractDomainsOnly = async (text, userInput, onProgress, targetFunc
     const userLines = userInput.split(/[\n,。、]/).map(l => l.trim()).filter(l => l.length > 4);
     allReqs = [...allReqs, ...userLines];
   }
-  allReqs = [...new Set(allReqs)].slice(0, 150);
+  allReqs = [...new Set(allReqs)].slice(0, 400);
 
   if (allReqs.length < 5) {
     const lines = text.split('\n').map(l=>l.trim()).filter(l=>l.length>10&&l.length<200)
@@ -220,7 +235,7 @@ export const expandDomainsToFunctions = async (domains, info, onProgress) => {
       .split(/[\s/·,()>]+/)
       .map(t => t.replace(/관리$|조회$|현황$/, '').trim())
       .filter(t => t.length >= 2);
-    const matched = allReqs.filter(r => tokens.some(t => r.includes(t))).slice(0, 15);
+    const matched = allReqs.filter(r => tokens.some(t => r.includes(t))).slice(0, 30);
     return { ...d, requirements: matched };
   });
 
@@ -335,18 +350,17 @@ export const generateFunctionsFromDoc = async (text, userInput, onProgress) => {
   report(1, `시스템: ${systemName} (${projectType})`, 10);
 
   // ── 2단계: 요구사항 수집 (청크) ─────────────────────────
-  const CHUNK = 2500;
-  const MAX_TEXT = 40000; // Tier2: 텍스트 제한 확대
-  const bounded = text.slice(0, MAX_TEXT);
-  const chunks = [];
-  for (let i = 0; i < bounded.length; i += CHUNK)
-    chunks.push(bounded.slice(i, i + CHUNK));
+  // [변경] 40,000자 앞부분 컷 → 150,000자 + 기능 키워드 밀도 기반 섹션 우선순위.
+  // RFP는 기능요구사항이 중후반에 있어 앞부분 컷이 핵심 정보를 버리고 있었음.
+  // 청크도 고정 2,500자 컷 → 줄 경계 8,000자 + 오버랩 300자 (경계 유실 방지).
+  const bounded = prioritizeRfpText(text, 150000);
+  const chunks = splitTextChunks(bounded, 8000, 300);
 
   let allReqs = [];
   for (let i = 0; i < chunks.length; i++) {
     report(2, `요구사항 수집 중... (${i+1}/${chunks.length})`, 10 + Math.round((i/chunks.length)*25));
     try {
-      const raw = await callAPI(getRequirementCollectPrompt(chunks[i], i+1, systemName), 2000);
+      const raw = await callAPI(getRequirementCollectPrompt(chunks[i], i+1, systemName), 3000);
       const parsed = parseJSON(raw);
       allReqs = [...allReqs, ...(parsed.requirements||[]).filter(r => r?.length > 5)];
     } catch (e) { console.warn(`청크 ${i+1} 실패`); }
@@ -368,7 +382,7 @@ export const generateFunctionsFromDoc = async (text, userInput, onProgress) => {
     allReqs = [...allReqs, ...normalized];
   }
 
-  allReqs = [...new Set(allReqs)].slice(0, 150); // Tier2: 요구사항 수집 확대
+  allReqs = [...new Set(allReqs)].slice(0, 400); // 대형 RFP 대응 (기존 150 → 후반 도메인 유실 원인)
 
   // 폴백: 텍스트에서 직접 라인 추출
   if (allReqs.length < 5) {

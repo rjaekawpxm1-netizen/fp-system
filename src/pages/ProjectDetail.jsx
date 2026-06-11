@@ -18,6 +18,7 @@ import {
   calcTotalFP, getChangePct, getFuncChangePct, getImpactFactor,
 } from '../utils/fpCalculator';
 import { validateAll } from '../utils/fpValidation';
+import { reconstructPdfLines, detectFunctionListPattern } from '../utils/textExtract';
 import { exportFPExcel, exportCostExcel } from '../utils/excelExport';
 
 // ── 상수 ──────────────────────────────────────────────────────
@@ -185,11 +186,13 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
     const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
 
     // 1차: 텍스트 레이어 추출 시도
+    // [변경] join(' ')는 좌표를 버려 표(요구사항/기능목록)의 행·셀 경계를
+    // 전부 뭉갰음 → y좌표 줄 그룹핑 + x좌표 셀 경계 복원
     let text = '';
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
       const content = await page.getTextContent();
-      text += content.items.map(item => item.str).join(' ') + '\n';
+      text += reconstructPdfLines(content.items) + '\n';
     }
 
     // 텍스트가 충분히 없으면 (스캔본) → Vision OCR 처리
@@ -237,6 +240,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
       text = ocrTexts.join('\n\n');
       if (maxPages < pdf.numPages) {
         text += `\n\n[참고: 총 ${pdf.numPages}페이지 중 ${maxPages}페이지까지 처리됨]`;
+        alert(`⚠ 스캔 PDF OCR은 ${maxPages}페이지까지만 처리됩니다.\n(총 ${pdf.numPages}페이지 — 이후 내용은 분석에서 제외됨)\n전체가 필요하면 텍스트 레이어가 있는 PDF로 변환해 업로드하세요.`);
       }
     }
     return text;
@@ -372,9 +376,46 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
 
       // 텍스트 문서 → uploadedFiles 배열에 추가
       const text = result;
+
+      // [D1] 기능목록 문서 감지 — 기존 기능목록을 PDF/DOCX로 넣으면
+      // RFP 텍스트로 삼켜져 고도화가 무효화되는 사고 방지
+      const detection = detectFunctionListPattern(text);
+      if (detection.isFunctionList) {
+        const asFunc = window.confirm(
+          `"${file.name}"이(가) 기능목록 문서로 보입니다.\n\n` +
+          `[확인] 기능정의서로 파싱 → 기능목록에 ${upgradeMode ? "'재사용'으로 추가 (고도화)" : "추가"}\n` +
+          `[취소] RFP 텍스트로 사용 (요구사항 추출용)`
+        );
+        if (asFunc) {
+          setLoadingMsg('기능정의서 파싱 중... (문서 전체)');
+          const parsed = await parseDocumentFunctions(text);
+          if (parsed.length === 0) {
+            alert('기능을 추출하지 못했습니다. RFP 텍스트로 사용하려면 다시 업로드 후 [취소]를 선택하세요.');
+            return;
+          }
+          const withId = parsed.map((f, i) => ({
+            ...f, id: Date.now() + i,
+            reuseType: upgradeMode ? '재사용' : '신규개발',
+          }));
+          const base = upgradeMode ? functions : [];
+          const seen = new Set();
+          const merged = [...base, ...withId].filter(f => {
+            const k = `${f.lv1}|${f.lv2}|${f.lv3}`;
+            if (seen.has(k)) return false;
+            seen.add(k); return true;
+          });
+          setFunctions(merged);
+          saveProject({ functions: merged });
+          alert(upgradeMode
+            ? `✅ 고도화 모드 적용!\n"${file.name}"에서 ${withId.length}개 기능을 재사용으로 추가했습니다 (총 ${merged.length}개)`
+            : `✅ 기능정의서 파싱 완료!\n${withId.length}개 기능 추출됐습니다 (총 ${merged.length}개)`);
+          return;
+        }
+      }
+
       const fileEntry = {
         name: file.name,
-        text: text.slice(0, 15000), // Tier2: 파일당 최대 15000자
+        text: text.slice(0, 60000), // [변경] 15,000자 → 60,000자 (RFP 중후반 요구사항 유실 방지)
         type: file.name.split('.').pop().toLowerCase(),
         size: Math.round(text.length / 1000),
         addedAt: new Date().toISOString(),
@@ -388,9 +429,9 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
 
       setUploadedFiles(newFiles);
 
-      // 합산 텍스트 업데이트 (20000자 이내)
+      // 합산 텍스트 업데이트
       const combinedText = newFiles.map(f => f.text).join('\n\n---\n\n');
-      const rfpFull = combinedText.slice(0, 40000); // Tier2
+      const rfpFull = combinedText.slice(0, 150000); // [변경] 40,000 → 150,000 (섹션 우선순위 컷은 claudeApi에서 적용)
       setRfpText(rfpFull);
       saveProject({uploadedFiles: newFiles, rfpText: rfpFull});
 

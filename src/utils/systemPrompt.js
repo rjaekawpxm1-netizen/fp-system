@@ -64,7 +64,7 @@ export const getDomainClassifyPrompt = (requirements, systemName, description, m
 ${userInput ? `추가 설명: ${userInput}` : ''}
 
 요구사항 (${requirements.length}개):
-${requirements.slice(0, 120).map((r, i) => `${i + 1}. ${r}`).join('\n')}
+${requirements.slice(0, 250).map((r, i) => `${i + 1}. ${r}`).join('\n')}
 
 ## LV1 작성 원칙
 
@@ -172,7 +172,7 @@ LV1: ${domain.lv1}
 설명: ${domain.description}
 사용자: ${mainUsers.join(', ')}
 관련 요구사항 (이 요구사항에 맞는 기능을 생성할 것):
-${(domain.requirements || []).slice(0, 15).map(r => `- ${r}`).join('\n')}
+${(domain.requirements || []).slice(0, 30).map(r => `- ${r}`).join('\n')}
 예상 LV2: ${(domain.expectedLv2 || []).join(', ')}
 
 ## 생성 기준
@@ -340,7 +340,7 @@ export const getDocParsePrompt = (text) => `
 - definition: 기능 설명 한 줄
 
 문서:
-${text.slice(0, 4000)}
+${text.slice(0, 8000)}
 
 {"functions":[{"lv1":"","lv2":"","lv3":"","definition":""}]}
 `;
