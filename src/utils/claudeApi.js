@@ -280,11 +280,17 @@ export const expandDomainsToFunctions = async (domains, info, onProgress) => {
   const BAD_LV1 = ['AI/ML','AIOps','클라우드 및 인프라','아키텍처 설계',
     '실시간 데이터 스트리밍','인프라 고도화','지능형 운영','운영 자동화',
     '포렌식','비즈니스연속성','사이버보안 통합'];
+  // RFP 사업 수행 조건에서 유래하는 행정 도메인 — 단, 시스템명 자체가
+  // 해당 업무를 다루면(예: 전사사업관리시스템) 정당한 도메인이므로 허용
+  const ADMIN_LV1 = ['사업관리','품질관리','일정관리','위험관리','교육관리','유지보수'];
+  const sysName = (systemName || '');
+  const badAdmin = ADMIN_LV1.filter(kw => !sysName.includes(kw.slice(0, 2)));
   const BAD_LV3 = [/자동화\s*구현/,/지능화\s*적용/,/고도화\s*수행/,/아키텍처\s*설계/];
 
   const filtered = allFunctions.filter(f => {
     if (!f.lv1 || !f.lv2 || !f.lv3?.trim()) return false;
     if (BAD_LV1.some(kw => f.lv1.includes(kw))) return false;
+    if (badAdmin.some(kw => f.lv1.replace(/\s/g,'') === kw)) return false;
     if (BAD_LV3.some(p => p.test(f.lv3))) return false;
     if (f.lv3.trim() === f.lv2.trim()) return false;
     return true;
@@ -451,12 +457,18 @@ export const generateFunctionsFromDoc = async (text, userInput, onProgress) => {
   const BAD_LV1 = ['AI/ML','AIOps','클라우드 및 인프라','아키텍처 설계',
     '실시간 데이터 스트리밍','인프라 고도화','지능형 운영','운영 자동화',
     '포렌식','비즈니스연속성','사이버보안 통합'];
+  // RFP 사업 수행 조건에서 유래하는 행정 도메인 — 단, 시스템명 자체가
+  // 해당 업무를 다루면(예: 전사사업관리시스템) 정당한 도메인이므로 허용
+  const ADMIN_LV1 = ['사업관리','품질관리','일정관리','위험관리','교육관리','유지보수'];
+  const sysName = (systemName || '');
+  const badAdmin = ADMIN_LV1.filter(kw => !sysName.includes(kw.slice(0, 2)));
   // LV3 금지 패턴
   const BAD_LV3 = [/자동화\s*구현/,/지능화\s*적용/,/고도화\s*수행/,/아키텍처\s*설계/,/인프라\s*구성/,/정책\s*수립/];
 
   const filtered = allFunctions.filter(f => {
     if (!f.lv1 || !f.lv2 || !f.lv3?.trim()) return false;
     if (BAD_LV1.some(kw => f.lv1.includes(kw))) return false;
+    if (badAdmin.some(kw => f.lv1.replace(/\s/g,'') === kw)) return false;
     if (BAD_LV3.some(p => p.test(f.lv3))) return false;
     if (f.lv3.trim() === f.lv2.trim()) return false; // LV3=LV2 제외
     return true;

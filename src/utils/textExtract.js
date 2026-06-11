@@ -89,25 +89,44 @@ export const splitTextChunks = (text, size = 8000, overlap = 300) => {
 // 기능 요구사항 밀도가 높은 블록을 우선 포함하고
 // 행정 섹션(제안 안내/평가/계약)을 먼저 버린다.
 const FUNC_KEYWORDS = /기능|요구사항|등록|조회|수정|삭제|처리|연동|관리|구현|제공|화면|SFR|FUR|REQ-|FR-/g;
-const ADMIN_KEYWORDS = /제안서\s*작성|평가\s*(기준|방법|항목)|입찰|계약\s*조건|제출\s*서류|유의\s*사항|배점|협상|청렴|보안\s*서약|하도급/g;
+// 사업관리/품질/교육/유지보수 등 RFP 행정 섹션 패턴.
+// "관리" 단어만으로는 기능 섹션과 구분이 안 되므로(사업'관리' 방안 vs 사용자'관리' 기능)
+// 행정 맥락의 복합 패턴 + 비기능 요구 ID(PMR/QUR 등)로 식별하고 페널티를 강하게 준다.
+const ADMIN_KEYWORDS = /제안서\s*작성|평가\s*(기준|방법|항목)|입찰|계약\s*조건|제출\s*서류|유의\s*사항|배점|협상|청렴|보안\s*서약|하도급|사업\s*관리\s*(방안|계획|체계)|사업\s*수행\s*(계획|조직|체계)|수행\s*계획서|투입\s*인력|품질\s*(관리|보증)\s*(방안|체계|활동)?|일정\s*관리|위험\s*관리|진척\s*관리|보고\s*체계|산출물\s*(관리|목록|제출)|교육\s*(계획|방안|훈련)|유지\s*보수|하자\s*보수|검수\s*(기준|절차)|착수\s*(보고|시)|준공|PMR-|QUR-|PSR-|COR-|TER-|PER-/g;
 
 export const prioritizeRfpText = (text, budget = 150000) => {
   if (!text || text.length <= budget) return text || '';
-  // 빈 줄 2개 이상 또는 장 표제 기준으로 블록 분할
-  const blocks = text.split(/\n{2,}/);
+  // 빈 줄 2개 이상 또는 장 표제 기준으로 블록 분할 (공백 블록 제외)
+  const blocks = text.split(/\n{2,}/).filter(b => b.trim().length > 0);
   const scored = blocks.map((b, i) => {
     const func = (b.match(FUNC_KEYWORDS) || []).length;
     const admin = (b.match(ADMIN_KEYWORDS) || []).length;
     const density = b.length > 0 ? func / Math.sqrt(b.length) : 0;
-    return { i, b, score: density - admin * 0.5 };
+    const adminDensity = b.length > 0 ? admin / Math.sqrt(b.length) : 0;
+    // 행정 패턴이 명확한 블록은 기능 키워드가 많아도 강하게 후순위
+    return { i, b, score: density - adminDensity * 3 };
   });
   // 점수 내림차순으로 예산까지 채우되, 원문 순서로 재배열 (문맥 유지)
+  // 음수 점수(행정 패턴 우세) 블록은 예산이 남아도 제외 — 사업관리/품질/교육
+  // 섹션이 요구사항 수집을 오염시켜 "사업관리" 같은 가짜 도메인을 만든다
+  const ranked = [...scored].sort((a, b) => b.score - a.score);
   const picked = [];
   let used = 0;
-  for (const s of [...scored].sort((a, b) => b.score - a.score)) {
+  for (const s of ranked) {
+    if (s.score < 0) continue;
     if (used + s.b.length + 2 > budget) continue;
     picked.push(s);
     used += s.b.length + 2;
+  }
+  // 가드: 양성 블록이 하나도 없을 때만 점수순 백필 (빈 결과 방지).
+  // 주의: "결과가 작으면 백필" 조건은 기능 섹션이 작은 RFP에서
+  // 행정 블록을 도로 채워넣는 역효과가 있어 금지.
+  if (picked.length === 0) {
+    for (const s of ranked) {
+      if (used + s.b.length + 2 > budget) continue;
+      picked.push(s);
+      used += s.b.length + 2;
+    }
   }
   return picked.sort((a, b) => a.i - b.i).map(s => s.b).join('\n\n');
 };

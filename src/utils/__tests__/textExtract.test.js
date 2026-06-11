@@ -56,6 +56,22 @@ describe('prioritizeRfpText', () => {
     expect((out.match(/연동합의서/g) || []).length)
       .toBeGreaterThan((out.match(/입찰/g) || []).length);
   });
+  test('[회귀] 사업관리/품질/PMR 섹션이 가짜 도메인을 만들지 않도록 완전 제외', () => {
+    const biz = ['제5장 사업관리 방안',
+      '사업자는 사업관리 계획을 수립하여 제출해야 한다. 사업 수행 조직과 투입 인력 관리 방안을 포함한다.',
+      '품질 관리: 산출물 품질 관리 체계를 수립하고 단계별 검토를 수행해야 한다.',
+      'PMR-001 사업 수행 계획서를 착수 시 제출하여야 한다.'].join('\n');
+    const func = ['제3장 기능 요구사항',
+      'SFR-001 연동합의서를 등록, 수정, 삭제할 수 있어야 한다.'].join('\n');
+    const out = prioritizeRfpText((biz + '\n\n').repeat(30) + func + ('\n\n' + biz).repeat(30), 3000);
+    expect(out).toContain('SFR-001');
+    expect(out.match(/사업관리 방안|PMR-|수행 계획서/g)).toBeNull();
+  });
+  test('전부 행정 텍스트여도 빈 결과 방지 (가드 백필)', () => {
+    const biz = '사업관리 계획을 수립하고 품질 관리 체계와 보고 체계를 운영해야 한다. PMR-001 수행 계획서 제출.\n제5장 사업관리 방안';
+    const out = prioritizeRfpText((biz + '\n\n').repeat(60), 3000);
+    expect(out.length).toBeGreaterThan(500);
+  });
   test('예산 이내면 원본 유지', () => {
     expect(prioritizeRfpText('짧음', 1000)).toBe('짧음');
   });
