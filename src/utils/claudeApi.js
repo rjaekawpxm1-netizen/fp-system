@@ -22,16 +22,25 @@ const MODEL = 'claude-sonnet-4-5';
 const callAPI = async (content, maxTokens = 2000, retries = 3) => {
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
-      const res = await fetch('/api/claude', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: MODEL,
-          max_tokens: maxTokens,
-          temperature: TEMPERATURE,
-          messages: [{ role: 'user', content }],
-        }),
-      });
+      // 클라이언트 타임아웃: 게이트웨이(504)보다 먼저 끊어 명확한 메시지 제공
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 70000);
+      let res;
+      try {
+        res = await fetch('/api/claude', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: MODEL,
+            max_tokens: maxTokens,
+            temperature: TEMPERATURE,
+            messages: [{ role: 'user', content }],
+          }),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         const status = res.status;
@@ -49,15 +58,26 @@ const callAPI = async (content, maxTokens = 2000, retries = 3) => {
           await sleep(wait);
           continue;
         }
+        // 502/504 게이트웨이 타임아웃 → 재시도 (입력이 크거나 모델이 느릴 때)
+        if (status === 502 || status === 504) {
+          console.warn(`게이트웨이 타임아웃 (${status}), 재시도... (${attempt+1}/${retries})`);
+          await sleep(2000);
+          continue;
+        }
         throw new Error(err.error?.message || `API 오류 (${status})`);
       }
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       return data.content?.map(c => c.type === 'text' ? c.text : '').join('') || '';
     } catch (e) {
-      if (attempt === retries - 1) throw e;
+      const isTimeout = e.name === 'AbortError';
+      if (attempt === retries - 1) {
+        throw new Error(isTimeout
+          ? '응답 시간 초과 — 입력이 너무 큽니다. 기능 수를 줄이거나 RFP를 나눠서 시도하세요.'
+          : e.message);
+      }
       console.warn(`시도 ${attempt+1} 실패: ${e.message}`);
-      await sleep(1000); // Tier2: 재시도 대기 단축
+      await sleep(isTimeout ? 500 : 1000);
     }
   }
 };

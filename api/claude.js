@@ -1,29 +1,21 @@
+// Vercel Serverless Function (Node.js 런타임)
+// [변경] Edge 런타임은 응답 스트리밍 없이는 ~25초에서 게이트웨이가 끊겨
+// 504를 유발(영역 제안·FP 분류 등 긴 호출). Node 런타임 + maxDuration으로 해결.
 export const config = {
-  runtime: 'edge',
+  runtime: 'nodejs',
+  maxDuration: 60, // Vercel Pro면 300까지 가능. Hobby는 60이 상한.
 };
 
-// 허용 모델 화이트리스트 (클라이언트가 임의 모델 지정하는 것 방지)
-const ALLOWED_MODELS = [
-  'claude-sonnet-4-5',
-  'claude-haiku-4-5-20251001',
-];
+const ALLOWED_MODELS = ['claude-sonnet-4-5', 'claude-haiku-4-5-20251001'];
 const DEFAULT_MODEL = 'claude-sonnet-4-5';
 
-export default async function handler(req) {
+export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-      status: 405,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return res.status(405).json({ error: 'Method not allowed' });
   }
-
   try {
-    const body = await req.json();
-
+    const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
     const maxTokens = body.max_tokens || 4000;
-    // [버그수정] 기존: 'claude-haiku-4-5-20251001' 하드코딩 → 클라이언트의
-    // model(claude-sonnet-4-5)과 temperature(0)가 전부 무시되고
-    // 프로덕션이 Haiku + temperature 1.0으로 동작하고 있었음.
     const model = ALLOWED_MODELS.includes(body.model) ? body.model : DEFAULT_MODEL;
     const temperature = typeof body.temperature === 'number' ? body.temperature : 0;
 
@@ -44,17 +36,9 @@ export default async function handler(req) {
     });
 
     const data = await response.json();
-    return new Response(JSON.stringify(data), {
-      status: response.status,
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-      },
-    });
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    return res.status(response.status).json(data);
   } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return res.status(500).json({ error: err.message });
   }
 }

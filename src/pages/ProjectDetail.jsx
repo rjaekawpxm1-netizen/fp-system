@@ -42,20 +42,31 @@ const calcSizeCoeff = fp => {
   return Math.round((0.4057 * Math.pow(Math.log(f) - 7.1978, 2) + 0.8878) * 10000) / 10000;
 };
 
-// 예산(원) → 적정 기능수 역산 (보정계수 반복 수렴)
-const calcTargetFuncCount = (budgetWon) => {
+// 예산(원) → 적정 기능수 역산 — 단일 진실 공급원(SSOT)
+// [통일] 기존엔 프로젝트설정(여기)과 기능목록탭이 서로 다른 공식을 써서
+// 같은 예산에 다른 기능수(414 vs 473)가 나왔다. 두 경로가 이 함수를 공유한다.
+// opts로 보정계수/직접비/평균FP를 받아 호출처마다 같은 식으로 계산.
+const FP_UNIT_PRICE = 605784;       // SW사업 대가 FP 단가 (최신 가이드로 갱신 필요)
+const DEFAULT_AVG_FP_PER_FUNC = 4;  // 기능당 평균 FP (캘리브레이션 대상 상수)
+
+const calcTargetFuncCount = (budgetWon, opts = {}) => {
   if (!budgetWon || budgetWon <= 0) return 0;
-  const budget = Number(budgetWon);
-  const unitPrice = 605784;
-  const profitRate = 0.1;
-  // 3회 수렴 계산
-  let fp = budget / (unitPrice * 1.0 * (1 + profitRate));
+  const {
+    unitPrice = FP_UNIT_PRICE,
+    profitRate = 0.1,        // 이윤율 (0.1 = 10%)
+    directExp = 0,           // 직접경비(원)
+    coeff = 1.0,             // 연계×성능×환경×보안 보정계수 곱
+    avgFpPerFunc = DEFAULT_AVG_FP_PER_FUNC,
+  } = opts;
+  const profitMul = 1 + profitRate;
+  const base = Number(budgetWon) - Number(directExp || 0);
+  // 규모보정계수 3회 수렴
+  let fp = base / (unitPrice * coeff * profitMul);
   for (let i = 0; i < 3; i++) {
     const sC = calcSizeCoeff(fp);
-    fp = budget / (unitPrice * sC * (1 + profitRate));
+    fp = base / (unitPrice * sC * coeff * profitMul);
   }
-  // FP → 기능수 (평균 FP점수 4점 기준)
-  return Math.round(fp / 4);
+  return Math.round(fp / Math.max(avgFpPerFunc, 1));
 };
 
 const autoCalcRow = (row, method) => {
@@ -1084,6 +1095,10 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
                         <div style={{fontSize:11,color:'#6b7280',marginTop:2}}>
                           {(Number(projectBudget)/1e8).toFixed(1)}억 예산 기준 적정 기능수
                         </div>
+                        <div style={{fontSize:10,color:'#9ca3af',marginTop:1}}>
+                          (기본 가정: 보정계수 1.0 · 기능당 평균 {DEFAULT_AVG_FP_PER_FUNC}FP · 이윤 10%.
+                          개발비 탭에서 보정계수를 조정하면 값이 달라집니다)
+                        </div>
                         <div style={{fontSize:10,color:'#9ca3af',marginTop:4}}>
                           현재 {functions.length}개
                           {functions.length > 0 && (() => {
@@ -1429,19 +1444,20 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
                           onChange={e=>{
                             const budgetWon = Number(e.target.value) * 1e8;
                             if (!budgetWon) { setAreaTargetCount(''); return; }
-                            // 규모보정계수 수렴 계산 (3회 반복 - 항상 동일한 결과)
-                            const baseCoeff = COST_LINK[costLinkIdx].v * COST_PERF[costPerfIdx].v * COST_ENV[costEnvIdx].v * COST_SEC[costSecIdx].v;
-                            const profitMul = 1 + costProfitRate/100;
-                            let estFP = (budgetWon - Number(costDirectExp||0)) / (costUnitPrice * baseCoeff * profitMul);
-                            for (let iter = 0; iter < 3; iter++) {
-                              const sC = calcSizeCoeff(estFP);
-                              estFP = (budgetWon - Number(costDirectExp||0)) / (costUnitPrice * sC * baseCoeff * profitMul);
-                            }
-                            const needFP = Math.round(estFP);
-                            const avgFPVal = fpList.length > 0
+                            // [통일] 프로젝트설정과 동일한 calcTargetFuncCount 사용.
+                            // 보정계수/직접비/이윤율은 현재 개발비 설정값을 그대로 전달.
+                            const coeff = COST_LINK[costLinkIdx].v * COST_PERF[costPerfIdx].v * COST_ENV[costEnvIdx].v * COST_SEC[costSecIdx].v;
+                            // 평균 FP: 실측이 있으면 실측, 없으면 기본 상수(4)로 설정과 일치
+                            const avgFpPerFunc = fpList.length > 0
                               ? (Number(calcTotalFP(fpList,'standard').newDev) / Math.max(fpList.filter(f=>f.reuseType==='신규개발').length,1))
-                              : 3.5;
-                            const needFuncs = Math.round(needFP / Math.max(avgFPVal,1));
+                              : DEFAULT_AVG_FP_PER_FUNC;
+                            const needFuncs = calcTargetFuncCount(budgetWon, {
+                              unitPrice: costUnitPrice,
+                              profitRate: costProfitRate/100,
+                              directExp: Number(costDirectExp||0),
+                              coeff,
+                              avgFpPerFunc,
+                            });
                             setAreaTargetCount(String(Math.max(needFuncs, functions.length+1)));
                           }}
                         />

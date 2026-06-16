@@ -1,5 +1,6 @@
 // ============================================================
 // fp-system systemPrompt.js - 개정판
+import { prioritizeRfpText } from './textExtract';
 // 핵심 변경:
 //  ① getDomainClassifyPrompt: 목표기능수 블록 이스케이프 버그 수정
 //     (기존엔 \${...}로 이스케이프되어 평가되지 않은 리터럴 문자열이
@@ -201,7 +202,9 @@ export const getAreaSuggestPrompt = (systemName, rfpText, functions, targetCount
   const currentLV1 = [...new Set(functions.map(f => f.lv1))];
   const currentLV2 = [...new Set(functions.map(f => f.lv2))];
   const currentCount = functions.length;
-  const rfpSnippet = (rfpText || '').slice(0, 15000);
+  // [504 대응] 15,000자 → 8,000자 + 행정 섹션 후순위. reqLines가 핵심을 따로
+  // 뽑으므로 본문 축소해도 손실 적고, 응답 시간이 크게 단축된다.
+  const rfpSnippet = prioritizeRfpText(rfpText || '', 8000);
 
   const reuseFuncs = functions.filter(f => f.reuseType === '재사용' || f.reuseType === '기능변경');
   const newFuncs = functions.filter(f => !f.reuseType || f.reuseType === '신규개발');
