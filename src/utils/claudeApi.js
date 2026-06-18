@@ -14,6 +14,7 @@ import {
 } from './systemPrompt';
 import { deriveFPRow } from './fpDerivation';
 import { splitTextChunks, prioritizeRfpText } from './textExtract';
+import { classifyReuse, summarizeReuse } from './upgradeMatch';
 
 const TEMPERATURE = 0;
 const MODEL = 'claude-sonnet-4-5';
@@ -241,7 +242,7 @@ export const extractDomainsOnly = async (text, userInput, onProgress, targetFunc
 };
 
 // ── 2단계: 선택된 도메인으로 기능 확장 ────────────────────────
-export const expandDomainsToFunctions = async (domains, info, onProgress) => {
+export const expandDomainsToFunctions = async (domains, info, onProgress, existingFunctions = []) => {
   const report = (step, msg, pct) => onProgress && onProgress(step, msg, pct);
   const { systemName, mainUsers = ['사용자','관리자'], allReqs = [] } = info || {};
 
@@ -351,7 +352,15 @@ export const expandDomainsToFunctions = async (domains, info, onProgress) => {
   // 도메인 간 중복 제거 (LV1이 달라도 LV2+LV3 동일하면 같은 기능)
   finalFuncs = crossLv1Dedup(finalFuncs);
 
-  report(4, `완료! ${finalFuncs.length}개 기능 생성`, 100);
+  // 고도화 모드: 기존 기능과 대조해 재사용/기능변경/신규 자동 분류
+  // (기존 기능이 있을 때만 동작 — 신규 사업이면 영향 없음)
+  if (existingFunctions && existingFunctions.length > 0) {
+    finalFuncs = classifyReuse(finalFuncs, existingFunctions);
+    const s = summarizeReuse(finalFuncs);
+    report(4, `완료! 신규 ${s.신규개발} / 변경 ${s.기능변경} / 재사용 ${s.재사용}`, 100);
+  } else {
+    report(4, `완료! ${finalFuncs.length}개 기능 생성`, 100);
+  }
   return { systemName, overview: info?.overview || '', functions: finalFuncs };
 };
 
@@ -555,17 +564,31 @@ export const generateFunctionsFromDoc = async (text, userInput, onProgress) => {
 // ── 추가 영역 제안 ────────────────────────────────────────────
 export const suggestAreas = async (systemName, rfpText, functions, targetCount, upgradeMode = false) => {
   const safeRfp = rfpText || '';
-  const raw = await callAPI(
-    getAreaSuggestPrompt(systemName, safeRfp, functions || [], targetCount, upgradeMode),
-    3000  // 응답 더 많이 받기 위해 2000→3000
-  );
-  try {
-    const parsed = parseJSON(raw);
-    return parsed;
-  } catch(e) {
-    console.warn('영역 제안 파싱 실패:', e.message);
-    return { suggestions: [], analysis: '분석 실패' };
+  // 재시도: 타임아웃/파싱 실패 시 1회 더 (기존엔 빈 배열 즉시 반환)
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const raw = await callAPI(
+        getAreaSuggestPrompt(systemName, safeRfp, functions || [], targetCount, upgradeMode),
+        3000
+      );
+      const parsed = parseJSON(raw);
+      let suggestions = parsed.suggestions || [];
+      // 근거 검증: RFP가 있는데 relatedRequirement가 비었거나 너무 짧으면
+      // hallucination 가능성 → 표시(weakEvidence). 제거하진 않되 사용자가 인지.
+      if (safeRfp.length > 100) {
+        suggestions = suggestions.map(s => ({
+          ...s,
+          weakEvidence: !s.relatedRequirement || String(s.relatedRequirement).trim().length < 10,
+        }));
+      }
+      return { ...parsed, suggestions };
+    } catch (e) {
+      console.warn(`영역 제안 시도 ${attempt + 1} 실패:`, e.message);
+      if (attempt === 1) return { suggestions: [], analysis: `분석 실패: ${e.message}` };
+      await sleep(1500);
+    }
   }
+  return { suggestions: [], analysis: '분석 실패' };
 };
 
 // ── 선택된 영역 기능 생성 ────────────────────────────────────
@@ -599,7 +622,12 @@ export const expandArea = async (area, systemName, existingFunctions, onProgress
   // 중복 제거는 코드에서 처리 (AI에게 맡기지 않음)
   // 전체 lv1|lv2|lv3 키로 완전 중복 제거
   const existingKeys = new Set(existingFunctions.map(f => `${f.lv1}|${f.lv2}|${f.lv3}`));
-  const newFuncs = funcs.filter(f => !existingKeys.has(`${f.lv1}|${f.lv2}|${f.lv3}`));
+  let newFuncs = funcs.filter(f => !existingKeys.has(`${f.lv1}|${f.lv2}|${f.lv3}`));
+
+  // 고도화 모드: 추가 영역의 기능도 기존 대비 변경/재사용 자동 분류
+  if (existingFunctions && existingFunctions.length > 0) {
+    newFuncs = classifyReuse(newFuncs, existingFunctions);
+  }
 
   report(`${newFuncs.length}개 추가 완료`, 100);
   return newFuncs;

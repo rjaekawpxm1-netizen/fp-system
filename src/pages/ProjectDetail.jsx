@@ -196,22 +196,37 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
     const ab = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
 
-    // 1차: 텍스트 레이어 추출 시도
-    // [변경] join(' ')는 좌표를 버려 표(요구사항/기능목록)의 행·셀 경계를
-    // 전부 뭉갰음 → y좌표 줄 그룹핑 + x좌표 셀 경계 복원
+    // 텍스트 레이어 추출 + 페이지별 텍스트량 기록 (혼합 PDF 판별용)
     let text = '';
+    const pageTextLen = [];
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
       const content = await page.getTextContent();
-      text += reconstructPdfLines(content.items) + '\n';
+      const lineText = reconstructPdfLines(content.items);
+      pageTextLen.push(lineText.replace(/\s/g, '').length);
+      text += lineText + '\n';
     }
 
-    // 텍스트가 충분히 없으면 (스캔본) → Vision OCR 처리
-    if (text.replace(/\s/g, '').length < 100) {
+    // [개선] 스캔 판별: 전체<100자(완전 스캔)뿐 아니라,
+    // 텍스트가 거의 없는 페이지 비율이 높은 '혼합 PDF'(표지·목차만 텍스트,
+    // 본문은 스캔 이미지)도 OCR 대상으로 본다. 기존엔 본문을 통째로 놓쳤다.
+    const totalChars = text.replace(/\s/g, '').length;
+    const emptyPages = pageTextLen.filter(n => n < 30).length;
+    const isFullyScanned = totalChars < 100;
+    const isMostlyScanned = pdf.numPages >= 2 && emptyPages / pdf.numPages >= 0.5;
+    if (isFullyScanned || isMostlyScanned) {
       setLoadingMsg('스캔 PDF 감지 — Vision OCR 처리 중...');
       const ocrTexts = [];
-      const maxPages = Math.min(pdf.numPages, 5); // 최대 5페이지
+      // [개선] 5 → 15페이지. 요구사항이 뒤쪽에 있는 RFP 대응.
+      const maxPages = Math.min(pdf.numPages, 15);
       for (let i = 1; i <= maxPages; i++) {
+        // 혼합 PDF면 텍스트가 충분한 페이지는 OCR 건너뛰고 기존 텍스트 사용 (비용 절감)
+        if (isMostlyScanned && !isFullyScanned && pageTextLen[i - 1] >= 30) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          ocrTexts.push(`[${i}페이지]\n${reconstructPdfLines(content.items)}`);
+          continue;
+        }
         setLoadingMsg(`Vision OCR 처리 중... (${i}/${maxPages}페이지)`);
         const page = await pdf.getPage(i);
         const viewport = page.getViewport({ scale: 1.5 });
@@ -521,14 +536,22 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
       const result = await expandDomainsToFunctions(
         activeDomains,
         pendingInfo,
-        (step, msg, pct) => { setParseStep(step); setLoadingMsg(msg); setParsePct(pct); }
+        (step, msg, pct) => { setParseStep(step); setLoadingMsg(msg); setParsePct(pct); },
+        upgradeMode ? functions : []   // 고도화면 기존 기능 전달 → 재사용/변경 자동 분류
       );
       const newFuncs = (result.functions||[]).map((f,i)=>({...f,id:Date.now()+i}));
       let finalFunctions;
       if (upgradeMode && functions.length > 0) {
+        // classifyReuse가 부여한 reuseType(재사용/기능변경/신규) 유지.
+        // 기존 기능과 완전 일치(재사용)인 항목은 기존 목록에 이미 있으므로
+        // 중복 추가하지 않고, 신규/변경만 추가한다.
         const existingKeys = new Set(functions.map(f=>`${f.lv1}|${f.lv2}|${f.lv3}`));
         const onlyNew = newFuncs.filter(f=>!existingKeys.has(`${f.lv1}|${f.lv2}|${f.lv3}`));
         finalFunctions = [...functions, ...onlyNew];
+        const rc = onlyNew.filter(f=>f.reuseType==='기능변경').length;
+        const nc = onlyNew.filter(f=>f.reuseType==='신규개발').length;
+        const rv = onlyNew.filter(f=>f.needsReview).length;
+        setTimeout(()=>alert(`✅ 고도화 기능 생성 완료!\n추가: 신규 ${nc}개 / 변경 ${rc}개${rv>0?`\n⚠ 검토 필요 ${rv}개 (재사용/변경 여부 확인)`:''}\n총 ${finalFunctions.length}개`),100);
       } else {
         finalFunctions = newFuncs;
       }
@@ -541,7 +564,9 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
         rfpText, userInput,
       });
       setTab('functions');
-      alert(`✅ 기능 생성 완료!\n총 ${finalFunctions.length}개 기능목록 생성`);
+      if (!(upgradeMode && functions.length > 0)) {
+        alert(`✅ 기능 생성 완료!\n총 ${finalFunctions.length}개 기능목록 생성`);
+      }
     } catch (err) {
       alert('기능 생성 오류: ' + err.message);
     } finally {
@@ -1515,6 +1540,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
                                   </div>
                                 )}
                                 {s.relatedRequirement && <div style={{fontSize:10,color:'#9ca3af',marginTop:4}}>근거: {s.relatedRequirement}</div>}
+                                {s.weakEvidence && <div style={{fontSize:10,color:'#d97706',marginTop:2,fontWeight:600}}>⚠ RFP 근거가 약함 — 추가 전 확인 권장</div>}
                               </div>
                             </label>
                           ))}
