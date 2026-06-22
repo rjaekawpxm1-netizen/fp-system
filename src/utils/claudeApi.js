@@ -244,13 +244,28 @@ export const extractDomainsOnly = async (text, userInput, onProgress, targetFunc
 
   report(3, `LV1 ${domains.length}개 확인 필요`, 100);
 
-  return { systemName, overview: description, projectType, mainUsers, allReqs, domains };
+  return { systemName, overview: description, projectType, mainUsers, allReqs, domains, rfpText: text, userInput: userInput || '' };
 };
 
 // ── 2단계: 선택된 도메인으로 기능 확장 ────────────────────────
 export const expandDomainsToFunctions = async (domains, info, onProgress, existingFunctions = []) => {
   const report = (step, msg, pct) => onProgress && onProgress(step, msg, pct);
-  const { systemName, mainUsers = ['사용자','관리자'], allReqs = [] } = info || {};
+  const { systemName, mainUsers = ['사용자','관리자'], allReqs = [], rfpText = '', userInput = '' } = info || {};
+
+  // 도메인별 RFP 발췌: 도메인 토큰이 등장하는 줄을 모아 근거로 제공
+  const rfpLines = (rfpText || '').split('\n').map(l => l.trim()).filter(l => l.length > 8);
+  const rfpSnippetFor = (domain) => {
+    const tokens = [domain.lv1, ...(domain.expectedLv2 || [])]
+      .join(' ').split(/[\s/·,()>]+/).map(t => t.replace(/관리$|조회$|현황$/, '')).filter(t => t.length >= 2);
+    const hits = rfpLines.filter(l => tokens.some(t => l.includes(t)));
+    return hits.slice(0, 40).join('\n');
+  };
+  // 고도화: LV1별 기존 기능 목록 (중복 생성 방지용)
+  const existingByLv1 = new Map();
+  (existingFunctions || []).forEach(f => {
+    if (!existingByLv1.has(f.lv1)) existingByLv1.set(f.lv1, []);
+    existingByLv1.get(f.lv1).push(`${f.lv2} > ${f.lv3}`);
+  });
 
   // [안전망] 도메인 분류가 requirements 배분을 비워서 주는 경우가 있다.
   // 확장 프롬프트는 요구사항 근거 기반이므로, 빈 도메인은 allReqs에서
@@ -274,7 +289,11 @@ export const expandDomainsToFunctions = async (domains, info, onProgress, existi
     // [안전망] 결과 0개면 1회 재시도 (모델이 빈 배열을 반환하는 경우 방지)
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const raw = await callAPI(getDomainExpandPrompt(domain, systemName, mainUsers), 6000);
+        const raw = await callAPI(getDomainExpandPrompt(domain, systemName, mainUsers, {
+          userInput,
+          rfpSnippet: rfpSnippetFor(domain),
+          existingInDomain: existingByLv1.get(domain.lv1) || [],
+        }), 6000);
         const parsed = parseJSON(raw);
         const funcs = (parsed.functions || [])
           .filter(f => f.lv2 && f.lv3)
@@ -467,7 +486,12 @@ export const generateFunctionsFromDoc = async (text, userInput, onProgress) => {
     report(4, `[${i+1}/${domains.length}] "${domain.lv1}" 기능 확장 중...`, pct);
 
     try {
-      const raw = await callAPI(getDomainExpandPrompt(domain, systemName, mainUsers), 6000); // Tier2
+      const raw = await callAPI(getDomainExpandPrompt(domain, systemName, mainUsers, {
+        userInput,
+        rfpSnippet: (text || '').split('\n').filter(l =>
+          [domain.lv1, ...(domain.expectedLv2 || [])].some(t => t && l.includes(String(t).replace(/관리$|조회$/, '')))
+        ).slice(0, 40).join('\n'),
+      }), 6000); // Tier2
       const parsed = parseJSON(raw);
       const funcs = (parsed.functions || [])
         .filter(f => f.lv2 && f.lv3)

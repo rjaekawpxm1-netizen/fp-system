@@ -87,6 +87,9 @@ LV1 = 시스템 상단 메뉴바의 버튼 이름 (사용자가 클릭하는 메
 - 공통기능(사용자/권한/시스템관리) 반드시 포함
 - 모든 요구사항을 가장 관련 있는 도메인의 requirements에 빠짐없이 배분할 것
 - requirements가 빈 도메인을 만들지 말 것 (배분할 요구사항이 없는 도메인은 expectedLv2를 충실히 작성)
+- ⭐ RFP/추가설명에서 **반복 강조되거나 핵심으로 언급된 주제**(예: API Gateway, 연동, 관제 등
+  사업의 중심 키워드)는 반드시 별도 LV1 또는 LV1 내 명시적 LV2로 도출할 것.
+  핵심 주제가 어느 도메인에도 안 들어가 누락되는 일이 없도록 할 것
 ${existingLv1s && existingLv1s.length > 0 ? `
 ### ⚠ 고도화 사업 — 기존 LV1 명칭 재사용 필수
 이 시스템에는 이미 다음 LV1(업무 도메인)이 존재한다:
@@ -116,8 +119,9 @@ ${targetFuncCount > 0 ? `
 `;
 
 // ── 4. 도메인별 기능 확장 ─────────────────────────────────────
-export const getDomainExpandPrompt = (domain, systemName, mainUsers) => `
-당신은 공공SW사업 BA 전문가입니다. "${systemName}" > "${domain.lv1}" 업무영역의 기능목록을 생성하세요. JSON만 출력.
+export const getDomainExpandPrompt = (domain, systemName, mainUsers, opts = {}) => {
+  const { userInput = '', rfpSnippet = '', existingInDomain = [] } = opts;
+  return `당신은 공공SW사업 BA 전문가입니다. "${systemName}" > "${domain.lv1}" 업무영역의 기능목록을 생성하세요. JSON만 출력.
 
 ## 핵심 판단 기준
 "로그인한 사용자가 이 화면의 버튼을 클릭하는가?"
@@ -193,6 +197,19 @@ LV1: ${domain.lv1}
 관련 요구사항 (이 요구사항에 맞는 기능을 생성할 것):
 ${(domain.requirements || []).slice(0, 30).map(r => `- ${r}`).join('\n')}
 예상 LV2: ${(domain.expectedLv2 || []).join(', ')}
+${userInput && userInput.trim() ? `
+## ⭐ 사용자 추가 설명 (최우선 반영)
+다음은 발주처/담당자가 직접 입력한 핵심 요구다. 이 도메인과 관련된 내용은
+반드시 기능으로 반영할 것:
+"${userInput.trim().slice(0, 1500)}"` : ''}
+${rfpSnippet && rfpSnippet.trim() ? `
+## 이 도메인 관련 RFP 발췌 (근거 보강용)
+${rfpSnippet.slice(0, 4000)}` : ''}
+${existingInDomain && existingInDomain.length > 0 ? `
+## ⚠ 고도화 — 이 LV1에 이미 존재하는 기능 (중복 생성 금지)
+다음 기능들은 이미 있다. 똑같은 기능을 다시 만들지 말고,
+RFP/추가설명에 근거한 **새로운(추가/변경된)** 기능만 생성할 것:
+${existingInDomain.slice(0, 60).map(l => `  - ${l}`).join('\n')}` : ''}
 
 ## 생성 기준
 - LV2: 요구사항에서 도출된 것 우선, 통상 3~7개
@@ -205,6 +222,7 @@ ${(domain.requirements || []).slice(0, 30).map(r => `- ${r}`).join('\n')}
 
 {"functions":[{"lv1":"${domain.lv1}","lv2":"","lv3":"","definition":""}]}
 `;
+};
 
 // ── 5. 영역 추가 제안 ─────────────────────────────────────────
 export const getAreaSuggestPrompt = (systemName, rfpText, functions, targetCount, upgradeMode = false) => {
