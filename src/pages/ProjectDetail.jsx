@@ -500,11 +500,17 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
     setParsePct(0);
     try {
       const text = rfpText || userInput;
+      // 고도화 모드: 기존 기능의 LV1 목록을 도메인 추출에 전달해
+      // AI가 기존 명칭("연동계획")을 새 이름("연동계획관리")으로 바꾸지 않게 한다.
+      const existingLv1s = (upgradeMode && functions.length > 0)
+        ? [...new Set(functions.map(f => f.lv1))]
+        : [];
       // 도메인 분류까지만 실행 (기능 확장 전 멈춤)
       const result = await extractDomainsOnly(
         text, userInput,
         (step, msg, pct) => { setParseStep(step); setLoadingMsg(msg); setParsePct(pct); },
-        projectScale ? Number(projectScale) : 0  // 목표 기능수 전달
+        projectScale ? Number(projectScale) : 0,  // 목표 기능수 전달
+        existingLv1s
       );
       // 시스템 정보 반영
       if (result.systemName && !systemName) setSystemName(result.systemName);

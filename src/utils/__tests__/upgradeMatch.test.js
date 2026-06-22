@@ -1,4 +1,34 @@
-import { classifyReuse, diceSimilarity, summarizeReuse } from '../upgradeMatch';
+import { classifyReuse, diceSimilarity, summarizeReuse, snapDomainsToExisting } from '../upgradeMatch';
+
+describe('snapDomainsToExisting', () => {
+  const existing = ['연동계획', '연동운영', '연동현황', '장애처리'];
+
+  test('"~관리" 덧붙은 이름을 기존 명칭으로 스냅', () => {
+    const domains = [{ lv1: '연동계획관리' }, { lv1: '연동운영관리' }];
+    const r = snapDomainsToExisting(domains, existing);
+    expect(r[0].lv1).toBe('연동계획');
+    expect(r[0].snappedFrom).toBe('연동계획관리');
+    expect(r[1].lv1).toBe('연동운영');
+  });
+
+  test('기존과 정확히 같으면 그대로', () => {
+    const r = snapDomainsToExisting([{ lv1: '연동계획' }], existing);
+    expect(r[0].lv1).toBe('연동계획');
+    expect(r[0].snappedFrom).toBeUndefined();
+  });
+
+  test('완전히 새로운 도메인은 스냅하지 않음', () => {
+    const r = snapDomainsToExisting([{ lv1: 'API게이트웨이' }], existing);
+    expect(r[0].lv1).toBe('API게이트웨이');
+    expect(r[0].snappedFrom).toBeUndefined();
+  });
+
+  test('기존 목록 없으면 원본 유지', () => {
+    const domains = [{ lv1: '연동계획관리' }];
+    expect(snapDomainsToExisting(domains, [])[0].lv1).toBe('연동계획관리');
+    expect(snapDomainsToExisting(domains, null)[0].lv1).toBe('연동계획관리');
+  });
+});
 
 describe('diceSimilarity', () => {
   test('동일 문자열 = 1', () => {

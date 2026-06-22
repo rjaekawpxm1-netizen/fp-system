@@ -107,3 +107,36 @@ export const summarizeReuse = (functions) => {
   (functions || []).forEach(f => { if (s[f.reuseType] !== undefined) s[f.reuseType]++; });
   return s;
 };
+
+/**
+ * 생성된 도메인(LV1)을 기존 LV1과 대조해, 사실상 같은 도메인이면 기존 명칭으로 스냅.
+ * 프롬프트 지시("기존 명칭 재사용")가 지켜지지 않은 경우의 결정론적 안전망.
+ *   "연동계획관리" vs 기존 "연동계획" → "연동계획"으로 통일
+ * @param {Array} domains - [{lv1, ...}]
+ * @param {Array} existingLv1s - ['연동계획', '연동운영', ...]
+ * @param {number} threshold - 스냅 임계 (기본 0.7)
+ * @returns {Array} lv1이 스냅된 새 배열 (snappedFrom 기록)
+ */
+export const snapDomainsToExisting = (domains, existingLv1s, threshold = 0.7) => {
+  if (!existingLv1s || existingLv1s.length === 0) return domains || [];
+  return (domains || []).map(d => {
+    const lv1 = d.lv1 || '';
+    // 이미 기존과 정확히 같으면 그대로
+    if (existingLv1s.includes(lv1)) return d;
+    // 정규화 후 포함관계 또는 높은 유사도 → 스냅
+    const nLv1 = norm(lv1);
+    let best = null, bestSim = 0;
+    for (const ex of existingLv1s) {
+      const nEx = norm(ex);
+      // 포함관계("연동계획" ⊂ "연동계획관리")는 강한 신호
+      const contained = nLv1.includes(nEx) || nEx.includes(nLv1);
+      const sim = diceSimilarity(lv1, ex);
+      const score = contained ? Math.max(sim, 0.85) : sim;
+      if (score > bestSim) { bestSim = score; best = ex; }
+    }
+    if (best && bestSim >= threshold) {
+      return { ...d, lv1: best, snappedFrom: lv1 !== best ? lv1 : undefined };
+    }
+    return d;
+  });
+};

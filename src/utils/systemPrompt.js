@@ -59,7 +59,7 @@ ${chunkText}
 `;
 
 // ── 3. 도메인 분류 ────────────────────────────────────────────
-export const getDomainClassifyPrompt = (requirements, systemName, description, mainUsers, projectType, userInput, targetFuncCount = 0) => `
+export const getDomainClassifyPrompt = (requirements, systemName, description, mainUsers, projectType, userInput, targetFuncCount = 0, existingLv1s = []) => `
 당신은 공공SW사업 BA 전문가입니다. 요구사항을 "${systemName}" 시스템의 업무 도메인(LV1)으로 분류하세요. JSON만 출력.
 
 시스템: ${systemName}
@@ -87,6 +87,15 @@ LV1 = 시스템 상단 메뉴바의 버튼 이름 (사용자가 클릭하는 메
 - 공통기능(사용자/권한/시스템관리) 반드시 포함
 - 모든 요구사항을 가장 관련 있는 도메인의 requirements에 빠짐없이 배분할 것
 - requirements가 빈 도메인을 만들지 말 것 (배분할 요구사항이 없는 도메인은 expectedLv2를 충실히 작성)
+${existingLv1s && existingLv1s.length > 0 ? `
+### ⚠ 고도화 사업 — 기존 LV1 명칭 재사용 필수
+이 시스템에는 이미 다음 LV1(업무 도메인)이 존재한다:
+${existingLv1s.map(l => `  - ${l}`).join('\n')}
+규칙:
+- 위 기존 LV1과 같은 업무 영역이면 **반드시 기존 명칭을 그대로** 사용할 것
+  (예: 기존에 "연동계획"이 있으면 "연동계획관리"·"연동기획" 같은 새 이름을 만들지 말고 "연동계획" 사용)
+- 기존 LV1에 없는 완전히 새로운 업무 영역만 새 LV1으로 추가할 것
+- "~관리"를 임의로 붙이거나 떼지 말 것 — 기존 표기를 정확히 따를 것` : ''}
 ${targetFuncCount > 0 ? `
 ### 목표 기능수: ${targetFuncCount}개 (참고용)
 - 이 규모에 맞는 LV1 개수와 범위로 도메인을 구성할 것

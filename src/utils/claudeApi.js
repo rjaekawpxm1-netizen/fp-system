@@ -14,7 +14,7 @@ import {
 } from './systemPrompt';
 import { deriveFPRow } from './fpDerivation';
 import { splitTextChunks, prioritizeRfpText } from './textExtract';
-import { classifyReuse, summarizeReuse } from './upgradeMatch';
+import { classifyReuse, summarizeReuse, snapDomainsToExisting } from './upgradeMatch';
 
 const TEMPERATURE = 0;
 const MODEL = 'claude-sonnet-4-5';
@@ -171,7 +171,7 @@ export const parseDocumentFunctions = async (text) => {
 };
 
 // ── 1단계만: 정보추출 + 요구사항 + 도메인분류 ────────────────
-export const extractDomainsOnly = async (text, userInput, onProgress, targetFuncCount = 0) => {
+export const extractDomainsOnly = async (text, userInput, onProgress, targetFuncCount = 0, existingLv1s = []) => {
   const report = (step, msg, pct) => onProgress && onProgress(step, msg, pct);
 
   report(1, '문서에서 시스템 정보 추출 중...', 5);
@@ -221,7 +221,7 @@ export const extractDomainsOnly = async (text, userInput, onProgress, targetFunc
   let domains = [];
   try {
     const domainRaw = await callAPI(
-      getDomainClassifyPrompt(allReqs, systemName, description, mainUsers, projectType, userInput, targetFuncCount),
+      getDomainClassifyPrompt(allReqs, systemName, description, mainUsers, projectType, userInput, targetFuncCount, existingLv1s),
       2000
     );
     const parsed = parseJSON(domainRaw);
@@ -234,6 +234,12 @@ export const extractDomainsOnly = async (text, userInput, onProgress, targetFunc
       { lv1:'현황 및 통계', description:'조회/통계', requirements: allReqs.slice(15,30), expectedLv2:[] },
       { lv1:'시스템관리', description:'사용자/권한/공통', requirements:[], expectedLv2:['사용자관리','권한관리'] },
     ];
+  }
+
+  // 고도화 안전망: AI가 기존 LV1을 새 이름으로 바꿨으면 기존 명칭으로 스냅
+  // (프롬프트 지시가 안 지켜진 경우 결정론적으로 통일 — "연동계획관리"→"연동계획")
+  if (existingLv1s && existingLv1s.length > 0) {
+    domains = snapDomainsToExisting(domains, existingLv1s);
   }
 
   report(3, `LV1 ${domains.length}개 확인 필요`, 100);
