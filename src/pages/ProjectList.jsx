@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { color, button, card } from '../styles/tokens';
+import GuideModal from './GuideModal';
 
 const { blue: BLUE, blueTint: BLUE_TINT, ink: INK, sub: SUB, mute: MUTE, line: LINE, bg: BG } = color;
 
@@ -25,6 +26,7 @@ const ProjectList = ({ projects, onCreateProject, onDeleteProject, onCopyProject
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState('');
   const [filter, setFilter] = useState('전체');
+  const [showGuide, setShowGuide] = useState(false);
 
   const handleCreate = () => {
     if (!name.trim()) return alert('프로젝트명을 입력하세요.');
@@ -191,7 +193,7 @@ const ProjectList = ({ projects, onCreateProject, onDeleteProject, onCopyProject
                   boxShadow: '0 8px 20px rgba(49,130,246,0.28)',
                 }}
               >+ 새 프로젝트 만들기</button>
-              <button style={{
+              <button onClick={() => setShowGuide(true)} style={{
                 height: 48, padding: '0 20px', borderRadius: 999,
                 background: '#fff', color: INK, border: `1px solid ${LINE}`,
                 fontSize: 14, fontWeight: 700, cursor: 'pointer',
@@ -420,7 +422,7 @@ const ProjectList = ({ projects, onCreateProject, onDeleteProject, onCopyProject
               </div>
             </div>
           </div>
-          <button style={{
+          <button onClick={() => setShowGuide(true)} style={{
             height: 36, padding: '0 14px', borderRadius: 999,
             background: '#fff', color: BLUE, border: 'none',
             fontSize: 12, fontWeight: 800, cursor: 'pointer',
@@ -428,6 +430,8 @@ const ProjectList = ({ projects, onCreateProject, onDeleteProject, onCopyProject
         </div>
 
       </div>
+
+      {showGuide && <GuideModal onClose={() => setShowGuide(false)} />}
     </div>
   );
 };

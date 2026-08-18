@@ -393,10 +393,28 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
         if (isUpgrade) setUpgradeMode(true);
         saveProject({functions: deduped, xlsxFunctions: newXlsx});
         setTab('functions'); // 탭 먼저 전환
-        setTimeout(()=>alert(isUpgrade
-          ? `✅ 고도화 모드 적용!\n${result.functions.length}개 기능이 재사용으로 추가됐습니다 (총 ${deduped.length}개)\nFP 산정 시 신규 기능만 "신규개발"로 변경하세요.`
-          : `✅ 기능정의서 파싱 완료!\n${withId.length}개 기능 추출됐습니다.`
-        ), 100);
+        setTimeout(()=>{
+          if (isUpgrade) {
+            alert(`✅ 고도화 모드 적용!\n${result.functions.length}개 기능이 재사용으로 추가됐습니다 (총 ${deduped.length}개)\nFP 산정 시 신규 기능만 "신규개발"로 변경하세요.`);
+          } else {
+            // 신규 모드인데 기존 기능목록을 올렸다 → 고도화일 가능성 안내
+            const toUpgrade = window.confirm(
+              `기능정의서 ${withId.length}개를 불러왔습니다.\n\n` +
+              `기존 시스템의 기능목록이라면 "고도화 사업"일 가능성이 높습니다.\n` +
+              `지금 고도화 모드로 전환할까요?\n\n` +
+              `[확인] 고도화 모드 ON — 이 기능들을 '재사용'으로 표시하고,\n` +
+              `        이후 RFP로 신규 기능만 추가/분류합니다.\n` +
+              `[취소] 신규 모드 유지 — 이 기능들을 신규 목록으로 사용합니다.`
+            );
+            if (toUpgrade) {
+              setUpgradeMode(true);
+              const remarked = deduped.map(f => ({...f, reuseType: '재사용'}));
+              setFunctions(remarked);
+              saveProject({functions: remarked});
+              alert('✅ 고도화 모드로 전환했습니다. 이제 RFP를 올리고 "기능 생성"을 누르면 신규 기능만 추가됩니다.');
+            }
+          }
+        }, 100);
         return;
       }
 
@@ -493,6 +511,19 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
   const handleGenerate = async () => {
     if (!rfpText && !userInput.trim()) {
       return alert('파일을 업로드하거나 시스템 설명을 입력해주세요.');
+    }
+    // ── 모드-입력 정합성 체크 ──────────────────────────────────
+    // 흔한 실수: 고도화 사업인데 "신규 구축" 모드로 두고 기존 기능목록(xlsx)을
+    // 올린 경우. 이 상태로 생성하면 신규 모드라 기존 기능이 '재사용'으로 인식되지
+    // 않고, 덮어쓰기로 기존 114개가 날아간다.
+    if (!upgradeMode && functions.length > 0) {
+      const proceed = window.confirm(
+        `⚠ 현재 "신규 구축" 모드인데 이미 기능목록 ${functions.length}개가 있습니다.\n\n` +
+        `• 고도화 사업이라면 → [취소] 후 상단에서 "고도화 사업"을 선택하세요.\n` +
+        `  (기존 기능은 재사용/변경으로 자동 분류되고, 신규 기능만 추가됩니다)\n\n` +
+        `• 신규 사업이 맞다면 → [확인]. 기존 ${functions.length}개는 새로 생성된 목록으로 덮어써집니다.`
+      );
+      if (!proceed) return;
     }
     setAbortGenerate(false); // 중단 플래그 초기화
     setLoading(true);
