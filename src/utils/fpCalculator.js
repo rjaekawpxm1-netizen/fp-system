@@ -176,3 +176,14 @@ export const calcTotalFP = (rows, method = 'standard') => {
     changed: changed.toFixed(2),
   };
 };
+
+// 개발비 패널용 FP. 산정법 선택은 standard/simple 단일 값만 사용한다.
+export const calcCostFP = (rows, method = 'standard', simpleAdjustment = 1.286) => {
+  const summary = calcTotalFP(rows, method);
+  const rawFP = Number(summary.newDev) + Number(summary.changed);
+  return {
+    summary,
+    rawFP,
+    totalFP: method === 'simple' ? rawFP * simpleAdjustment : rawFP,
+  };
+};

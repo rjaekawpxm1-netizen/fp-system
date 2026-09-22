@@ -15,7 +15,7 @@ import {
 } from '../utils/claudeApi';
 import {
   getWeight, getAvgWeight, getComplexity, getComplexityLabel,
-  calcTotalFP, getChangePct, getFuncChangePct, getImpactFactor,
+  calcTotalFP, calcCostFP, getChangePct, getFuncChangePct, getImpactFactor,
 } from '../utils/fpCalculator';
 import { validateAll } from '../utils/fpValidation';
 import { reconstructPdfLines, detectFunctionListPattern } from '../utils/textExtract';
@@ -126,7 +126,6 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
 
   // ── 개발비 상태 ──────────────────────────────────────────────
   const [showCostPanel, setShowCostPanel] = useState(false);
-  const [costMethod, setCostMethod] = useState('정통법');
   const [costLinkIdx, setCostLinkIdx] = useState(2);
   const [costPerfIdx, setCostPerfIdx] = useState(2);
   const [costEnvIdx, setCostEnvIdx] = useState(1);
@@ -879,9 +878,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
 
   // ── 개발비 계산 ──────────────────────────────────────────────
   const costCalc = () => {
-    const s = calcTotalFP(fpList, fpMethod==='정통법'?'standard':'simple');
-    const rawFP = Number(s.newDev) + Number(s.changed);
-    const tFP = costMethod==='간이법' ? rawFP*1.286 : rawFP;
+    const { totalFP: tFP } = calcCostFP(fpList, fpMethod);
     const sC = calcSizeCoeff(tFP);
     const tC = sC*COST_LINK[costLinkIdx].v*COST_PERF[costPerfIdx].v*COST_ENV[costEnvIdx].v*COST_SEC[costSecIdx].v;
     const dev = Math.round(tFP*costUnitPrice*tC);
@@ -1004,7 +1001,11 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
                 <div style={{minWidth:170}}>
                   <div style={{fontSize:10,color:'#6b7280',marginBottom:3}}>산정 방법</div>
                   <div style={{display:'flex',gap:4,marginBottom:8}}>
-                    {['정통법','간이법'].map(m=><button key={m} onClick={()=>setCostMethod(m)} style={{padding:'4px 12px',fontSize:11,fontWeight:600,border:'1px solid '+(costMethod===m?'#1d4ed8':'#e5e7eb'),borderRadius:5,cursor:'pointer',background:costMethod===m?'#1d4ed8':'#fff',color:costMethod===m?'#fff':'#374151'}}>{m}</button>)}
+                    {['standard','simple'].map(m=><button key={m} onClick={()=>{
+                      setFpMethod(m);
+                      const updated = fpList.map(f=>autoCalcRow(f,m));
+                      setFpList(updated); saveProject({fpList:updated, fpMethod:m});
+                    }} style={{padding:'4px 12px',fontSize:11,fontWeight:600,border:'1px solid '+(fpMethod===m?'#1d4ed8':'#e5e7eb'),borderRadius:5,cursor:'pointer',background:fpMethod===m?'#1d4ed8':'#fff',color:fpMethod===m?'#fff':'#374151'}}>{m==='standard'?'정통법':'간이법'}</button>)}
                   </div>
                   <div style={{fontSize:10,color:'#6b7280',marginBottom:2}}>단가(원/FP)</div>
                   <input type="number" value={costUnitPrice} onChange={e=>setCostUnitPrice(Number(e.target.value))} style={{...inp,marginBottom:6}}/>
@@ -1041,7 +1042,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
                     try {
                       await exportCostExcel({
                         projectName:systemName||project.name, method:fpMethod,
-                        totalFP:tFP, fpSummary:{newDev:stdSummary.newDev,changed:stdSummary.changed},
+                        totalFP:tFP, fpSummary:calcTotalFP(fpList, fpMethod),
                         fpUnitPrice:costUnitPrice, preCorrectionCost:Math.round(tFP*costUnitPrice),
                         sizeCoeff:sC, totalCoeff:tC, devCost:dev,
                         directCost:Number(costDirectExp||0), profit:Math.round(dev*costProfitRate/100),
