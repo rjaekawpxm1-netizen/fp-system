@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Home from './pages/Home';
 import ProjectList from './pages/ProjectList';
@@ -9,11 +9,15 @@ import {
   updateProject as dbUpdateProject,
   deleteProject as dbDeleteProject,
 } from './utils/supabase';
+import { mergeProjectPatches } from './utils/projectUpdateQueue';
 
 const App = () => {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [saveError, setSaveError] = useState(null);
+  const updateTimersRef = useRef({});
+  const pendingUpdatesRef = useRef({});
 
   const loadProjects = useCallback(async () => {
     try {
@@ -48,14 +52,25 @@ const App = () => {
     } catch (err) { alert('삭제 실패: ' + err.message); }
   };
 
-  const updateTimers = {};
   const handleUpdateProject = useCallback((id, updates) => {
     setProjects(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
-    if (updateTimers[id]) clearTimeout(updateTimers[id]);
-    updateTimers[id] = setTimeout(async () => {
-      try { await dbUpdateProject(id, updates); }
-      catch (err) { console.error('저장 실패:', err); }
+    setSaveError(null);
+    pendingUpdatesRef.current[id] = mergeProjectPatches(pendingUpdatesRef.current[id], updates);
+    if (updateTimersRef.current[id]) clearTimeout(updateTimersRef.current[id]);
+    updateTimersRef.current[id] = setTimeout(async () => {
+      const mergedUpdates = pendingUpdatesRef.current[id];
+      delete pendingUpdatesRef.current[id];
+      delete updateTimersRef.current[id];
+      try {
+        await dbUpdateProject(id, mergedUpdates);
+      } catch (err) {
+        setSaveError(`프로젝트 저장에 실패했습니다: ${err.message}`);
+      }
     }, 500);
+  }, []);
+
+  useEffect(() => () => {
+    Object.values(updateTimersRef.current).forEach(clearTimeout);
   }, []);
 
   const handleCopyProject = async (project, newName) => {
@@ -84,6 +99,12 @@ const App = () => {
   return (
     <BrowserRouter>
       <div style={{minHeight:'100vh',fontFamily:"'Pretendard',-apple-system,'Malgun Gothic',sans-serif"}}>
+        {saveError && (
+          <div role="alert" style={{position:'fixed',zIndex:9999,right:16,bottom:16,maxWidth:420,padding:'12px 14px',borderRadius:8,background:'#fee2e2',border:'1px solid #f87171',color:'#991b1b',fontSize:13,boxShadow:'0 4px 16px rgba(0,0,0,.15)'}}>
+            {saveError}
+            <button onClick={()=>setSaveError(null)} aria-label="저장 오류 닫기" style={{marginLeft:10,border:0,background:'transparent',color:'#991b1b',cursor:'pointer'}}>✕</button>
+          </div>
+        )}
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/ba" element={
