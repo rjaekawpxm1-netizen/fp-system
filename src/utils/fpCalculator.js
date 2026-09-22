@@ -77,28 +77,28 @@ const COMPLEXITY_RULES = {
   // ILF/EIF: ftr 필드를 RET(레코드서브그룹수)로 사용
   ILF: (ret, det) => {
     if (ret <= 1) {
+      if (det <= 50) return 'low';
+      return 'medium';
+    }
+    if (ret <= 5) {
       if (det <= 19) return 'low';
       if (det <= 50) return 'medium';
       return 'high';
     }
-    if (ret <= 5) {
-      if (det <= 50) return 'medium';
-      return 'high';
-    }
-    return 'high';
+    return det <= 19 ? 'medium' : 'high';
   },
 
   EIF: (ret, det) => {
     if (ret <= 1) {
+      if (det <= 50) return 'low';
+      return 'medium';
+    }
+    if (ret <= 5) {
       if (det <= 19) return 'low';
       if (det <= 50) return 'medium';
       return 'high';
     }
-    if (ret <= 5) {
-      if (det <= 50) return 'medium';
-      return 'high';
-    }
-    return 'high';
+    return det <= 19 ? 'medium' : 'high';
   },
 };
 

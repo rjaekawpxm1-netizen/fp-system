@@ -1,4 +1,4 @@
-import { calcCostFP } from '../fpCalculator';
+import { calcCostFP, getComplexity, getWeight } from '../fpCalculator';
 
 describe('calcCostFP — 개발비 산정법 계약', () => {
   const rows = [{
@@ -18,5 +18,19 @@ describe('calcCostFP — 개발비 산정법 계약', () => {
     const result = calcCostFP(rows, 'simple');
     expect(result.rawFP).toBe(4);
     expect(result.totalFP).toBeCloseTo(5.144);
+  });
+});
+
+describe.each([
+  ['ILF', { low: 7, medium: 10, high: 15 }],
+  ['EIF', { low: 5, medium: 7, high: 10 }],
+])('%s 복잡도 매트릭스', (fpType, weights) => {
+  test.each([
+    [1, 19, 'low'], [1, 20, 'low'], [1, 51, 'medium'],
+    [2, 19, 'low'], [2, 20, 'medium'], [2, 51, 'high'],
+    [6, 19, 'medium'], [6, 20, 'high'], [6, 51, 'high'],
+  ])('RET=%i, DET=%i → %s', (ret, det, expected) => {
+    expect(getComplexity(fpType, ret, det)).toBe(expected);
+    expect(getWeight(fpType, ret, det)).toBe(weights[expected]);
   });
 });
