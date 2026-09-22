@@ -154,12 +154,19 @@ export const parseDocumentFunctions = async (text) => {
   // 줄 경계 청크(6000자, 오버랩 200)로 전체를 파싱하고 중복 제거.
   const chunks = splitTextChunks(text, 6000, 200);
   let all = [];
+  const failedChunks = [];
   for (let i = 0; i < chunks.length; i++) {
     try {
       const raw = await callAPI(getDocParsePrompt(chunks[i]), 3000);
       const parsed = parseJSON(raw);
       all = [...all, ...(parsed.functions || [])];
-    } catch (e) { console.warn(`기능정의서 파싱 청크 ${i + 1} 실패:`, e.message); }
+    } catch (e) {
+      failedChunks.push(`${i + 1}/${chunks.length}`);
+      console.warn(`기능정의서 파싱 청크 ${i + 1} 실패:`, e.message);
+    }
+  }
+  if (failedChunks.length > 0) {
+    throw new Error(`기능정의서 청크 ${failedChunks.join(', ')} 파싱에 실패해 부분 결과를 적용하지 않았습니다.`);
   }
   // 오버랩으로 인한 중복 제거
   const seen = new Set();
@@ -175,13 +182,21 @@ export const parseDocumentFunctions = async (text) => {
 // ── 1단계만: 정보추출 + 요구사항 + 도메인분류 ────────────────
 export const extractDomainsOnly = async (text, userInput, onProgress, targetFuncCount = 0, existingLv1s = []) => {
   const report = (step, msg, pct) => onProgress && onProgress(step, msg, pct);
+  const analysisStatus = {
+    infoFailed: false,
+    requirementChunks: { total: 0, succeeded: 0, failures: [] },
+    domainFallback: false,
+  };
 
   report(1, '문서에서 시스템 정보 추출 중...', 5);
   let info = {};
   try {
     const infoRaw = await callAPI(getProjectInfoPrompt(text + (userInput ? '\n\n추가설명:\n' + userInput : '')), 2000);
     info = parseJSON(infoRaw);
-  } catch(e) { console.warn('정보 추출 실패:', e.message); }
+  } catch(e) {
+    analysisStatus.infoFailed = true;
+    console.warn('정보 추출 실패:', e.message);
+  }
 
   const systemName = info.systemName || '정보시스템';
   const description = info.systemOverview || '';
@@ -193,6 +208,7 @@ export const extractDomainsOnly = async (text, userInput, onProgress, targetFunc
   // 요구사항 수집
   const bounded = prioritizeRfpText(text, 150000);
   const chunks = splitTextChunks(bounded, 8000, 300);
+  analysisStatus.requirementChunks.total = chunks.length;
 
   let allReqs = [];
   for (let i = 0; i < chunks.length; i++) {
@@ -201,7 +217,15 @@ export const extractDomainsOnly = async (text, userInput, onProgress, targetFunc
       const raw = await callAPI(getRequirementCollectPrompt(chunks[i], i+1, systemName), 3000);
       const parsed = parseJSON(raw);
       allReqs = [...allReqs, ...(parsed.requirements||[]).filter(r => r?.length > 5)];
-    } catch(e) { console.warn(`청크 ${i+1} 실패`); }
+      analysisStatus.requirementChunks.succeeded += 1;
+    } catch(e) {
+      analysisStatus.requirementChunks.failures.push({
+        chunk: i + 1,
+        range: `${i + 1}/${chunks.length}`,
+        message: e.message,
+      });
+      console.warn(`청크 ${i+1} 실패:`, e.message);
+    }
   }
 
   if (userInput?.trim()) {
@@ -231,10 +255,11 @@ export const extractDomainsOnly = async (text, userInput, onProgress, targetFunc
   } catch(e) { console.warn('도메인 분류 실패:', e.message); }
 
   if (domains.length === 0) {
+    analysisStatus.domainFallback = true;
     domains = [
-      { lv1:'업무관리', description:'핵심 업무', requirements: allReqs.slice(0,15), expectedLv2:[] },
-      { lv1:'현황 및 통계', description:'조회/통계', requirements: allReqs.slice(15,30), expectedLv2:[] },
-      { lv1:'시스템관리', description:'사용자/권한/공통', requirements:[], expectedLv2:['사용자관리','권한관리'] },
+      { lv1:'업무관리', description:'폴백(검증 필요): 핵심 업무', requirements: allReqs.slice(0,15), expectedLv2:[], isFallback:true },
+      { lv1:'현황 및 통계', description:'폴백(검증 필요): 조회/통계', requirements: allReqs.slice(15,30), expectedLv2:[], isFallback:true },
+      { lv1:'시스템관리', description:'폴백(검증 필요): 사용자/권한/공통', requirements:[], expectedLv2:['사용자관리','권한관리'], isFallback:true },
     ];
   }
 
@@ -246,7 +271,7 @@ export const extractDomainsOnly = async (text, userInput, onProgress, targetFunc
 
   report(3, `LV1 ${domains.length}개 확인 필요`, 100);
 
-  return { systemName, overview: description, projectType, mainUsers, allReqs, domains, rfpText: text, userInput: userInput || '' };
+  return { systemName, overview: description, projectType, mainUsers, allReqs, domains, analysisStatus, rfpText: text, userInput: userInput || '' };
 };
 
 // ── 2단계: 선택된 도메인으로 기능 확장 ────────────────────────
@@ -284,11 +309,14 @@ export const expandDomainsToFunctions = async (domains, info, onProgress, existi
   });
 
   let allFunctions = [];
+  const failedDomains = [];
   for (let i = 0; i < backfilled.length; i++) {
     const domain = backfilled[i];
     const pct = 42 + Math.round((i / backfilled.length) * 55);
     report(4, `[${i+1}/${backfilled.length}] "${domain.lv1}" 기능 확장 중...`, pct);
     // [안전망] 결과 0개면 1회 재시도 (모델이 빈 배열을 반환하는 경우 방지)
+    let expanded = false;
+    let lastError = '';
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const raw = await callAPI(getDomainExpandPrompt(domain, systemName, mainUsers, {
@@ -310,13 +338,25 @@ export const expandDomainsToFunctions = async (domains, info, onProgress, existi
           console.warn(`"${domain.lv1}" 0개 반환 — 재시도`);
           continue;
         }
+        if (funcs.length === 0) {
+          lastError = '유효한 기능 0개 반환';
+          continue;
+        }
         allFunctions = [...allFunctions, ...funcs];
+        expanded = true;
         break;
       } catch(e) {
+        lastError = e.message;
         console.warn(`"${domain.lv1}" 확장 실패 (시도 ${attempt+1}):`, e.message);
         if (attempt === 0) await sleep(2000);
       }
     }
+    if (!expanded) failedDomains.push({ lv1: domain.lv1, message: lastError || '확장 실패' });
+  }
+
+  if (failedDomains.length > 0) {
+    const names = failedDomains.map(item => item.lv1).join(', ');
+    throw new Error(`일부 도메인의 기능 확장에 실패해 결과를 저장하지 않았습니다: ${names}. 다시 시도하세요.`);
   }
 
   // [안전망] 전체 0개면 조용한 "완료! 0개" 대신 명시적 에러

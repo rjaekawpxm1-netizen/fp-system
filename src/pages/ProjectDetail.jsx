@@ -545,7 +545,10 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
       if (result.systemName && !systemName) setSystemName(result.systemName);
       if (result.overview && !systemOverview) setSystemOverview(result.overview);
       // 도메인 확인 단계로 이동
-      setPendingDomains(result.domains.map(d => ({...d, enabled: true})));
+      const requiresReview = result.analysisStatus?.infoFailed
+        || result.analysisStatus?.domainFallback
+        || result.analysisStatus?.requirementChunks?.failures?.length > 0;
+      setPendingDomains(result.domains.map(d => ({...d, enabled: !requiresReview})));
       setPendingInfo(result);
       setDomainStep(true);
     } catch (err) {
@@ -1345,6 +1348,17 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
                       style={{background:'none',border:'none',color:'#9ca3af',cursor:'pointer',fontSize:18}}>✕</button>
                   </div>
                   <div style={{padding:'16px 20px'}}>
+                    {(pendingInfo?.analysisStatus?.infoFailed || pendingInfo?.analysisStatus?.domainFallback || pendingInfo?.analysisStatus?.requirementChunks?.failures?.length > 0) && (
+                      <div style={{marginBottom:14,padding:'10px 12px',border:'1px solid #f59e0b',borderRadius:8,background:'#fffbeb',color:'#92400e',fontSize:12,lineHeight:1.5}}>
+                        <strong>⚠ 분석 결과를 수동 확인해야 합니다.</strong>
+                        {pendingInfo.analysisStatus.infoFailed && <div>시스템 기본정보 추출에 실패해 기본값을 사용했습니다.</div>}
+                        {pendingInfo.analysisStatus.domainFallback && <div>도메인 분류 실패로 일반 폴백 도메인을 표시했습니다.</div>}
+                        {pendingInfo.analysisStatus.requirementChunks.failures.length > 0 && (
+                          <div>요구사항 청크 {pendingInfo.analysisStatus.requirementChunks.total}개 중 {pendingInfo.analysisStatus.requirementChunks.failures.length}개 실패: {pendingInfo.analysisStatus.requirementChunks.failures.map(f=>f.range).join(', ')}</div>
+                        )}
+                        <div>검토한 도메인을 직접 선택해야 다음 단계로 진행할 수 있습니다.</div>
+                      </div>
+                    )}
                     <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:14}}>
                       {pendingDomains.map((d,i)=>(
                         <div key={i} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',
