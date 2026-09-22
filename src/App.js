@@ -3,17 +3,21 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Home from './pages/Home';
 import ProjectList from './pages/ProjectList';
 import ProjectDetail from './pages/ProjectDetail';
+import Login from './pages/Login';
 import {
   fetchProjects,
   createProject as dbCreateProject,
   updateProject as dbUpdateProject,
   deleteProject as dbDeleteProject,
+  supabase,
 } from './utils/supabase';
 import { mergeProjectPatches } from './utils/projectUpdateQueue';
 
 const App = () => {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [session, setSession] = useState(null);
   const [error, setError] = useState(null);
   const [saveError, setSaveError] = useState(null);
   const projectsRef = useRef([]);
@@ -30,7 +34,23 @@ const App = () => {
     } finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { loadProjects(); }, [loadProjects]);
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setAuthLoading(false);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession);
+      setAuthLoading(false);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (session) loadProjects();
+    else { setProjects([]); setLoading(false); }
+  }, [authLoading, session, loadProjects]);
   useEffect(() => { projectsRef.current = projects; }, [projects]);
 
   const handleCreateProject = async (name) => {
@@ -92,12 +112,14 @@ const App = () => {
     } catch (err) { alert('복사 실패: ' + err.message); }
   };
 
-  if (loading) return (
+  if (authLoading || (session && loading)) return (
     <div style={{display:'flex',justifyContent:'center',alignItems:'center',height:'100vh',flexDirection:'column',gap:16,fontFamily:"'Pretendard',-apple-system,'Malgun Gothic',sans-serif"}}>
       <div style={{fontSize:36}}>⚙️</div>
       <p style={{fontSize:16,color:'#374151',fontWeight:600}}>데이터 불러오는 중...</p>
     </div>
   );
+
+  if (!session) return <Login />;
 
   if (error) return (
     <div style={{display:'flex',justifyContent:'center',alignItems:'center',height:'100vh',flexDirection:'column',gap:16,fontFamily:"'Pretendard',-apple-system,'Malgun Gothic',sans-serif"}}>
@@ -110,6 +132,7 @@ const App = () => {
   return (
     <BrowserRouter>
       <div style={{minHeight:'100vh',fontFamily:"'Pretendard',-apple-system,'Malgun Gothic',sans-serif"}}>
+        <button onClick={()=>supabase.auth.signOut()} style={{position:'fixed',zIndex:9000,right:16,top:16,border:'1px solid #cbd5e1',borderRadius:7,background:'#fff',padding:'6px 10px',fontSize:11,cursor:'pointer'}}>로그아웃</button>
         {saveError && (
           <div role="alert" style={{position:'fixed',zIndex:9999,right:16,bottom:16,maxWidth:420,padding:'12px 14px',borderRadius:8,background:'#fee2e2',border:'1px solid #f87171',color:'#991b1b',fontSize:13,boxShadow:'0 4px 16px rgba(0,0,0,.15)'}}>
             {saveError}
