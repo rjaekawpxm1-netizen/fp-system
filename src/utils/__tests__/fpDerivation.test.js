@@ -27,6 +27,9 @@ describe('deriveFTR', () => {
   test('1~5 클램프', () => {
     expect(deriveFTR('x', ['a','b','c','d','e','f','g']).ftr).toBe(5);
   });
+  test('빈값·공백·중복 참조그룹을 제거한 뒤 FTR 계산', () => {
+    expect(deriveFTR('사용자 등록', [' 사용자 ', '사용자', '', '권한']).ftr).toBe(2);
+  });
 });
 
 describe('deriveFPRow', () => {

@@ -48,6 +48,16 @@ describe('검토 대기 데이터 함수', () => {
   });
 });
 
+describe('유효하지 않은 행 합계 제외', () => {
+  test('0/음수 및 변경량 초과 행을 FP 합계에 반영하지 않음', () => {
+    const rows = [
+      { fpType:'EI', ftr:0, det:5, reuseType:REUSE_TYPE.NEW, ftrChange:0, detChange:0 },
+      { fpType:'EO', ftr:2, det:5, reuseType:REUSE_TYPE.CHANGED, ftrChange:3, detChange:0 },
+    ];
+    expect(calcTotalFP(rows)).toEqual({ newDev:'0.00', changed:'0.00' });
+  });
+});
+
 describe.each([
   ['ILF', { low: 7, medium: 10, high: 15 }],
   ['EIF', { low: 5, medium: 7, high: 10 }],

@@ -1,6 +1,7 @@
 // FP 복잡도 판정 및 가중치 산정
 // IFPUG CPM 4.3.1 / SW사업 대가산정 가이드 2025 기준
 import { REUSE_TYPE } from './fpConstants';
+import { isValidFPRow } from './fpRowValidation';
 
 const FP_WEIGHTS = {
   EI:  { low: 3, medium: 4, high: 6  },
@@ -128,7 +129,7 @@ export const getAvgWeight = (fpType) => {
 
 export const sumFPByReuseType = (rows, reuseType, method = 'standard') => {
   return (rows || [])
-    .filter(row => row.reuseType === reuseType && !row.calculationPending)
+    .filter(row => row.reuseType === reuseType && !row.calculationPending && isValidFPRow(row))
     .reduce((sum, row) => sum + (method === 'simple'
       ? getAvgWeight(row.fpType)
       : getWeight(row.fpType, row.ftr, row.det)), 0);
@@ -165,7 +166,7 @@ export const calcTotalFP = (rows, method = 'standard') => {
   let changed = 0;
 
   (rows || []).forEach((row) => {
-    if (row.calculationPending) return;
+    if (row.calculationPending || !isValidFPRow(row)) return;
     const weight = method === 'simple'
       ? getAvgWeight(row.fpType)
       : getWeight(row.fpType, row.ftr, row.det);

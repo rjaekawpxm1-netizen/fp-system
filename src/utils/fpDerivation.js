@@ -47,10 +47,13 @@ const FTR_FALLBACK_RULES = [
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 
 export const deriveFTR = (lv3, refGroups) => {
-  if (Array.isArray(refGroups) && refGroups.length > 0) {
+  const normalizedGroups = [...new Set((Array.isArray(refGroups) ? refGroups : [])
+    .map(group => String(group || '').trim())
+    .filter(Boolean))];
+  if (normalizedGroups.length > 0) {
     return {
-      ftr: clamp(refGroups.length, 1, 5),
-      basis: `참조: ${refGroups.slice(0, 5).join(', ')}`,
+      ftr: clamp(normalizedGroups.length, 1, 5),
+      basis: `참조: ${normalizedGroups.slice(0, 5).join(', ')}`,
     };
   }
   const name = (lv3 || '').trim();

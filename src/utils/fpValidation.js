@@ -9,6 +9,7 @@
 // fpCalculator.js의 getComplexity를 그대로 사용한다 (계산 엔진 중복 금지).
 // ============================================================
 import { getComplexity } from './fpCalculator';
+import { validateFPRowValues } from './fpRowValidation';
 
 // ── ① FP 분포 검증 ──────────────────────────────────────────
 export const validateDistribution = (fpList) => {
@@ -57,6 +58,14 @@ export const validateDistribution = (fpList) => {
     issues.push({
       severity: 'warning', type: '분류폴백',
       message: `AI 분류가 누락되어 동사 규칙으로 폴백 분류된 행 ${fallbackRows.length}개 (비고에 '분류폴백' 표시). 유형을 확인하세요.`,
+    });
+  }
+
+  const invalidRows = fpList.filter(row => !validateFPRowValues(row).valid);
+  if (invalidRows.length > 0) {
+    issues.push({
+      severity: 'error', type: '행값오류',
+      message: `FTR/RET·DET·변경량이 유효하지 않아 합계에서 제외된 행 ${invalidRows.length}개. 0/음수/총량 초과 값을 수정하세요.`,
     });
   }
 

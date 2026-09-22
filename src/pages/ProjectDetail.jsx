@@ -23,6 +23,7 @@ import { exportFPExcel, exportCostExcel } from '../utils/excelExport';
 import { REUSE_TYPE, REUSE_TYPES } from '../utils/fpConstants';
 import { isDataFunction, mergeRecalculatedFPRows } from '../utils/fpList';
 import { detectFunctionColumns, parseFunctionRows, parseManualColumnMapping } from '../utils/excelFunctionParser';
+import { validateFPRowValues } from '../utils/fpRowValidation';
 
 // ── 상수 ──────────────────────────────────────────────────────
 const FP_TYPES = ['ILF','EIF','EI','EO','EQ'];
@@ -1882,6 +1883,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
                           const funcPct = getFuncChangePct(ftrPct, detPct, f.fpType);
                           const impact = getImpactFactor(funcPct);
                           const fpPoint = isChanged ? Math.round(w * impact * 100)/100 : w;
+                          const rowValidation = validateFPRowValues(f);
                           return (
                             <tr key={f.id} id={`fp-row-${f.id}`} style={{borderBottom:'1px solid #f3f4f6',background:idx%2===0?'#fff':'#fafafa'}}>
                               {['lv1','lv2','lv3','definition'].map(field=>(
@@ -1895,10 +1897,10 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
                                 </select>
                               </td>
                               <td style={{padding:'5px 8px',textAlign:'center',background:'#f0f9ff'}}>
-                                <input type="number" value={f.ftr||1} onChange={e=>updateFP(f.id,'ftr',Number(e.target.value))} style={{width:40,border:'1px solid #e5e7eb',borderRadius:4,fontSize:11,padding:'2px 4px',textAlign:'center'}}/>
+                                <input type="number" min="1" max={['ILF','EIF'].includes(f.fpType)?6:5} value={f.ftr??''} onChange={e=>updateFP(f.id,'ftr',Number(e.target.value))} style={{width:40,border:`1px solid ${rowValidation.valid?'#e5e7eb':'#ef4444'}`,borderRadius:4,fontSize:11,padding:'2px 4px',textAlign:'center'}}/>
                               </td>
                               <td style={{padding:'5px 8px',textAlign:'center',background:'#f0f9ff'}}>
-                                <input type="number" value={f.det||5} onChange={e=>updateFP(f.id,'det',Number(e.target.value))} style={{width:40,border:'1px solid #e5e7eb',borderRadius:4,fontSize:11,padding:'2px 4px',textAlign:'center'}}/>
+                                <input type="number" min="1" value={f.det??''} onChange={e=>updateFP(f.id,'det',Number(e.target.value))} style={{width:40,border:`1px solid ${rowValidation.valid?'#e5e7eb':'#ef4444'}`,borderRadius:4,fontSize:11,padding:'2px 4px',textAlign:'center'}}/>
                               </td>
                               <td style={{padding:'5px 8px',textAlign:'center',background:cColor.bg||'#f9fafb'}}>
                                 <span style={{fontWeight:700,color:cColor.color,fontSize:12}}>{cColor.label||'-'}</span>
@@ -1912,11 +1914,13 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
                               {/* 변경량 컬럼 - 기능변경일 때만 활성 */}
                               <td style={{padding:'5px 6px',textAlign:'center',background:isChanged?'#fefce8':'#fafafa'}}>
                                 <input type="number" value={f.ftrChange||0} onChange={e=>updateFP(f.id,'ftrChange',Number(e.target.value))}
+                                  min="0" max={Number(f.ftr)||0}
                                   disabled={!isChanged}
                                   style={{width:38,border:'1px solid #e5e7eb',borderRadius:4,fontSize:11,padding:'2px 3px',textAlign:'center',background:isChanged?'#fff':'#f3f4f6',color:isChanged?'#374151':'#9ca3af'}}/>
                               </td>
                               <td style={{padding:'5px 6px',textAlign:'center',background:isChanged?'#fefce8':'#fafafa'}}>
                                 <input type="number" value={f.detChange||0} onChange={e=>updateFP(f.id,'detChange',Number(e.target.value))}
+                                  min="0" max={Number(f.det)||0}
                                   disabled={!isChanged}
                                   style={{width:38,border:'1px solid #e5e7eb',borderRadius:4,fontSize:11,padding:'2px 3px',textAlign:'center',background:isChanged?'#fff':'#f3f4f6',color:isChanged?'#374151':'#9ca3af'}}/>
                               </td>
@@ -1927,7 +1931,9 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
                                 {isChanged ? impact.toFixed(2) : '-'}
                               </td>
                               <td style={{padding:'5px 6px',textAlign:'center',background:f.calculationPending?'#fff7ed':'#f0fdf4',fontWeight:700,color:f.calculationPending?'#c2410c':'#16a34a',fontSize:12}}>
-                                {f.calculationPending ? (
+                                {!rowValidation.valid ? (
+                                  <span title={rowValidation.errors.join(', ')} style={{fontSize:10}}>합계 제외</span>
+                                ) : f.calculationPending ? (
                                   <button onClick={()=>updateFP(f.id,'calculationPending',false)} title="FTR/DET를 검토한 뒤 확정하세요"
                                     style={{border:'1px solid #fdba74',borderRadius:4,background:'#fff',color:'#c2410c',fontSize:10,cursor:'pointer',padding:'2px 4px'}}>수치 확정</button>
                                 ) : fpPoint}
