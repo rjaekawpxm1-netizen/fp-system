@@ -16,6 +16,7 @@ import { deriveFPRow } from './fpDerivation';
 import { splitTextChunks, prioritizeRfpText } from './textExtract';
 import { classifyReuse, summarizeReuse, snapDomainsToExisting } from './upgradeMatch';
 import { REUSE_TYPE } from './fpConstants';
+import { deriveDataFunctionMetrics } from './dataFunctionDerivation';
 
 const TEMPERATURE = 0;
 const MODEL = 'claude-sonnet-4-5';
@@ -743,16 +744,14 @@ export const deriveDataGroups = async (functions, systemName, rfpText = '') => {
     .filter(g => g.name)
     .map(g => ({
       name: String(g.name).trim(),
-      ret: Math.max(1, Math.min(6, Number(g.ret) || 1)),
-      det: Math.max(1, Math.min(99, Number(g.det) || 15)),
+      ...deriveDataFunctionMetrics(g),
       relatedLv2: Array.isArray(g.relatedLv2) ? g.relatedLv2 : [],
     }));
   const eif = (parsed.eif || [])
     .filter(g => g.name && g.source) // RFP 근거 없으면 제외
     .map(g => ({
       name: String(g.name).trim(),
-      ret: Math.max(1, Math.min(6, Number(g.ret) || 1)),
-      det: Math.max(1, Math.min(99, Number(g.det) || 10)),
+      ...deriveDataFunctionMetrics(g),
       source: String(g.source).slice(0, 120),
     }));
   return { ilf, eif };

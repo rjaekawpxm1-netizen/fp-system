@@ -1,4 +1,4 @@
-import { calcCostFP, getComplexity, getWeight, sumFPByReuseType } from '../fpCalculator';
+import { calcCostFP, calcTotalFP, getComplexity, getWeight, sumFPByReuseType } from '../fpCalculator';
 import { REUSE_TYPE } from '../fpConstants';
 
 describe('calcCostFP — 개발비 산정법 계약', () => {
@@ -32,6 +32,19 @@ describe('reuseType 공통 계약', () => {
   test('재사용 FP를 정통/간이 방식 모두 0이 아니게 집계', () => {
     expect(sumFPByReuseType(rows, REUSE_TYPE.REUSED, 'standard')).toBe(7);
     expect(sumFPByReuseType(rows, REUSE_TYPE.REUSED, 'simple')).toBe(7.5);
+  });
+});
+
+describe('검토 대기 데이터 함수', () => {
+  const pendingRow = {
+    fpType: 'ILF', ftr: 1, det: 1,
+    reuseType: REUSE_TYPE.NEW,
+    calculationPending: true,
+  };
+
+  test('수동 확정 전에는 FP 및 개발비 합계에서 제외', () => {
+    expect(calcTotalFP([pendingRow], 'standard').newDev).toBe('0.00');
+    expect(calcCostFP([pendingRow], 'standard').totalFP).toBe(0);
   });
 });
 

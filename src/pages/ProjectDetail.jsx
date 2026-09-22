@@ -689,7 +689,9 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
   const updateFP = (id, field, value) => {
     const updated = fpList.map(f => {
       if (f.id !== id) return f;
-      const newRow = { ...f, [field]: value };
+      const newRow = field === 'calculationPending' && value === false
+        ? { ...f, calculationPending: false, needsReview: false }
+        : { ...f, [field]: value };
       return autoCalcRow(newRow, fpMethod);
     });
     setFpList(updated);
@@ -753,9 +755,11 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
             definition: `${g.name} 데이터그룹을 관리한다`,
             fpType: 'ILF',
             ftr: g.ret, det: g.det,
+            calculationPending: g.calculationPending,
+            needsReview: g.needsReview,
             reuseType: upgradeMode ? REUSE_TYPE.REUSED : REUSE_TYPE.NEW,
             ftrChange: 0, detChange: 0,
-            bigo: `ILF | 관련: ${(g.relatedLv2 || []).slice(0, 4).join(', ') || '-'}`,
+            bigo: `${g.metricBasis} | 관련: ${(g.relatedLv2 || []).slice(0, 4).join(', ') || '-'}`,
           }, fpMethod));
         } else {
           // 폴백: 기존 LV2 단위 방식 (검토 필요 표시 — validateAll이 과다 시 경고)
@@ -769,6 +773,8 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
               definition: `${lv2} 데이터를 관리한다`,
               fpType: 'ILF',
               ftr: 1, det: 10,
+              calculationPending: true,
+              needsReview: true,
               reuseType: upgradeMode ? REUSE_TYPE.REUSED : REUSE_TYPE.NEW,
               ftrChange: 0, detChange: 0, bigo: 'ILF자동배정(메뉴단위-검토필요)',
             }, fpMethod);
@@ -791,9 +797,11 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
             lv3: `${g.name} (EIF)`,
             definition: `외부에서 참조하는 ${g.name} 데이터`,
             fpType: 'EIF', ftr: g.ret, det: g.det,
+            calculationPending: g.calculationPending,
+            needsReview: g.needsReview,
             reuseType: REUSE_TYPE.NEW,
             ftrChange: 0, detChange: 0,
-            bigo: `EIF | 근거: ${g.source}`,
+            bigo: `${g.metricBasis} | EIF 근거: ${g.source}`,
           }, fpMethod));
         } else if (rfpText) {
           // 폴백: rfpText 정규식 추출 (기존 방식)
@@ -811,6 +819,8 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
               lv3: `${sys} (EIF)`,
               definition: `${sys}에서 참조하는 외부 연계 데이터`,
               fpType: 'EIF', ftr: 1, det: 5,
+              calculationPending: true,
+              needsReview: true,
               reuseType: REUSE_TYPE.NEW,
               ftrChange: 0, detChange: 0, bigo: 'EIF자동배정(정규식-검토필요)',
             }, fpMethod)
@@ -1898,8 +1908,11 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
                               <td style={{padding:'5px 6px',textAlign:'center',background:isChanged?'#fefce8':'#fafafa',color:isChanged?'#d97706':'#9ca3af',fontWeight:isChanged?700:400,fontSize:11}}>
                                 {isChanged ? impact.toFixed(2) : '-'}
                               </td>
-                              <td style={{padding:'5px 6px',textAlign:'center',background:'#f0fdf4',fontWeight:700,color:'#16a34a',fontSize:12}}>
-                                {fpPoint}
+                              <td style={{padding:'5px 6px',textAlign:'center',background:f.calculationPending?'#fff7ed':'#f0fdf4',fontWeight:700,color:f.calculationPending?'#c2410c':'#16a34a',fontSize:12}}>
+                                {f.calculationPending ? (
+                                  <button onClick={()=>updateFP(f.id,'calculationPending',false)} title="FTR/DET를 검토한 뒤 확정하세요"
+                                    style={{border:'1px solid #fdba74',borderRadius:4,background:'#fff',color:'#c2410c',fontSize:10,cursor:'pointer',padding:'2px 4px'}}>수치 확정</button>
+                                ) : fpPoint}
                               </td>
                               <td style={{padding:'5px 6px',textAlign:'center'}}>
                                 <input value={f.bigo||''} onChange={e=>updateFP(f.id,'bigo',e.target.value)}

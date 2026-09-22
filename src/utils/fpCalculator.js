@@ -128,7 +128,7 @@ export const getAvgWeight = (fpType) => {
 
 export const sumFPByReuseType = (rows, reuseType, method = 'standard') => {
   return (rows || [])
-    .filter(row => row.reuseType === reuseType)
+    .filter(row => row.reuseType === reuseType && !row.calculationPending)
     .reduce((sum, row) => sum + (method === 'simple'
       ? getAvgWeight(row.fpType)
       : getWeight(row.fpType, row.ftr, row.det)), 0);
@@ -165,6 +165,7 @@ export const calcTotalFP = (rows, method = 'standard') => {
   let changed = 0;
 
   (rows || []).forEach((row) => {
+    if (row.calculationPending) return;
     const weight = method === 'simple'
       ? getAvgWeight(row.fpType)
       : getWeight(row.fpType, row.ftr, row.det);
