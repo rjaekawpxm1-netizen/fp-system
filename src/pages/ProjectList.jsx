@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { color, button, card } from '../styles/tokens';
+import { color, button } from '../styles/tokens';
 import GuideModal from './GuideModal';
 
 const { blue: BLUE, blueTint: BLUE_TINT, ink: INK, sub: SUB, mute: MUTE, line: LINE, bg: BG } = color;

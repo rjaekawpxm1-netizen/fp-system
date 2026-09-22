@@ -16,7 +16,7 @@ import { REUSE_TYPE } from './fpConstants';
 
 const norm = (s) => (s || '')
   .replace(/\s+/g, '')
-  .replace(/[()\[\]·\-_/.,]/g, '')
+  .replace(/[()[\]·_/.,-]/g, '')
   .replace(/(한다|하기|함|조회|관리)$/g, '')
   .toLowerCase();
 

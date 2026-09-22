@@ -3,7 +3,6 @@ import { useParams, useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import mammoth from 'mammoth';
 import {
-  generateFunctionsFromDoc,
   extractDomainsOnly,
   expandDomainsToFunctions,
   generateFPList,
@@ -14,7 +13,7 @@ import {
   deriveDataGroups,
 } from '../utils/claudeApi';
 import {
-  getWeight, getAvgWeight, getComplexity, getComplexityLabel,
+  getWeight, getAvgWeight, getComplexity,
   calcTotalFP, calcCostFP, getChangePct, getFuncChangePct, getImpactFactor,
 } from '../utils/fpCalculator';
 import { validateAll } from '../utils/fpValidation';
@@ -156,11 +155,9 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
   // 일괄 선택/수정
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkLV1, setBulkLV1] = useState('');
-  const [showBulkEdit, setShowBulkEdit] = useState(false);
   const [bulkReuseType, setBulkReuseType] = useState('재사용');
   // 직접입력 영역 여러개
   const [customAreas, setCustomAreas] = useState(['']);
-  const [customArea, setCustomArea] = useState('');
   const [areaTargetCount, setAreaTargetCount] = useState('');
 
   // ── 로딩 상태 ────────────────────────────────────────────────
@@ -168,7 +165,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
   const [loadingMsg, setLoadingMsg] = useState('');
   const [parseStep, setParseStep] = useState(0);
   const [parsePct, setParsePct] = useState(0);
-  const [abortGenerate, setAbortGenerate] = useState(false); // 생성 중단 플래그
+  const [, setAbortGenerate] = useState(false); // 생성 중단 UI 상태
   // Virtual Scroll
   const [vsStart, setVsStart] = useState(0); // 표시 시작 인덱스
   const VS_PAGE = 100; // 한 번에 표시할 행 수
@@ -665,7 +662,9 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
         try {
           const newFuncs = await expandArea(area, systemName, currentFunctions);
           if (newFuncs.length > 0) {
-            const withId = newFuncs.map((f,j)=>({...f,id:Date.now()+totalAdded+j}));
+            const idOffset = totalAdded;
+            const createdAt = Date.now();
+            const withId = newFuncs.map((f,j)=>({...f,id:createdAt+idOffset+j}));
             currentFunctions = [...currentFunctions, ...withId];
             totalAdded += withId.length;
             // 즉시 반영 (영역마다)
