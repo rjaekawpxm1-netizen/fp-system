@@ -3,6 +3,7 @@
  * SW사업 대가산정 가이드 2025 기준
  */
 import { saveAs } from 'file-saver';
+import { getComplexity, getComplexityLabel, getWeight } from './fpCalculator';
 
 // ExcelJS를 실행 시점에 동적 로드 (번들에서 분리)
 let _ExcelJS = null;
@@ -45,36 +46,13 @@ async function dl(wb, filename) {
 
 const AVG = { EI:4.0, EO:5.2, EQ:3.9, ILF:7.5, EIF:5.4 };
 
-function stdComp(t, ftr, det) {
-  ftr=Number(ftr)||0; det=Number(det)||0;
-  if (['ILF','EIF'].includes(t)) {
-    if (ftr<=1&&det<=19) return 'L';
-    if (ftr<=1&&det<=50) return 'A';
-    if (ftr<=1) return 'H';
-    if (ftr<=5&&det<=50) return 'A';
-    return 'H';
-  }
-  if (t==='EI') {
-    if (ftr<=1&&det<=15) return 'L';
-    if (ftr<=1) return 'A';
-    if (ftr===2&&det<=4) return 'L';
-    if (ftr===2&&det<=15) return 'A';
-    if (ftr===2) return 'H';
-    if (ftr>=3&&det<=4) return 'A';
-    return 'H';
-  }
-  if (t==='EO'||t==='EQ') {
-    if (ftr<=1&&det<=19) return 'L';
-    if (ftr<=1) return 'A';
-    if (ftr<=3&&det<=19) return 'A';
-    if (ftr<=3) return 'H';
-    if (ftr>=4&&det<=4) return 'A';
-    return 'H';
-  }
-  return 'A';
-}
-const SW = { EI:{L:3,A:4,H:6}, EO:{L:4,A:5,H:7}, EQ:{L:3,A:4,H:6}, ILF:{L:7,A:10,H:15}, EIF:{L:5,A:7,H:10} };
-const stdW = (t,ftr,det) => (SW[t]||{})[stdComp(t,ftr,det)]||0;
+export const getStandardExportValues = (fpType, ftr, det) => {
+  const complexity = getComplexity(fpType, ftr, det);
+  return {
+    complexity: getComplexityLabel(complexity),
+    weight: getWeight(fpType, ftr, det),
+  };
+};
 
 
 // ─── 간이법 시트 ──────────────────────────────────────────────
@@ -165,7 +143,7 @@ function buildStandard(wb, fpList, info) {
     const r=i+2;
     applyCell(ws.getCell(r,11),label,{bg:C.HEADER1,bold:true});
     sm(ws,r,12,r,13);
-    const val=key?fpList.filter(f=>f.reuseType===key).reduce((s,f)=>s+stdW(f.fpType,f.ftr,f.det),0):'측정 비대상';
+    const val=key?fpList.filter(f=>f.reuseType===key).reduce((s,f)=>s+getStandardExportValues(f.fpType,f.ftr,f.det).weight,0):'측정 비대상';
     applyCell(ws.getCell(r,12),typeof val==='number'?Math.round(val*100)/100:val,{bold:true,numFmt:'#,##0.00'});
   });
 
@@ -185,7 +163,7 @@ function buildStandard(wb, fpList, info) {
   const S=9;
   fpList.forEach((f,i)=>{
     const r=S+i; ws.getRow(r).height=15;
-    const comp=stdComp(f.fpType,f.ftr,f.det), w=stdW(f.fpType,f.ftr,f.det);
+    const { complexity: comp, weight: w } = getStandardExportValues(f.fpType,f.ftr,f.det);
     const reuse=f.reuseType||'신규개발', isChg=reuse==='기능변경';
     [[1,''],[2,f.lv1||'','left'],[3,f.lv2||'','left'],[4,f.lv3||'','left'],[5,f.definition||'','left'],
      [6,f.fpType||''],[7,f.ftr||''],[8,f.det||''],[9,comp],[10,w],[11,reuse,'left'],
@@ -204,7 +182,7 @@ function buildStandard(wb, fpList, info) {
 
   const last=S+fpList.length-1, tr=last+1;
   sm(ws,tr,2,tr,9); applyCell(ws.getCell(tr,2),'합  계',{bg:C.TOTAL,bold:true});
-  const tot=fpList.filter(f=>f.reuseType==='신규개발').reduce((s,f)=>s+stdW(f.fpType,f.ftr,f.det),0);
+  const tot=fpList.filter(f=>f.reuseType==='신규개발').reduce((s,f)=>s+getStandardExportValues(f.fpType,f.ftr,f.det).weight,0);
   applyCell(ws.getCell(tr,10),Math.round(tot*100)/100,{bg:C.TOTAL,bold:true,numFmt:'#,##0.00'});
   for(let c=11;c<=19;c++) applyCell(ws.getCell(tr,c),'',{bg:C.TOTAL});
 }
