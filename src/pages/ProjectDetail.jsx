@@ -22,6 +22,7 @@ import { reconstructPdfLines, detectFunctionListPattern, combineRfpFiles } from 
 import { exportFPExcel, exportCostExcel } from '../utils/excelExport';
 import { REUSE_TYPE, REUSE_TYPES } from '../utils/fpConstants';
 import { isDataFunction, mergeRecalculatedFPRows } from '../utils/fpList';
+import { detectFunctionColumns, parseFunctionRows, parseManualColumnMapping } from '../utils/excelFunctionParser';
 
 // ── 상수 ──────────────────────────────────────────────────────
 const FP_TYPES = ['ILF','EIF','EI','EO','EQ'];
@@ -301,36 +302,33 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
           for (let C = m.s.c; C <= m.e.c; C++)
             cellMap[`${R}_${C}`] = v;
       }
-      // 컬럼 자동 탐지
       const totalCols = range.e.c - range.s.c + 1;
-      const colStats = [];
-      for (let C = 0; C < totalCols; C++) {
-        const vals = new Set();
-        let nn = 0;
-        for (let R = 1; R <= Math.min(range.e.r, 200); R++) {
-          const v = cellMap[`${R}_${C}`];
-          if (v != null && String(v).trim()) { nn++; vals.add(String(v).trim()); }
-        }
-        colStats.push({c:C,nonNull:nn,unique:vals.size});
+      const rows = [];
+      for (let R = range.s.r; R <= range.e.r; R++) {
+        rows.push(Array.from({ length: totalCols }, (_, offset) => cellMap[`${R}_${range.s.c + offset}`]));
       }
-      const valid = colStats.filter(s=>s.nonNull>=10).sort((a,b)=>a.unique-b.unique);
-      const lv1C = valid[0]?.c??1, lv2C = valid[1]?.c??2, lv3C = valid[2]?.c??3, defC = valid[3]?.c??4;
-      const seen = new Set();
-      const funcs = [];
-      for (let R = 1; R <= range.e.r; R++) {
-        const lv1 = String(cellMap[`${R}_${lv1C}`]||'').trim();
-        const lv2 = String(cellMap[`${R}_${lv2C}`]||'').trim();
-        const lv3 = String(cellMap[`${R}_${lv3C}`]||'').trim();
-        const def = String(cellMap[`${R}_${defC}`]||'').trim();
-        if (!lv1||!lv2||!lv3) continue;
-        if (def.endsWith('데이터정보')||lv3.endsWith('데이터정보')) continue;
-        if (lv1==='LV1'||lv1==='대분류') continue;
-        const key = `${lv1}|${lv2}|${lv3}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        funcs.push({lv1,lv2,lv3,definition:def||`${lv3}을 처리한다`});
+      const detected = detectFunctionColumns(rows);
+      let columns = detected.columns;
+      let headerRow = detected.headerRow;
+      if (detected.missing.length > 0) {
+        const manual = window.prompt(
+          `LV1/LV2/LV3 헤더를 자동으로 찾지 못했습니다 (${detected.missing.join(', ')}).\n` +
+          'LV1, LV2, LV3, 정의 열 문자를 쉼표로 입력하세요. 예: B,C,D,E'
+        );
+        if (manual == null) return { isXlsx: true, cancelled: true, functions: [] };
+        columns = parseManualColumnMapping(manual);
+        headerRow = -1;
+        if (!columns) throw new Error('열 지정 형식이 올바르지 않습니다. 예: B,C,D,E');
       }
-      return { isXlsx: true, functions: funcs };
+      const parsed = parseFunctionRows(rows, columns, headerRow);
+      const sample = parsed.functions.slice(0, 3)
+        .map(f => `${f.lv1} > ${f.lv2} > ${f.lv3}`)
+        .join('\n');
+      const confirmed = window.confirm(
+        `기능목록 파싱 미리보기\n\n${sample || '(유효 행 없음)'}\n\n` +
+        `반영 ${parsed.functions.length}개 / 누락 ${parsed.stats.incompleteRows}개 (${Math.round(parsed.stats.missingRate * 100)}%) / 중복 ${parsed.stats.duplicateRows}개\n\n이 결과를 반영할까요?`
+      );
+      return { isXlsx: true, cancelled: !confirmed, functions: confirmed ? parsed.functions : [] };
     }
     throw new Error('HWP는 PDF로 변환 후 업로드하세요.');
   };
@@ -348,6 +346,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
 
       // xlsx 기능정의서 → xlsxFunctions에 저장
       if (result?.isXlsx) {
+        if (result.cancelled) return;
         if (result.functions.length === 0) {
           alert('기능 데이터를 찾을 수 없습니다. LV1/LV2/LV3 컬럼이 있는지 확인하세요.');
           return;
