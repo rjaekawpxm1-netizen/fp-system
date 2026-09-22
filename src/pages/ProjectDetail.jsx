@@ -5,7 +5,7 @@ import {
 } from '../utils/claudeApi';
 import {
   getWeight, getAvgWeight, getComplexity,
-  calcTotalFP, calcCostFP, getChangePct, getFuncChangePct, getImpactFactor,
+  calcTotalFP, getChangePct, getFuncChangePct, getImpactFactor,
 } from '../utils/fpCalculator';
 import { exportFPExcel, exportCostExcel } from '../utils/excelExport';
 import { REUSE_TYPE, REUSE_TYPES } from '../utils/fpConstants';
@@ -13,6 +13,7 @@ import { validateFPRowValues } from '../utils/fpRowValidation';
 import { useFileIngestion } from '../hooks/useFileIngestion';
 import { useFunctionGeneration } from '../hooks/useFunctionGeneration';
 import { useFPCalculation } from '../hooks/useFPCalculation';
+import { useDerivedTotals } from '../hooks/useDerivedTotals';
 
 // ── 상수 ──────────────────────────────────────────────────────
 const FP_TYPES = ['ILF','EIF','EI','EO','EQ'];
@@ -241,27 +242,30 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
     setTab,
     projectScale,
   });
+  const { stdSummary, simpleSummary, costCalc } = useDerivedTotals({
+    fpList,
+    fpMethod,
+    calcSizeCoeff,
+    COST_LINK,
+    costLinkIdx,
+    COST_PERF,
+    costPerfIdx,
+    COST_ENV,
+    costEnvIdx,
+    COST_SEC,
+    costSecIdx,
+    costUnitPrice,
+    costProfitRate,
+    costDirectExp,
+    costReverseMode,
+    costTargetBudget,
+  });
   if (!project) return (
     <div style={{display:'flex',justifyContent:'center',alignItems:'center',height:'100vh',flexDirection:'column',gap:16}}>
       <p style={{fontSize:15,color:'#374151'}}>프로젝트를 찾을 수 없습니다.</p>
       <button onClick={()=>navigate('/ba')} style={S.btn('#1d4ed8')}>목록으로</button>
     </div>
   );
-  // ── FP 요약 계산 ────────────────────────────────────────────
-  const stdSummary = calcTotalFP(fpList, 'standard');
-  const simpleSummary = calcTotalFP(fpList, 'simple');
-
-  // ── 개발비 계산 ──────────────────────────────────────────────
-  const costCalc = () => {
-    const { totalFP: tFP } = calcCostFP(fpList, fpMethod);
-    const sC = calcSizeCoeff(tFP);
-    const tC = sC*COST_LINK[costLinkIdx].v*COST_PERF[costPerfIdx].v*COST_ENV[costEnvIdx].v*COST_SEC[costSecIdx].v;
-    const dev = Math.round(tFP*costUnitPrice*tC);
-    const tot = Math.round(dev*(1+costProfitRate/100)+Number(costDirectExp||0));
-    const revFP = costReverseMode&&costTargetBudget ? Math.round((Number(costTargetBudget)-Number(costDirectExp||0))/(costUnitPrice*tC*(1+costProfitRate/100))) : 0;
-    return {tFP, sC, tC, dev, tot, revFP};
-  };
-
   const fmt = n => Math.round(n).toLocaleString();
   const fmtB = n => (n/1e8).toFixed(2)+'억원';
 
