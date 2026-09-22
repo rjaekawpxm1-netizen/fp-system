@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import mammoth from 'mammoth';
@@ -11,6 +11,7 @@ import {
   extractProjectInfo,
   parseDocumentFunctions,
   deriveDataGroups,
+  setClaudeProjectContext,
 } from '../utils/claudeApi';
 import {
   getWeight, getAvgWeight, getComplexity,
@@ -23,6 +24,7 @@ import { REUSE_TYPE, REUSE_TYPES } from '../utils/fpConstants';
 import { isDataFunction, mergeRecalculatedFPRows } from '../utils/fpList';
 import { detectFunctionColumns, parseFunctionRows, parseManualColumnMapping } from '../utils/excelFunctionParser';
 import { validateFPRowValues } from '../utils/fpRowValidation';
+import { getAuthHeaders } from '../utils/supabase';
 
 // ── 상수 ──────────────────────────────────────────────────────
 const FP_TYPES = ['ILF','EIF','EI','EO','EQ'];
@@ -104,6 +106,10 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
   const { id } = useParams();
   const navigate = useNavigate();
   const project = projects.find(p => p.id === id);
+  useEffect(() => {
+    setClaudeProjectContext(id);
+    return () => setClaudeProjectContext('');
+  }, [id]);
 
   // ── 탭 ──────────────────────────────────────────────────────
   const [tab, setTab] = useState('setup'); // setup | functions | fp
@@ -244,9 +250,10 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
 
         // Claude Vision API 호출
         try {
+          const authHeaders = await getAuthHeaders();
           const res = await fetch('/api/claude', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-Project-Id': id, ...authHeaders },
             body: JSON.stringify({
               model: 'claude-sonnet-4-5',
               max_tokens: 4000,

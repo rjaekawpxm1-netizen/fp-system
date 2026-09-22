@@ -5,6 +5,12 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
+export const getAuthHeaders = async () => {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error('로그인이 필요합니다.');
+  return { Authorization: `Bearer ${session.access_token}` };
+};
+
 // 프로젝트 전체 조회
 export const fetchProjects = async () => {
   const { data, error } = await supabase

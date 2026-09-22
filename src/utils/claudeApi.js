@@ -17,9 +17,15 @@ import { splitTextChunks, prioritizeRfpText } from './textExtract';
 import { classifyReuse, summarizeReuse, snapDomainsToExisting } from './upgradeMatch';
 import { REUSE_TYPE } from './fpConstants';
 import { deriveDataFunctionMetrics } from './dataFunctionDerivation';
+import { getAuthHeaders } from './supabase';
 
 const TEMPERATURE = 0;
 const MODEL = 'claude-sonnet-4-5';
+let activeProjectId = '';
+
+export const setClaudeProjectContext = (projectId) => {
+  activeProjectId = projectId || '';
+};
 
 // ── 기본 API 호출 (재시도 포함) ──────────────────────────────
 const callAPI = async (content, maxTokens = 2000, retries = 3) => {
@@ -30,9 +36,10 @@ const callAPI = async (content, maxTokens = 2000, retries = 3) => {
       const timer = setTimeout(() => controller.abort(), 70000);
       let res;
       try {
+        const authHeaders = await getAuthHeaders();
         res = await fetch('/api/claude', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'X-Project-Id': activeProjectId, ...authHeaders },
           body: JSON.stringify({
             model: MODEL,
             max_tokens: maxTokens,
