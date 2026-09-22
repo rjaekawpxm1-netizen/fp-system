@@ -21,6 +21,7 @@ import { validateAll } from '../utils/fpValidation';
 import { reconstructPdfLines, detectFunctionListPattern } from '../utils/textExtract';
 import { exportFPExcel, exportCostExcel } from '../utils/excelExport';
 import { REUSE_TYPE, REUSE_TYPES } from '../utils/fpConstants';
+import { isDataFunction, mergeRecalculatedFPRows } from '../utils/fpList';
 
 // ── 상수 ──────────────────────────────────────────────────────
 const FP_TYPES = ['ILF','EIF','EI','EO','EQ'];
@@ -709,8 +710,8 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
       // 단위여야 하므로 메뉴 단위 배정은 같은 엔터티를 중복 계상 (ILF 43개 사고).
       // AI가 기능 구조에서 데이터그룹을 도출하고, 그룹명을 FP 분류에도 전달해
       // FTR 근거(참조 그룹)와 ILF 명칭을 일치시킨다.
-      const existingILFs = fpList.filter(f => f.fpType === 'ILF');
-      const keepExistingDataRows = existingILFs.length > 0;
+      const existingDataRows = fpList.filter(isDataFunction);
+      const keepExistingDataRows = existingDataRows.length > 0;
       let dataGroups = { ilf: [], eif: [] };
       if (!keepExistingDataRows) {
         setLoadingMsg('데이터그룹(ILF/EIF) 도출 중...');
@@ -737,7 +738,9 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
       });
 
       // ── 2) ILF 행 생성 ────────────────────────────────────────
-      let finalFpList = withId;
+      let finalFpList = keepExistingDataRows
+        ? mergeRecalculatedFPRows(withId, existingDataRows)
+        : withId;
       if (!keepExistingDataRows) {
         let ilfRows = [];
         if (dataGroups.ilf.length > 0) {
