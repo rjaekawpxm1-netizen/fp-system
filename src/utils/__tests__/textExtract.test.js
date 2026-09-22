@@ -1,4 +1,4 @@
-import { reconstructPdfLines, splitTextChunks, prioritizeRfpText, detectFunctionListPattern } from '../textExtract';
+import { combineRfpFiles, reconstructPdfLines, splitTextChunks, prioritizeRfpText, detectFunctionListPattern } from '../textExtract';
 
 const mk = (str, x, y, w) => ({ str, transform: [10, 0, 0, 10, x, y], width: w });
 
@@ -74,6 +74,22 @@ describe('prioritizeRfpText', () => {
   });
   test('예산 이내면 원본 유지', () => {
     expect(prioritizeRfpText('짧음', 1000)).toBe('짧음');
+  });
+
+  test('60,000자 뒤의 핵심 SFR을 전체 원문 우선순위화로 보존', () => {
+    const prefix = '제안서 작성 및 평가 기준 입찰 계약 조건 '.repeat(2500);
+    const sfr = 'SFR-999 시민 신청정보 등록 및 처리 기능을 제공해야 한다. '.repeat(80);
+    const out = combineRfpFiles([{ name: 'large.txt', text: prefix + sfr }], 12000);
+    expect(out).toContain('SFR-999');
+    expect(out.length).toBeLessThanOrEqual(12000);
+  });
+
+  test('빈 줄 없는 초대형 단일 블록도 빈 결과를 반환하지 않음', () => {
+    const giant = '시스템은 사용자 정보를 등록 조회 수정 삭제 처리할 수 있어야 한다. '.repeat(5000);
+    const out = prioritizeRfpText(giant, 10000);
+    expect(out.length).toBeGreaterThan(0);
+    expect(out.length).toBeLessThanOrEqual(10000);
+    expect(out).toContain('사용자 정보를 등록');
   });
 });
 

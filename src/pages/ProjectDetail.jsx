@@ -18,7 +18,7 @@ import {
   calcTotalFP, calcCostFP, getChangePct, getFuncChangePct, getImpactFactor,
 } from '../utils/fpCalculator';
 import { validateAll } from '../utils/fpValidation';
-import { reconstructPdfLines, detectFunctionListPattern } from '../utils/textExtract';
+import { reconstructPdfLines, detectFunctionListPattern, combineRfpFiles } from '../utils/textExtract';
 import { exportFPExcel, exportCostExcel } from '../utils/excelExport';
 import { REUSE_TYPE, REUSE_TYPES } from '../utils/fpConstants';
 import { isDataFunction, mergeRecalculatedFPRows } from '../utils/fpList';
@@ -459,7 +459,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
 
       const fileEntry = {
         name: file.name,
-        text: text.slice(0, 60000), // [변경] 15,000자 → 60,000자 (RFP 중후반 요구사항 유실 방지)
+        text,
         type: file.name.split('.').pop().toLowerCase(),
         size: Math.round(text.length / 1000),
         addedAt: new Date().toISOString(),
@@ -474,8 +474,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
       setUploadedFiles(newFiles);
 
       // 합산 텍스트 업데이트
-      const combinedText = newFiles.map(f => f.text).join('\n\n---\n\n');
-      const rfpFull = combinedText.slice(0, 150000); // [변경] 40,000 → 150,000 (섹션 우선순위 컷은 claudeApi에서 적용)
+      const rfpFull = combineRfpFiles(newFiles, 150000);
       setRfpText(rfpFull);
       saveProject({uploadedFiles: newFiles, rfpText: rfpFull});
 
@@ -499,8 +498,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
   // 파일 삭제
   const handleRemoveFile = (fileName) => {
     const newFiles = uploadedFiles.filter(f => f.name !== fileName);
-    const combinedText = newFiles.map(f => f.text).join('\n\n---\n\n');
-    const rfpFull = combinedText.slice(0, 40000); // Tier2
+    const rfpFull = combineRfpFiles(newFiles, 150000);
     setUploadedFiles(newFiles);
     setRfpText(rfpFull);
     saveProject({uploadedFiles: newFiles, rfpText: rfpFull});

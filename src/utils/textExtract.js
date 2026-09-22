@@ -96,8 +96,11 @@ const ADMIN_KEYWORDS = /제안서\s*작성|평가\s*(기준|방법|항목)|입�
 
 export const prioritizeRfpText = (text, budget = 150000) => {
   if (!text || text.length <= budget) return text || '';
-  // 빈 줄 2개 이상 또는 장 표제 기준으로 블록 분할 (공백 블록 제외)
-  const blocks = text.split(/\n{2,}/).filter(b => b.trim().length > 0);
+  // 큰 단일 블록도 후보에서 탈락하지 않도록 줄/문자 예산 단위로 재분할한다.
+  const maxBlockSize = Math.max(1000, Math.min(12000, budget));
+  const blocks = text.split(/\n{2,}/)
+    .filter(b => b.trim().length > 0)
+    .flatMap(block => splitTextChunks(block, maxBlockSize, 0));
   const scored = blocks.map((b, i) => {
     const func = (b.match(FUNC_KEYWORDS) || []).length;
     const admin = (b.match(ADMIN_KEYWORDS) || []).length;
@@ -129,6 +132,14 @@ export const prioritizeRfpText = (text, budget = 150000) => {
     }
   }
   return picked.sort((a, b) => a.i - b.i).map(s => s.b).join('\n\n');
+};
+
+export const combineRfpFiles = (files, budget = 150000) => {
+  const fullText = (files || [])
+    .map(file => file?.text || '')
+    .filter(Boolean)
+    .join('\n\n---\n\n');
+  return prioritizeRfpText(fullText, budget);
 };
 
 // ── D1. 기능목록 문서 감지 ───────────────────────────────────
