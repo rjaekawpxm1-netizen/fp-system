@@ -111,8 +111,8 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
   // ── 프로젝트 설정 상태 ───────────────────────────────────────
   const [systemName, setSystemName] = useState(project?.systemName || '');
   const [systemOverview, setSystemOverview] = useState(project?.systemOverview || '');
-  const [projectBudget, setProjectBudget] = useState(project?.projectBudget || ''); // 사업 예산
-  const [projectScale, setProjectScale] = useState(project?.projectScale || ''); // 목표 기능수 (예산에서 자동계산)
+  const [projectBudget, setProjectBudget] = useState(project?.settings?.projectBudget || ''); // 사업 예산
+  const [projectScale, setProjectScale] = useState(project?.settings?.projectScale || ''); // 목표 기능수 (예산에서 자동계산)
   const [userInput, setUserInput] = useState(project?.userInput || '');
   const [rfpText, setRfpText] = useState(project?.rfpText || ''); // 합산 텍스트 (하위호환)
   const [uploadedFiles, setUploadedFiles] = useState(project?.uploadedFiles || []); // [{name,text,type,size}]
@@ -120,7 +120,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
 
   // ── 기능목록 상태 ────────────────────────────────────────────
   const [functions, setFunctions] = useState(project?.functions || []);
-  const [fpMethod, setFpMethod] = useState('standard');
+  const [fpMethod, setFpMethod] = useState(project?.settings?.fpMethod || 'standard');
 
   // ── FP 산정 상태 ────────────────────────────────────────────
   const [fpList, setFpList] = useState(project?.fpList || []);
@@ -128,15 +128,15 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
 
   // ── 개발비 상태 ──────────────────────────────────────────────
   const [showCostPanel, setShowCostPanel] = useState(false);
-  const [costLinkIdx, setCostLinkIdx] = useState(2);
-  const [costPerfIdx, setCostPerfIdx] = useState(2);
-  const [costEnvIdx, setCostEnvIdx] = useState(1);
-  const [costSecIdx, setCostSecIdx] = useState(1);
-  const [costUnitPrice, setCostUnitPrice] = useState(605784);
-  const [costProfitRate, setCostProfitRate] = useState(10);
-  const [costDirectExp, setCostDirectExp] = useState(0);
-  const [costReverseMode, setCostReverseMode] = useState(false);
-  const [costTargetBudget, setCostTargetBudget] = useState('');
+  const [costLinkIdx, setCostLinkIdx] = useState(project?.settings?.costLinkIdx ?? 2);
+  const [costPerfIdx, setCostPerfIdx] = useState(project?.settings?.costPerfIdx ?? 2);
+  const [costEnvIdx, setCostEnvIdx] = useState(project?.settings?.costEnvIdx ?? 1);
+  const [costSecIdx, setCostSecIdx] = useState(project?.settings?.costSecIdx ?? 1);
+  const [costUnitPrice, setCostUnitPrice] = useState(project?.settings?.costUnitPrice ?? 605784);
+  const [costProfitRate, setCostProfitRate] = useState(project?.settings?.costProfitRate ?? 10);
+  const [costDirectExp, setCostDirectExp] = useState(project?.settings?.costDirectExp ?? 0);
+  const [costReverseMode, setCostReverseMode] = useState(project?.settings?.costReverseMode ?? false);
+  const [costTargetBudget, setCostTargetBudget] = useState(project?.settings?.costTargetBudget || '');
 
   // ── 영역 추가 상태 ───────────────────────────────────────────
   const [showAreaPanel, setShowAreaPanel] = useState(false);
@@ -146,7 +146,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
   const [searchKeyword, setSearchKeyword] = useState('');
   const [filterLV1, setFilterLV1] = useState('');
   // 고도화 모드
-  const [upgradeMode, setUpgradeMode] = useState(false);
+  const [upgradeMode, setUpgradeMode] = useState(project?.settings?.upgradeMode ?? false);
   // 도메인 확인 단계
   const [domainStep, setDomainStep] = useState(false); // true=도메인확인중
   const [pendingDomains, setPendingDomains] = useState([]); // AI가 뽑은 LV1 목록
@@ -175,6 +175,10 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
   const saveProject = useCallback((updates) => {
     if (onUpdateProject) onUpdateProject(id, updates);
   }, [id, onUpdateProject]);
+
+  const saveSettings = useCallback((settings) => {
+    saveProject({ settings });
+  }, [saveProject]);
 
   if (!project) return (
     <div style={{display:'flex',justifyContent:'center',alignItems:'center',height:'100vh',flexDirection:'column',gap:16}}>
@@ -389,7 +393,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
           seen.add(k); return true;
         });
         setFunctions(deduped);
-        if (isUpgrade) setUpgradeMode(true);
+        if (isUpgrade) { setUpgradeMode(true); saveSettings({ upgradeMode: true }); }
         saveProject({functions: deduped, xlsxFunctions: newXlsx});
         setTab('functions'); // 탭 먼저 전환
         setTimeout(()=>{
@@ -407,6 +411,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
             );
             if (toUpgrade) {
               setUpgradeMode(true);
+              saveSettings({ upgradeMode: true });
               const remarked = deduped.map(f => ({...f, reuseType: REUSE_TYPE.REUSED}));
               setFunctions(remarked);
               saveProject({functions: remarked});
@@ -597,7 +602,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
         functions: finalFunctions,
         systemName: pendingInfo.systemName || systemName,
         systemOverview: pendingInfo.overview || systemOverview,
-        projectBudget, projectScale,
+        settings: { projectBudget, projectScale },
         rfpText, userInput,
       });
       setTab('functions');
@@ -1016,22 +1021,23 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
                   <div style={{display:'flex',gap:4,marginBottom:8}}>
                     {['standard','simple'].map(m=><button key={m} onClick={()=>{
                       setFpMethod(m);
+                      saveSettings({ fpMethod: m });
                       const updated = fpList.map(f=>autoCalcRow(f,m));
-                      setFpList(updated); saveProject({fpList:updated, fpMethod:m});
+                      setFpList(updated); saveProject({fpList:updated});
                     }} style={{padding:'4px 12px',fontSize:11,fontWeight:600,border:'1px solid '+(fpMethod===m?'#1d4ed8':'#e5e7eb'),borderRadius:5,cursor:'pointer',background:fpMethod===m?'#1d4ed8':'#fff',color:fpMethod===m?'#fff':'#374151'}}>{m==='standard'?'정통법':'간이법'}</button>)}
                   </div>
                   <div style={{fontSize:10,color:'#6b7280',marginBottom:2}}>단가(원/FP)</div>
-                  <input type="number" value={costUnitPrice} onChange={e=>setCostUnitPrice(Number(e.target.value))} style={{...inp,marginBottom:6}}/>
+                  <input type="number" value={costUnitPrice} onChange={e=>{const v=Number(e.target.value);setCostUnitPrice(v);saveSettings({costUnitPrice:v});}} style={{...inp,marginBottom:6}}/>
                   <div style={{fontSize:10,color:'#6b7280',marginBottom:2}}>이윤율(%)</div>
-                  <input type="number" value={costProfitRate} onChange={e=>setCostProfitRate(Number(e.target.value))} style={{...inp,marginBottom:6}}/>
+                  <input type="number" value={costProfitRate} onChange={e=>{const v=Number(e.target.value);setCostProfitRate(v);saveSettings({costProfitRate:v});}} style={{...inp,marginBottom:6}}/>
                   <div style={{fontSize:10,color:'#6b7280',marginBottom:2}}>직접경비(원)</div>
-                  <input type="number" value={costDirectExp} onChange={e=>setCostDirectExp(Number(e.target.value))} style={inp}/>
+                  <input type="number" value={costDirectExp} onChange={e=>{const v=Number(e.target.value);setCostDirectExp(v);saveSettings({costDirectExp:v});}} style={inp}/>
                 </div>
                 <div style={{minWidth:210}}>
-                  <div style={{fontSize:10,color:'#6b7280',marginBottom:2}}>연계복잡성</div><select value={costLinkIdx} onChange={e=>setCostLinkIdx(Number(e.target.value))} style={sel}>{COST_LINK.map((c,i)=><option key={i} value={i}>{c.l} ({c.v})</option>)}</select>
-                  <div style={{fontSize:10,color:'#6b7280',marginBottom:2}}>성능 요구수준</div><select value={costPerfIdx} onChange={e=>setCostPerfIdx(Number(e.target.value))} style={sel}>{COST_PERF.map((c,i)=><option key={i} value={i}>{c.l} ({c.v})</option>)}</select>
-                  <div style={{fontSize:10,color:'#6b7280',marginBottom:2}}>운영환경 호환성</div><select value={costEnvIdx} onChange={e=>setCostEnvIdx(Number(e.target.value))} style={sel}>{COST_ENV.map((c,i)=><option key={i} value={i}>{c.l} ({c.v})</option>)}</select>
-                  <div style={{fontSize:10,color:'#6b7280',marginBottom:2}}>보안성</div><select value={costSecIdx} onChange={e=>setCostSecIdx(Number(e.target.value))} style={sel}>{COST_SEC.map((c,i)=><option key={i} value={i}>{c.l} ({c.v})</option>)}</select>
+                  <div style={{fontSize:10,color:'#6b7280',marginBottom:2}}>연계복잡성</div><select value={costLinkIdx} onChange={e=>{const v=Number(e.target.value);setCostLinkIdx(v);saveSettings({costLinkIdx:v});}} style={sel}>{COST_LINK.map((c,i)=><option key={i} value={i}>{c.l} ({c.v})</option>)}</select>
+                  <div style={{fontSize:10,color:'#6b7280',marginBottom:2}}>성능 요구수준</div><select value={costPerfIdx} onChange={e=>{const v=Number(e.target.value);setCostPerfIdx(v);saveSettings({costPerfIdx:v});}} style={sel}>{COST_PERF.map((c,i)=><option key={i} value={i}>{c.l} ({c.v})</option>)}</select>
+                  <div style={{fontSize:10,color:'#6b7280',marginBottom:2}}>운영환경 호환성</div><select value={costEnvIdx} onChange={e=>{const v=Number(e.target.value);setCostEnvIdx(v);saveSettings({costEnvIdx:v});}} style={sel}>{COST_ENV.map((c,i)=><option key={i} value={i}>{c.l} ({c.v})</option>)}</select>
+                  <div style={{fontSize:10,color:'#6b7280',marginBottom:2}}>보안성</div><select value={costSecIdx} onChange={e=>{const v=Number(e.target.value);setCostSecIdx(v);saveSettings({costSecIdx:v});}} style={sel}>{COST_SEC.map((c,i)=><option key={i} value={i}>{c.l} ({c.v})</option>)}</select>
                 </div>
                 <div style={{minWidth:190}}>
                   <div style={{background:'#eff6ff',borderRadius:8,padding:'10px 14px',textAlign:'center',marginBottom:6}}>
@@ -1069,14 +1075,14 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
                   }} style={{...S.btn('#16a34a'),width:'100%',fontSize:12}}>📥 개발비 Excel</button>
                 </div>
                 <div style={{minWidth:170}}>
-                  <button onClick={()=>setCostReverseMode(v=>!v)} style={{padding:'5px 12px',fontSize:11,fontWeight:600,border:'none',borderRadius:5,cursor:'pointer',background:costReverseMode?'#f59e0b':'#e5e7eb',color:costReverseMode?'#fff':'#374151',marginBottom:8}}>
+                  <button onClick={()=>{const v=!costReverseMode;setCostReverseMode(v);saveSettings({costReverseMode:v});}} style={{padding:'5px 12px',fontSize:11,fontWeight:600,border:'none',borderRadius:5,cursor:'pointer',background:costReverseMode?'#f59e0b':'#e5e7eb',color:costReverseMode?'#fff':'#374151',marginBottom:8}}>
                     🔄 예산역산 {costReverseMode?'ON':'OFF'}
                   </button>
                   {costReverseMode&&<>
-                    <input type="number" value={costTargetBudget} onChange={e=>setCostTargetBudget(e.target.value)} placeholder="목표예산(원)" style={{padding:'5px 8px',border:'1px solid #e5e7eb',borderRadius:5,fontSize:12,width:'100%',marginBottom:5}}/>
+                    <input type="number" value={costTargetBudget} onChange={e=>{setCostTargetBudget(e.target.value);saveSettings({costTargetBudget:e.target.value});}} placeholder="목표예산(원)" style={{padding:'5px 8px',border:'1px solid #e5e7eb',borderRadius:5,fontSize:12,width:'100%',marginBottom:5}}/>
                     <div style={{display:'flex',gap:3,flexWrap:'wrap',marginBottom:6}}>
                       {[[1,1e8],[2,2e8],[3,3e8],[5,5e8],[10,1e9],[20,2e9],[30,3e9],[50,5e9],[100,1e10]].map(([l,v])=>(
-                        <button key={l} onClick={()=>setCostTargetBudget(String(v))} style={{fontSize:10,padding:'2px 7px',borderRadius:8,background:'#f3f4f6',color:'#374151',border:'1px solid #e5e7eb',cursor:'pointer'}}>{l}억</button>
+                        <button key={l} onClick={()=>{setCostTargetBudget(String(v));saveSettings({costTargetBudget:String(v)});}} style={{fontSize:10,padding:'2px 7px',borderRadius:8,background:'#f3f4f6',color:'#374151',border:'1px solid #e5e7eb',cursor:'pointer'}}>{l}억</button>
                       ))}
                     </div>
                     {costTargetBudget&&<div style={{background:'#fffbeb',border:'1px solid #fde68a',borderRadius:7,padding:'9px 12px'}}>
@@ -1132,7 +1138,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
                           const target = calcTargetFuncCount(e.target.value);
                           setProjectScale(target > 0 ? String(target) : '');
                           setAreaTargetCount(target > 0 ? String(target) : '');
-                          saveProject({projectBudget:e.target.value});
+                          saveSettings({projectBudget:e.target.value,projectScale:target > 0 ? String(target) : ''});
                         }}
                         placeholder="예산 입력 (원)"
                         style={{...S.input,flex:1,fontSize:13}}/>
@@ -1145,7 +1151,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
                           const target = calcTargetFuncCount(v);
                           setProjectScale(target > 0 ? String(target) : '');
                           setAreaTargetCount(target > 0 ? String(target) : '');
-                          saveProject({projectBudget:String(v)});
+                          saveSettings({projectBudget:String(v),projectScale:target > 0 ? String(target) : ''});
                         }} style={{fontSize:10,padding:'2px 8px',borderRadius:8,
                           background: projectBudget===String(v)?'#1d4ed8':'#f3f4f6',
                           color: projectBudget===String(v)?'#fff':'#374151',
@@ -1203,7 +1209,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
                     )}
                     {/* 직접 입력도 가능 */}
                     <input type="number" value={projectScale}
-                      onChange={e=>{setProjectScale(e.target.value);setAreaTargetCount(e.target.value);}}
+                      onChange={e=>{setProjectScale(e.target.value);setAreaTargetCount(e.target.value);saveSettings({projectScale:e.target.value});}}
                       placeholder="직접 입력도 가능"
                       style={{...S.input,width:'100%',fontSize:12,marginTop:6}}/>
                   </div>
@@ -1216,7 +1222,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
                   {key:false, label:'🆕 신규 구축', desc:'RFP/기능정의서 기반으로 기능목록 새로 생성'},
                   {key:true,  label:'🔧 고도화 사업', desc:'기존 기능 업로드 후 신규 기능만 추가 생성'},
                 ].map(({key,label,desc})=>(
-                  <div key={String(key)} onClick={()=>setUpgradeMode(key)}
+                  <div key={String(key)} onClick={()=>{setUpgradeMode(key);saveSettings({upgradeMode:key});}}
                     style={{flex:1,padding:'14px 20px',borderRadius:10,cursor:'pointer',
                       border:`2px solid ${upgradeMode===key?'#1d4ed8':'#e5e7eb'}`,
                       background:upgradeMode===key?'#eff6ff':'#fff',transition:'all 0.2s'}}>
@@ -1776,6 +1782,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
                     {['standard','simple'].map(m=>(
                       <button key={m} onClick={()=>{
                         setFpMethod(m);
+                        saveSettings({fpMethod:m});
                         const updated = fpList.map(f=>autoCalcRow(f,m));
                         setFpList(updated); saveProject({fpList:updated});
                       }} style={{padding:'4px 10px',fontSize:11,fontWeight:600,border:'1px solid '+(fpMethod===m?'#1d4ed8':'#e5e7eb'),borderRadius:5,cursor:'pointer',background:fpMethod===m?'#1d4ed8':'#fff',color:fpMethod===m?'#fff':'#374151'}}>

@@ -57,7 +57,7 @@ export const deleteProject = async (id) => {
 };
 
 // DB → React 변환
-const dbToProject = (row) => ({
+export const dbToProject = (row) => ({
   id: row.id,
   name: row.name,
   systemName: row.system_name || '',
@@ -79,12 +79,13 @@ const dbToProject = (row) => ({
   traceList: row.trace_list || [],
   tcList: row.tc_list || [],
   asisList: row.asis_list || [],
+  settings: row.settings || {},
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
 
 // React → DB 변환
-const projectToDb = (project) => {
+export const projectToDb = (project) => {
   const db = {};
   if (project.id !== undefined) db.id = project.id;
   if (project.name !== undefined) db.name = project.name;
@@ -107,5 +108,6 @@ const projectToDb = (project) => {
   if (project.traceList !== undefined) db.trace_list = project.traceList;
   if (project.tcList !== undefined) db.tc_list = project.tcList;
   if (project.asisList !== undefined) db.asis_list = project.asisList;
+  if (project.settings !== undefined) db.settings = project.settings;
   return db;
 };

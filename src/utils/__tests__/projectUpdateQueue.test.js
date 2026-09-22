@@ -10,4 +10,11 @@ describe('mergeProjectPatches', () => {
       xlsxFunctions: [{ lv3: '등록' }, { lv3: '조회' }],
     });
   });
+
+  test('연속 설정 patch도 필드 단위로 병합', () => {
+    expect(mergeProjectPatches(
+      { settings: { projectBudget: '100', fpMethod: 'standard' } },
+      { settings: { fpMethod: 'simple', upgradeMode: true } },
+    )).toEqual({ settings: { projectBudget: '100', fpMethod: 'simple', upgradeMode: true } });
+  });
 });

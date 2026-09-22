@@ -16,6 +16,7 @@ const App = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [saveError, setSaveError] = useState(null);
+  const projectsRef = useRef([]);
   const updateTimersRef = useRef({});
   const pendingUpdatesRef = useRef({});
 
@@ -30,6 +31,7 @@ const App = () => {
   }, []);
 
   useEffect(() => { loadProjects(); }, [loadProjects]);
+  useEffect(() => { projectsRef.current = projects; }, [projects]);
 
   const handleCreateProject = async (name) => {
     const newProject = {
@@ -38,6 +40,7 @@ const App = () => {
       mainFunctions: '', relatedOrgs: '',
       functions: [], fpList: [], fpSummary: { newDev: 0, changed: 0 },
       screenList: [], reqList: [], crudMatrix: { entities: [], matrix: [] },
+      settings: {},
     };
     try {
       const created = await dbCreateProject(newProject);
@@ -53,9 +56,17 @@ const App = () => {
   };
 
   const handleUpdateProject = useCallback((id, updates) => {
-    setProjects(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
+    let normalizedUpdates = updates;
+    const nextProjects = projectsRef.current.map(p => {
+      if (p.id !== id) return p;
+      const merged = mergeProjectPatches(p, updates);
+      if (updates.settings) normalizedUpdates = { ...updates, settings: merged.settings };
+      return merged;
+    });
+    projectsRef.current = nextProjects;
+    setProjects(nextProjects);
     setSaveError(null);
-    pendingUpdatesRef.current[id] = mergeProjectPatches(pendingUpdatesRef.current[id], updates);
+    pendingUpdatesRef.current[id] = mergeProjectPatches(pendingUpdatesRef.current[id], normalizedUpdates);
     if (updateTimersRef.current[id]) clearTimeout(updateTimersRef.current[id]);
     updateTimersRef.current[id] = setTimeout(async () => {
       const mergedUpdates = pendingUpdatesRef.current[id];
