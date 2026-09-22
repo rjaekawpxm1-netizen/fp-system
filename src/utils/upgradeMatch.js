@@ -78,7 +78,7 @@ export const classifyReuse = (generated, existing, opts = {}) => {
       return { ...f, reuseType: REUSE_TYPE.REUSED, matchedWith: `${exact.lv2} > ${exact.lv3}` };
     }
     // 2) 유사도 최고값 (같은 LV2 우선, 없으면 전체)
-    let best = null, bestSim = 0;
+    let best = null, bestSim = 0, contextMismatch = false;
     for (const e of (byLv2.get(k2) || [])) {
       const sim = diceSimilarity(f.lv3, e.lv3);
       if (sim > bestSim) { bestSim = sim; best = e; }
@@ -87,15 +87,22 @@ export const classifyReuse = (generated, existing, opts = {}) => {
       for (const e of existing) {
         if (norm(e.lv2) === k2) continue;
         const sim = diceSimilarity(f.lv3, e.lv3);
-        if (sim > bestSim) { bestSim = sim; best = e; }
+        if (sim > bestSim) {
+          bestSim = sim;
+          best = e;
+          const similarLv1 = diceSimilarity(f.lv1, e.lv1) >= 0.6;
+          const similarLv2 = diceSimilarity(f.lv2, e.lv2) >= 0.6;
+          contextMismatch = !(similarLv1 && similarLv2);
+        }
       }
     }
-    if (best && bestSim >= changeThreshold) {
+    if (best && bestSim >= changeThreshold && !contextMismatch) {
       return { ...f, reuseType: REUSE_TYPE.CHANGED, matchedWith: `${best.lv2} > ${best.lv3} (유사도 ${Math.round(bestSim * 100)}%)` };
     }
     // 3) 애매 구간 → 신규로 두되 검토 표시 (자동 오분류 방지)
     if (best && bestSim >= reviewThreshold) {
-      return { ...f, reuseType: REUSE_TYPE.NEW, needsReview: true, matchedWith: `유사: ${best.lv2} > ${best.lv3} (${Math.round(bestSim * 100)}%) — 재사용/변경 여부 확인` };
+      const reason = contextMismatch ? 'LV1/LV2 맥락 다름' : '유사도 경계';
+      return { ...f, reuseType: REUSE_TYPE.NEW, needsReview: true, matchedWith: `유사: ${best.lv2} > ${best.lv3} (${Math.round(bestSim * 100)}%, ${reason}) — 재사용/변경 여부 확인` };
     }
     // 4) 완전 신규
     return { ...f, reuseType: REUSE_TYPE.NEW };

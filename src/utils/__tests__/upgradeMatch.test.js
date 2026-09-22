@@ -87,6 +87,15 @@ describe('classifyReuse', () => {
     expect(r[0].reuseType).not.toBe('기능변경'); // 0.75 < 0.82
   });
 
+  test('다른 LV1/LV2의 동일 LV3는 기능변경으로 자동 확정하지 않음', () => {
+    const ex2 = [{ lv1: '계약관리', lv2: '계약문서', lv3: '첨부파일 등록' }];
+    const gen = [{ lv1: '고객관리', lv2: '고객정보', lv3: '첨부파일 등록' }];
+    const result = classifyReuse(gen, ex2);
+    expect(result[0].reuseType).toBe('신규개발');
+    expect(result[0].needsReview).toBe(true);
+    expect(result[0].matchedWith).toContain('맥락 다름');
+  });
+
   test('매칭 없는 완전 신규 → 신규개발', () => {
     const gen = [{ lv1: '통계관리', lv2: '대시보드', lv3: '실시간 모니터링 대시보드' }];
     const r = classifyReuse(gen, existing);
