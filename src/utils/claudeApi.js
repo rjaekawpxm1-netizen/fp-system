@@ -15,6 +15,7 @@ import {
 import { deriveFPRow } from './fpDerivation';
 import { splitTextChunks, prioritizeRfpText } from './textExtract';
 import { classifyReuse, summarizeReuse, snapDomainsToExisting } from './upgradeMatch';
+import { REUSE_TYPE } from './fpConstants';
 
 const TEMPERATURE = 0;
 const MODEL = 'claude-sonnet-4-5';
@@ -722,7 +723,7 @@ export const generateFPList = async (functions, onProgress, dataGroupNames = [])
       fpType: derived.fpType,
       ftr: derived.ftr,
       det: derived.det,
-      reuseType: '신규개발',
+      reuseType: REUSE_TYPE.NEW,
       classified: derived.classified,
       bigo: derived.classified ? derived.fpBasis : `분류폴백 | ${derived.fpBasis}`,
     };

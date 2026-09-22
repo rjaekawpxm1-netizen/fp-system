@@ -1,6 +1,7 @@
 // ============================================================
 // fp-system systemPrompt.js - 개정판
 import { prioritizeRfpText } from './textExtract';
+import { REUSE_TYPE } from './fpConstants';
 // 핵심 변경:
 //  ① getDomainClassifyPrompt: 목표기능수 블록 이스케이프 버그 수정
 //     (기존엔 \${...}로 이스케이프되어 평가되지 않은 리터럴 문자열이
@@ -233,8 +234,8 @@ export const getAreaSuggestPrompt = (systemName, rfpText, functions, targetCount
   // 뽑으므로 본문 축소해도 손실 적고, 응답 시간이 크게 단축된다.
   const rfpSnippet = prioritizeRfpText(rfpText || '', 8000);
 
-  const reuseFuncs = functions.filter(f => f.reuseType === '재사용' || f.reuseType === '기능변경');
-  const newFuncs = functions.filter(f => !f.reuseType || f.reuseType === '신규개발');
+  const reuseFuncs = functions.filter(f => f.reuseType === REUSE_TYPE.REUSED || f.reuseType === REUSE_TYPE.CHANGED);
+  const newFuncs = functions.filter(f => !f.reuseType || f.reuseType === REUSE_TYPE.NEW);
   const reuseLV1 = [...new Set(reuseFuncs.map(f => f.lv1))];
   const newLV1 = [...new Set(newFuncs.map(f => f.lv1))];
 

@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
-import { calcTotalFP } from '../utils/fpCalculator';
+import { calcTotalFP, sumFPByReuseType } from '../utils/fpCalculator';
+import { REUSE_TYPE } from '../utils/fpConstants';
 import { color, button } from '../styles/tokens';
 
 const { blue: BLUE, blueTint: BLUE_TINT, ink: INK, sub: SUB, mute: MUTE, line: LINE, bg: BG } = color;
@@ -120,14 +121,7 @@ const RebuildCost = ({ projects, projectsLoading }) => {
   const newDevFP = Number(fpSummary.newDev);
   const changedFP = Number(fpSummary.changed);
 
-  const reuseFP = fpList
-    .filter(f => f.reuseType === '수정없이재사용')
-    .reduce((sum, f) => {
-      const w = method === 'simple'
-        ? ({ EI: 4.0, EO: 5.2, EQ: 3.9, ILF: 7.5, EIF: 5.4 }[f.fpType] || 0)
-        : 0;
-      return sum + w;
-    }, 0);
+  const reuseFP = sumFPByReuseType(fpList, REUSE_TYPE.REUSED, method);
 
   const reuseWithTest = Math.round(reuseFP * (testRatio / 100) * 100) / 100;
 

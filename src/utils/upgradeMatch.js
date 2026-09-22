@@ -12,6 +12,7 @@
 //   판별은 100% 규칙 기반(결정론) — AI 비결정성 배제, 근거(matchedWith) 기록.
 //
 // 의존성 0. 기존 fpValidation의 norm과 동일 철학이되 독립 구현(순환참조 방지).
+import { REUSE_TYPE } from './fpConstants';
 
 const norm = (s) => (s || '')
   .replace(/\s+/g, '')
@@ -57,7 +58,7 @@ export const diceSimilarity = (a, b) => {
 export const classifyReuse = (generated, existing, opts = {}) => {
   const { changeThreshold = 0.82, reviewThreshold = 0.6 } = opts;
   if (!existing || existing.length === 0) {
-    return (generated || []).map(f => ({ ...f, reuseType: f.reuseType || '신규개발' }));
+    return (generated || []).map(f => ({ ...f, reuseType: f.reuseType || REUSE_TYPE.NEW }));
   }
 
   const exactMap = new Map();
@@ -74,7 +75,7 @@ export const classifyReuse = (generated, existing, opts = {}) => {
     // 1) 완전 일치 → 재사용
     const exact = exactMap.get(k2 + '|' + k3);
     if (exact) {
-      return { ...f, reuseType: '재사용', matchedWith: `${exact.lv2} > ${exact.lv3}` };
+      return { ...f, reuseType: REUSE_TYPE.REUSED, matchedWith: `${exact.lv2} > ${exact.lv3}` };
     }
     // 2) 유사도 최고값 (같은 LV2 우선, 없으면 전체)
     let best = null, bestSim = 0;
@@ -90,20 +91,20 @@ export const classifyReuse = (generated, existing, opts = {}) => {
       }
     }
     if (best && bestSim >= changeThreshold) {
-      return { ...f, reuseType: '기능변경', matchedWith: `${best.lv2} > ${best.lv3} (유사도 ${Math.round(bestSim * 100)}%)` };
+      return { ...f, reuseType: REUSE_TYPE.CHANGED, matchedWith: `${best.lv2} > ${best.lv3} (유사도 ${Math.round(bestSim * 100)}%)` };
     }
     // 3) 애매 구간 → 신규로 두되 검토 표시 (자동 오분류 방지)
     if (best && bestSim >= reviewThreshold) {
-      return { ...f, reuseType: '신규개발', needsReview: true, matchedWith: `유사: ${best.lv2} > ${best.lv3} (${Math.round(bestSim * 100)}%) — 재사용/변경 여부 확인` };
+      return { ...f, reuseType: REUSE_TYPE.NEW, needsReview: true, matchedWith: `유사: ${best.lv2} > ${best.lv3} (${Math.round(bestSim * 100)}%) — 재사용/변경 여부 확인` };
     }
     // 4) 완전 신규
-    return { ...f, reuseType: '신규개발' };
+    return { ...f, reuseType: REUSE_TYPE.NEW };
   });
 };
 
 /** 고도화 결과 요약 (UI 알림/검증용) */
 export const summarizeReuse = (functions) => {
-  const s = { 신규개발: 0, 기능변경: 0, 재사용: 0 };
+  const s = { [REUSE_TYPE.NEW]: 0, [REUSE_TYPE.CHANGED]: 0, [REUSE_TYPE.REUSED]: 0 };
   (functions || []).forEach(f => { if (s[f.reuseType] !== undefined) s[f.reuseType]++; });
   return s;
 };

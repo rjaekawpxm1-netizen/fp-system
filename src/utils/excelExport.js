@@ -3,7 +3,8 @@
  * SW사업 대가산정 가이드 2025 기준
  */
 import { saveAs } from 'file-saver';
-import { getComplexity, getComplexityLabel, getWeight } from './fpCalculator';
+import { getComplexity, getComplexityLabel, getWeight, sumFPByReuseType } from './fpCalculator';
+import { REUSE_TYPE } from './fpConstants';
 
 // ExcelJS를 실행 시점에 동적 로드 (번들에서 분리)
 let _ExcelJS = null;
@@ -71,11 +72,11 @@ function buildSimple(wb, fpList, info) {
   applyCell(ws.getCell(1,1),`기능점수 산정 (간이법) - ${info.systemName||''}`,{bold:true,sz:13,bg:C.SUMMARY,border:false});
 
   // 2~5행 요약 (우측 J~L)
-  [['신규개발','신규개발'],['기능변경','기능변경'],['기능삭제',null],['수정없이 재사용','수정없이재사용']].forEach(([label,key],i)=>{
+  [['신규개발',REUSE_TYPE.NEW],['기능변경',REUSE_TYPE.CHANGED],['기능삭제',null],['수정없이 재사용',REUSE_TYPE.REUSED]].forEach(([label,key],i)=>{
     const r=i+2;
     applyCell(ws.getCell(r,10),label,{bg:C.HEADER1,bold:true});
     sm(ws,r,11,r,12);
-    const val = key ? fpList.filter(f=>f.reuseType===key).reduce((s,f)=>s+(AVG[f.fpType]||0),0) : '측정 비대상';
+    const val = key ? sumFPByReuseType(fpList, key, 'simple') : '측정 비대상';
     applyCell(ws.getCell(r,11),typeof val==='number'?Math.round(val*100)/100:val,{bold:true,numFmt:'#,##0.00'});
   });
 
@@ -100,7 +101,7 @@ function buildSimple(wb, fpList, info) {
   const S=9;
   fpList.forEach((f,i)=>{
     const r=S+i; ws.getRow(r).height=15;
-    const w=AVG[f.fpType]||0, reuse=f.reuseType||'신규개발', isChg=reuse==='기능변경';
+    const w=AVG[f.fpType]||0, reuse=f.reuseType||REUSE_TYPE.NEW, isChg=reuse===REUSE_TYPE.CHANGED;
     [[1,''],[2,f.lv1||'','left'],[3,f.lv2||'','left'],[4,f.lv3||'','left'],[5,f.definition||'','left'],
      [6,f.fpType||''],[7,['ILF','EIF'].includes(f.fpType)?'':(f.ftr||'')],[8,f.det||''],[9,w],
      [10,reuse,'left'],[11,isChg?(f.ftrChange||''):''],[12,isChg?(f.detChange||''):'']
@@ -119,7 +120,7 @@ function buildSimple(wb, fpList, info) {
   // 합계
   const last=S+fpList.length-1, tr=last+1;
   sm(ws,tr,2,tr,8); applyCell(ws.getCell(tr,2),'합  계',{bg:C.TOTAL,bold:true});
-  const tot=fpList.filter(f=>f.reuseType==='신규개발').reduce((s,f)=>s+(AVG[f.fpType]||0),0);
+  const tot=sumFPByReuseType(fpList,REUSE_TYPE.NEW,'simple');
   applyCell(ws.getCell(tr,9),Math.round(tot*100)/100,{bg:C.TOTAL,bold:true,numFmt:'#,##0.00'});
   for(let c=10;c<=18;c++) applyCell(ws.getCell(tr,c),'',{bg:C.TOTAL});
 }
@@ -139,11 +140,11 @@ function buildStandard(wb, fpList, info) {
   sm(ws,1,1,1,19);
   applyCell(ws.getCell(1,1),`기능점수 산정 (정통법) - ${info.systemName||''}`,{bold:true,sz:13,bg:C.SUMMARY,border:false});
 
-  [['신규개발','신규개발'],['기능변경','기능변경'],['기능삭제',null],['수정없이 재사용','수정없이재사용']].forEach(([label,key],i)=>{
+  [['신규개발',REUSE_TYPE.NEW],['기능변경',REUSE_TYPE.CHANGED],['기능삭제',null],['수정없이 재사용',REUSE_TYPE.REUSED]].forEach(([label,key],i)=>{
     const r=i+2;
     applyCell(ws.getCell(r,11),label,{bg:C.HEADER1,bold:true});
     sm(ws,r,12,r,13);
-    const val=key?fpList.filter(f=>f.reuseType===key).reduce((s,f)=>s+getStandardExportValues(f.fpType,f.ftr,f.det).weight,0):'측정 비대상';
+    const val=key?sumFPByReuseType(fpList,key,'standard'):'측정 비대상';
     applyCell(ws.getCell(r,12),typeof val==='number'?Math.round(val*100)/100:val,{bold:true,numFmt:'#,##0.00'});
   });
 
@@ -164,7 +165,7 @@ function buildStandard(wb, fpList, info) {
   fpList.forEach((f,i)=>{
     const r=S+i; ws.getRow(r).height=15;
     const { complexity: comp, weight: w } = getStandardExportValues(f.fpType,f.ftr,f.det);
-    const reuse=f.reuseType||'신규개발', isChg=reuse==='기능변경';
+    const reuse=f.reuseType||REUSE_TYPE.NEW, isChg=reuse===REUSE_TYPE.CHANGED;
     [[1,''],[2,f.lv1||'','left'],[3,f.lv2||'','left'],[4,f.lv3||'','left'],[5,f.definition||'','left'],
      [6,f.fpType||''],[7,f.ftr||''],[8,f.det||''],[9,comp],[10,w],[11,reuse,'left'],
      [12,isChg?(f.ftrChange||''):''],[13,isChg?(f.detChange||''):'']
@@ -182,7 +183,7 @@ function buildStandard(wb, fpList, info) {
 
   const last=S+fpList.length-1, tr=last+1;
   sm(ws,tr,2,tr,9); applyCell(ws.getCell(tr,2),'합  계',{bg:C.TOTAL,bold:true});
-  const tot=fpList.filter(f=>f.reuseType==='신규개발').reduce((s,f)=>s+getStandardExportValues(f.fpType,f.ftr,f.det).weight,0);
+  const tot=sumFPByReuseType(fpList,REUSE_TYPE.NEW,'standard');
   applyCell(ws.getCell(tr,10),Math.round(tot*100)/100,{bg:C.TOTAL,bold:true,numFmt:'#,##0.00'});
   for(let c=11;c<=19;c++) applyCell(ws.getCell(tr,c),'',{bg:C.TOTAL});
 }

@@ -20,10 +20,10 @@ import {
 import { validateAll } from '../utils/fpValidation';
 import { reconstructPdfLines, detectFunctionListPattern } from '../utils/textExtract';
 import { exportFPExcel, exportCostExcel } from '../utils/excelExport';
+import { REUSE_TYPE, REUSE_TYPES } from '../utils/fpConstants';
 
 // ── 상수 ──────────────────────────────────────────────────────
 const FP_TYPES = ['ILF','EIF','EI','EO','EQ'];
-const REUSE_TYPES = ['신규개발','기능변경','재사용'];
 const COMPLEXITY_COLORS = {
   low:    { bg:'#f0fdf4', color:'#16a34a', label:'L' },
   medium: { bg:'#fffbeb', color:'#d97706', label:'M' },
@@ -76,7 +76,7 @@ const autoCalcRow = (row, method) => {
   const detPct = getChangePct(row.detChange || 0, row.det);
   const funcPct = getFuncChangePct(ftrPct, detPct, row.fpType);
   const impact = getImpactFactor(funcPct);
-  const fpPoint = row.reuseType === '기능변경' ? Math.round(w * impact * 100) / 100 : w;
+  const fpPoint = row.reuseType === REUSE_TYPE.CHANGED ? Math.round(w * impact * 100) / 100 : w;
   return { ...row, complexity: c, weight: w, funcChangePct: funcPct, impactFactor: impact, fpPoint };
 };
 
@@ -378,7 +378,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
         const isUpgrade = upgradeMode; // 버튼으로 이미 선택된 모드 사용
         const withId = result.functions.map((f,i)=>({
           ...f, id:Date.now()+i,
-          reuseType: isUpgrade ? '재사용' : '신규개발'
+          reuseType: isUpgrade ? REUSE_TYPE.REUSED : REUSE_TYPE.NEW
         }));
         const base = isUpgrade ? functions : [];
         const merged = [...base, ...withId];
@@ -407,7 +407,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
             );
             if (toUpgrade) {
               setUpgradeMode(true);
-              const remarked = deduped.map(f => ({...f, reuseType: '재사용'}));
+              const remarked = deduped.map(f => ({...f, reuseType: REUSE_TYPE.REUSED}));
               setFunctions(remarked);
               saveProject({functions: remarked});
               alert('✅ 고도화 모드로 전환했습니다. 이제 RFP를 올리고 "기능 생성"을 누르면 신규 기능만 추가됩니다.');
@@ -438,7 +438,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
           }
           const withId = parsed.map((f, i) => ({
             ...f, id: Date.now() + i,
-            reuseType: upgradeMode ? '재사용' : '신규개발',
+            reuseType: upgradeMode ? REUSE_TYPE.REUSED : REUSE_TYPE.NEW,
           }));
           const base = upgradeMode ? functions : [];
           const seen = new Set();
@@ -584,8 +584,8 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
         const existingKeys = new Set(functions.map(f=>`${f.lv1}|${f.lv2}|${f.lv3}`));
         const onlyNew = newFuncs.filter(f=>!existingKeys.has(`${f.lv1}|${f.lv2}|${f.lv3}`));
         finalFunctions = [...functions, ...onlyNew];
-        const rc = onlyNew.filter(f=>f.reuseType==='기능변경').length;
-        const nc = onlyNew.filter(f=>f.reuseType==='신규개발').length;
+        const rc = onlyNew.filter(f=>f.reuseType===REUSE_TYPE.CHANGED).length;
+        const nc = onlyNew.filter(f=>f.reuseType===REUSE_TYPE.NEW).length;
         const rv = onlyNew.filter(f=>f.needsReview).length;
         setTimeout(()=>alert(`✅ 고도화 기능 생성 완료!\n추가: 신규 ${nc}개 / 변경 ${rc}개${rv>0?`\n⚠ 검토 필요 ${rv}개 (재사용/변경 여부 확인)`:''}\n총 ${finalFunctions.length}개`),100);
       } else {
@@ -730,9 +730,9 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
       const withId = result.map((f,i) => {
         // 고도화 모드: 기존 기능의 reuseType 유지
         const originalFunc = functions.find(fn => fn.lv1===f.lv1 && fn.lv2===f.lv2 && fn.lv3===f.lv3);
-        const reuseType = (upgradeMode && originalFunc?.reuseType && originalFunc.reuseType !== '신규개발')
+        const reuseType = (upgradeMode && originalFunc?.reuseType && originalFunc.reuseType !== REUSE_TYPE.NEW)
           ? originalFunc.reuseType
-          : (f.reuseType || '신규개발');
+          : (f.reuseType || REUSE_TYPE.NEW);
         return autoCalcRow({...f, id:Date.now()+i, ftrChange:0, detChange:0, bigo:f.bigo||'-', reuseType}, fpMethod);
       });
 
@@ -750,7 +750,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
             definition: `${g.name} 데이터그룹을 관리한다`,
             fpType: 'ILF',
             ftr: g.ret, det: g.det,
-            reuseType: upgradeMode ? '재사용' : '신규개발',
+            reuseType: upgradeMode ? REUSE_TYPE.REUSED : REUSE_TYPE.NEW,
             ftrChange: 0, detChange: 0,
             bigo: `ILF | 관련: ${(g.relatedLv2 || []).slice(0, 4).join(', ') || '-'}`,
           }, fpMethod));
@@ -766,7 +766,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
               definition: `${lv2} 데이터를 관리한다`,
               fpType: 'ILF',
               ftr: 1, det: 10,
-              reuseType: upgradeMode ? '재사용' : '신규개발',
+              reuseType: upgradeMode ? REUSE_TYPE.REUSED : REUSE_TYPE.NEW,
               ftrChange: 0, detChange: 0, bigo: 'ILF자동배정(메뉴단위-검토필요)',
             }, fpMethod);
           });
@@ -788,7 +788,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
             lv3: `${g.name} (EIF)`,
             definition: `외부에서 참조하는 ${g.name} 데이터`,
             fpType: 'EIF', ftr: g.ret, det: g.det,
-            reuseType: '신규개발',
+            reuseType: REUSE_TYPE.NEW,
             ftrChange: 0, detChange: 0,
             bigo: `EIF | 근거: ${g.source}`,
           }, fpMethod));
@@ -808,7 +808,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
               lv3: `${sys} (EIF)`,
               definition: `${sys}에서 참조하는 외부 연계 데이터`,
               fpType: 'EIF', ftr: 1, det: 5,
-              reuseType: '신규개발',
+              reuseType: REUSE_TYPE.NEW,
               ftrChange: 0, detChange: 0, bigo: 'EIF자동배정(정규식-검토필요)',
             }, fpMethod)
           );
@@ -821,9 +821,9 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
       saveProject({fpList:finalFpList2, fpSummary:summary});
       setTab('fp');
       if (upgradeMode) {
-        const reuseCount = finalFpList.filter(f=>f.reuseType==='재사용').length;
-        const changeCount = finalFpList.filter(f=>f.reuseType==='기능변경').length;
-        const newCount = finalFpList.filter(f=>f.reuseType==='신규개발').length;
+        const reuseCount = finalFpList.filter(f=>f.reuseType===REUSE_TYPE.REUSED).length;
+        const changeCount = finalFpList.filter(f=>f.reuseType===REUSE_TYPE.CHANGED).length;
+        const newCount = finalFpList.filter(f=>f.reuseType===REUSE_TYPE.NEW).length;
         const ilfCount = finalFpList.filter(f=>f.fpType==='ILF').length;
         alert(`✅ FP 산정 완료!\n재사용: ${reuseCount}개 / 기능변경: ${changeCount}개 / 신규개발: ${newCount}개\nILF: ${ilfCount}개 자동 배정`);
       } else {
@@ -1458,7 +1458,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
                       }} style={{...S.btn('#1d4ed8'),padding:'3px 8px',fontSize:11}}>LV1수정</button>
                       <select value={bulkReuseType} onChange={e=>setBulkReuseType(e.target.value)}
                         style={{border:'1px solid #e5e7eb',borderRadius:5,fontSize:11,padding:'3px 6px',background:'#fff'}}>
-                        {['신규개발','기능변경','재사용'].map(t=><option key={t}>{t}</option>)}
+                        {REUSE_TYPES.map(t=><option key={t}>{t}</option>)}
                       </select>
                       <button onClick={()=>{
                         const cnt = selectedIds.size;
@@ -1512,7 +1512,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
                             const coeff = COST_LINK[costLinkIdx].v * COST_PERF[costPerfIdx].v * COST_ENV[costEnvIdx].v * COST_SEC[costSecIdx].v;
                             // 평균 FP: 실측이 있으면 실측, 없으면 기본 상수(4)로 설정과 일치
                             const avgFpPerFunc = fpList.length > 0
-                              ? (Number(calcTotalFP(fpList,'standard').newDev) / Math.max(fpList.filter(f=>f.reuseType==='신규개발').length,1))
+                              ? (Number(calcTotalFP(fpList,'standard').newDev) / Math.max(fpList.filter(f=>f.reuseType===REUSE_TYPE.NEW).length,1))
                               : DEFAULT_AVG_FP_PER_FUNC;
                             const needFuncs = calcTargetFuncCount(budgetWon, {
                               unitPrice: costUnitPrice,
@@ -1688,13 +1688,13 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
                             ))}
                             {upgradeMode && (
                               <td style={{padding:'4px 6px',textAlign:'center',background:'#fefce8'}}>
-                                <select value={f.reuseType||'신규개발'} onChange={e=>{
+                                <select value={f.reuseType||REUSE_TYPE.NEW} onChange={e=>{
                                   const updated = functions.map(fn=>fn.id===f.id?{...fn,reuseType:e.target.value}:fn);
                                   setFunctions(updated); saveProject({functions:updated});
                                 }} style={{border:'1px solid #e5e7eb',borderRadius:4,fontSize:10,padding:'2px 3px',
-                                  background:f.reuseType==='재사용'?'#f0fdf4':f.reuseType==='기능변경'?'#fffbeb':'#fff',
-                                  color:f.reuseType==='재사용'?'#16a34a':f.reuseType==='기능변경'?'#d97706':'#374151',fontWeight:600}}>
-                                  {['신규개발','기능변경','재사용'].map(t=><option key={t}>{t}</option>)}
+                                  background:f.reuseType===REUSE_TYPE.REUSED?'#f0fdf4':f.reuseType===REUSE_TYPE.CHANGED?'#fffbeb':'#fff',
+                                  color:f.reuseType===REUSE_TYPE.REUSED?'#16a34a':f.reuseType===REUSE_TYPE.CHANGED?'#d97706':'#374151',fontWeight:600}}>
+                                  {REUSE_TYPES.map(t=><option key={t}>{t}</option>)}
                                 </select>
                               </td>
                             )}
@@ -1765,7 +1765,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
                     {showValidation?'검증 닫기':'🔍 FP 검증'}
                   </button>
                   <button onClick={()=>{
-                    const newRow = autoCalcRow({id:Date.now(),lv1:'',lv2:'',lv3:'',definition:'',fpType:'EI',ftr:1,det:5,reuseType:'신규개발',ftrChange:0,detChange:0,bigo:'-'},fpMethod);
+                    const newRow = autoCalcRow({id:Date.now(),lv1:'',lv2:'',lv3:'',definition:'',fpType:'EI',ftr:1,det:5,reuseType:REUSE_TYPE.NEW,ftrChange:0,detChange:0,bigo:'-'},fpMethod);
                     const updated = [...fpList,newRow];
                     setFpList(updated); saveProject({fpList:updated});
                   }} style={S.btnOutline()}>+ 행 추가</button>
@@ -1845,7 +1845,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
                           const c = getComplexity(f.fpType,f.ftr,f.det);
                           const cColor = COMPLEXITY_COLORS[c]||{};
                           const w = fpMethod==='simple'?getAvgWeight(f.fpType):getWeight(f.fpType,f.ftr,f.det);
-                          const isChanged = f.reuseType === '기능변경';
+                          const isChanged = f.reuseType === REUSE_TYPE.CHANGED;
                           const ftrPct = getChangePct(f.ftrChange||0, f.ftr);
                           const detPct = getChangePct(f.detChange||0, f.det);
                           const funcPct = getFuncChangePct(ftrPct, detPct, f.fpType);
@@ -1874,7 +1874,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
                               </td>
                               <td style={{padding:'5px 8px',textAlign:'center',background:'#f0f9ff',fontWeight:700,color:'#1d4ed8'}}>{w}</td>
                               <td style={{padding:'5px 8px',textAlign:'center'}}>
-                                <select value={f.reuseType||'신규개발'} onChange={e=>updateFP(f.id,'reuseType',e.target.value)} style={{border:'1px solid #e5e7eb',borderRadius:4,fontSize:10,padding:'2px 4px',background:'#fff'}}>
+                                <select value={f.reuseType||REUSE_TYPE.NEW} onChange={e=>updateFP(f.id,'reuseType',e.target.value)} style={{border:'1px solid #e5e7eb',borderRadius:4,fontSize:10,padding:'2px 4px',background:'#fff'}}>
                                   {REUSE_TYPES.map(t=><option key={t}>{t}</option>)}
                                 </select>
                               </td>

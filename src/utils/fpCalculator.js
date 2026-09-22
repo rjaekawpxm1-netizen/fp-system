@@ -1,5 +1,6 @@
 // FP 복잡도 판정 및 가중치 산정
 // IFPUG CPM 4.3.1 / SW사업 대가산정 가이드 2025 기준
+import { REUSE_TYPE } from './fpConstants';
 
 const FP_WEIGHTS = {
   EI:  { low: 3, medium: 4, high: 6  },
@@ -125,6 +126,14 @@ export const getAvgWeight = (fpType) => {
   return AVG_WEIGHTS[fpType] || 0;
 };
 
+export const sumFPByReuseType = (rows, reuseType, method = 'standard') => {
+  return (rows || [])
+    .filter(row => row.reuseType === reuseType)
+    .reduce((sum, row) => sum + (method === 'simple'
+      ? getAvgWeight(row.fpType)
+      : getWeight(row.fpType, row.ftr, row.det)), 0);
+};
+
 // 변경률 계산 (%)
 export const getChangePct = (changeAmt, total) => {
   if (!total || Number(total) === 0) return 0;
@@ -160,9 +169,9 @@ export const calcTotalFP = (rows, method = 'standard') => {
       ? getAvgWeight(row.fpType)
       : getWeight(row.fpType, row.ftr, row.det);
 
-    if (row.reuseType === '신규개발') {
+    if (row.reuseType === REUSE_TYPE.NEW) {
       newDev += weight;
-    } else if (row.reuseType === '기능변경') {
+    } else if (row.reuseType === REUSE_TYPE.CHANGED) {
       const ftrPct = getChangePct(row.ftrChange, row.ftr);
       const detPct = getChangePct(row.detChange, row.det);
       const funcPct = getFuncChangePct(ftrPct, detPct, row.fpType);
