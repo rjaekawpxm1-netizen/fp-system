@@ -171,7 +171,6 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
   const [loadingMsg, setLoadingMsg] = useState('');
   const [parseStep, setParseStep] = useState(0);
   const [parsePct, setParsePct] = useState(0);
-  const [, setAbortGenerate] = useState(false); // 생성 중단 UI 상태
   // Virtual Scroll
   const [vsStart, setVsStart] = useState(0); // 표시 시작 인덱스
   const VS_PAGE = 100; // 한 번에 표시할 행 수
@@ -532,7 +531,6 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
       );
       if (!proceed) return;
     }
-    setAbortGenerate(false); // 중단 플래그 초기화
     setLoading(true);
     setParseStep(0);
     setParsePct(0);
@@ -575,7 +573,6 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
     const activeDomains = pendingDomains.filter(d => d.enabled);
     if (activeDomains.length === 0) return alert('최소 1개 이상의 LV1을 선택하세요.');
     setDomainStep(false);
-    setAbortGenerate(false);
     setLoading(true);
     setParseStep(4);
     setParsePct(42);
@@ -1992,11 +1989,6 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
                   ))}
                 </div>
                 <div style={{fontSize:11,color:'#9ca3af',marginTop:10}}>도메인 수에 따라 수분 소요</div>
-                <button
-                  onClick={()=>{ setAbortGenerate(true); setLoading(false); setLoadingMsg(''); setParseStep(0); setParsePct(0); setDomainStep(false); }}
-                  style={{marginTop:12,padding:'8px 20px',background:'#ef4444',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer'}}>
-                  ⛔ 생성 중단
-                </button>
               </>
             ) : (
               <>
