@@ -16,6 +16,7 @@ import { flushPendingProjectUpdates, mergeProjectPatches, registerProjectSaveFlu
 const App = () => {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [initialLoadDone, setInitialLoadDone] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [session, setSession] = useState(null);
   const [error, setError] = useState(null);
@@ -41,10 +42,17 @@ const App = () => {
     try {
       setLoading(true); setError(null);
       const data = await fetchProjects();
-      setProjects(data);
+      const mergedData = data.map(project =>
+        mergeProjectPatches(project, pendingUpdatesRef.current[project.id])
+      );
+      projectsRef.current = mergedData;
+      setProjects(mergedData);
     } catch (err) {
       setError('데이터를 불러오지 못했습니다.');
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+      setInitialLoadDone(true);
+    }
   }, []);
 
   useEffect(() => {
@@ -65,7 +73,12 @@ const App = () => {
   useEffect(() => {
     if (authLoading) return;
     if (userId) loadProjects();
-    else { setProjects([]); setLoading(false); }
+    else {
+      projectsRef.current = [];
+      setProjects([]);
+      setLoading(false);
+      setInitialLoadDone(false);
+    }
   }, [authLoading, userId, loadProjects]);
   useEffect(() => { projectsRef.current = projects; }, [projects]);
 
@@ -133,7 +146,7 @@ const App = () => {
     } catch (err) { alert('복사 실패: ' + err.message); }
   };
 
-  if (authLoading || (session && loading)) return (
+  if (authLoading || (session && loading && !initialLoadDone)) return (
     <div style={{display:'flex',justifyContent:'center',alignItems:'center',height:'100vh',flexDirection:'column',gap:16,fontFamily:"'Pretendard',-apple-system,'Malgun Gothic',sans-serif"}}>
       <div style={{fontSize:36}}>⚙️</div>
       <p style={{fontSize:16,color:'#374151',fontWeight:600}}>데이터 불러오는 중...</p>
