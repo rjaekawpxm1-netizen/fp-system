@@ -3,6 +3,8 @@ alter table public.projects
 
 alter table public.projects enable row level security;
 
+drop policy if exists allow_all on public.projects;
+
 drop policy if exists projects_select_owner on public.projects;
 drop policy if exists projects_insert_owner on public.projects;
 drop policy if exists projects_update_owner on public.projects;
