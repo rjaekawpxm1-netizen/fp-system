@@ -1,30 +1,19 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import * as XLSX from 'xlsx';
-import mammoth from 'mammoth';
 import {
-  extractDomainsOnly,
-  expandDomainsToFunctions,
-  generateFPList,
-  suggestAreas,
-  expandArea,
-  extractProjectInfo,
-  parseDocumentFunctions,
-  deriveDataGroups,
   setClaudeProjectContext,
 } from '../utils/claudeApi';
 import {
   getWeight, getAvgWeight, getComplexity,
-  calcTotalFP, calcCostFP, getChangePct, getFuncChangePct, getImpactFactor,
+  calcTotalFP, getChangePct, getFuncChangePct, getImpactFactor,
 } from '../utils/fpCalculator';
-import { validateAll } from '../utils/fpValidation';
-import { reconstructPdfLines, detectFunctionListPattern, combineRfpFiles } from '../utils/textExtract';
 import { exportFPExcel, exportCostExcel } from '../utils/excelExport';
 import { REUSE_TYPE, REUSE_TYPES } from '../utils/fpConstants';
-import { isDataFunction, mergeRecalculatedFPRows } from '../utils/fpList';
-import { detectFunctionColumns, parseFunctionRows, parseManualColumnMapping } from '../utils/excelFunctionParser';
 import { validateFPRowValues } from '../utils/fpRowValidation';
-import { getAuthHeaders } from '../utils/supabase';
+import { useFileIngestion } from '../hooks/useFileIngestion';
+import { useFunctionGeneration } from '../hooks/useFunctionGeneration';
+import { useFPCalculation } from '../hooks/useFPCalculation';
+import { useDerivedTotals } from '../hooks/useDerivedTotals';
 
 // ── 상수 ──────────────────────────────────────────────────────
 const FP_TYPES = ['ILF','EIF','EI','EO','EQ'];
@@ -183,732 +172,100 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
     saveProject({ settings });
   }, [saveProject]);
 
+  const { handleFileUpload, handleRemoveFile } = useFileIngestion({
+    id,
+    project,
+    upgradeMode,
+    setUpgradeMode,
+    saveSettings,
+    functions,
+    setFunctions,
+    saveProject,
+    uploadedFiles,
+    setUploadedFiles,
+    xlsxFunctions,
+    setXlsxFunctions,
+    setTab,
+    setLoading,
+    setLoadingMsg,
+    systemName,
+    setSystemName,
+    systemOverview,
+    setSystemOverview,
+    setRfpText,
+  });
+
+  const { handleGenerate, handleConfirmDomains, handleSuggestAreas, handleExpandAreas } = useFunctionGeneration({
+    rfpText,
+    userInput,
+    upgradeMode,
+    functions,
+    setLoading,
+    setParseStep,
+    setParsePct,
+    setLoadingMsg,
+    projectScale,
+    systemName,
+    setSystemName,
+    systemOverview,
+    setSystemOverview,
+    setPendingDomains,
+    setPendingInfo,
+    setDomainStep,
+    pendingDomains,
+    pendingInfo,
+    setFunctions,
+    saveProject,
+    projectBudget,
+    setTab,
+    areaTargetCount,
+    setAreaSuggestions,
+    setSelectedAreas,
+    areaSuggestions,
+    selectedAreas,
+    customAreas,
+    setCustomAreas,
+    setShowAreaPanel,
+  });
+  const { updateFP, handleGenerateFP, validateFP } = useFPCalculation({
+    fpList,
+    fpMethod,
+    autoCalcRow,
+    setFpList,
+    saveProject,
+    functions,
+    setLoading,
+    setLoadingMsg,
+    systemName,
+    rfpText,
+    upgradeMode,
+    setTab,
+    projectScale,
+  });
+  const { stdSummary, simpleSummary, costCalc } = useDerivedTotals({
+    fpList,
+    fpMethod,
+    calcSizeCoeff,
+    COST_LINK,
+    costLinkIdx,
+    COST_PERF,
+    costPerfIdx,
+    COST_ENV,
+    costEnvIdx,
+    COST_SEC,
+    costSecIdx,
+    costUnitPrice,
+    costProfitRate,
+    costDirectExp,
+    costReverseMode,
+    costTargetBudget,
+  });
   if (!project) return (
     <div style={{display:'flex',justifyContent:'center',alignItems:'center',height:'100vh',flexDirection:'column',gap:16}}>
       <p style={{fontSize:15,color:'#374151'}}>프로젝트를 찾을 수 없습니다.</p>
       <button onClick={()=>navigate('/ba')} style={S.btn('#1d4ed8')}>목록으로</button>
     </div>
   );
-
-  // ── PDF 텍스트 추출 ──────────────────────────────────────────
-  const extractPdfText = async (file) => {
-    const pdfjsLib = await import('pdfjs-dist');
-    try {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-        'pdfjs-dist/build/pdf.worker.min.mjs',
-        import.meta.url,
-      ).toString();
-    } catch {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = '';
-    }
-    const ab = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
-
-    // 텍스트 레이어 추출 + 페이지별 텍스트량 기록 (혼합 PDF 판별용)
-    let text = '';
-    const pageTextLen = [];
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const content = await page.getTextContent();
-      const lineText = reconstructPdfLines(content.items);
-      pageTextLen.push(lineText.replace(/\s/g, '').length);
-      text += lineText + '\n';
-    }
-
-    // [개선] 스캔 판별: 전체<100자(완전 스캔)뿐 아니라,
-    // 텍스트가 거의 없는 페이지 비율이 높은 '혼합 PDF'(표지·목차만 텍스트,
-    // 본문은 스캔 이미지)도 OCR 대상으로 본다. 기존엔 본문을 통째로 놓쳤다.
-    const totalChars = text.replace(/\s/g, '').length;
-    const emptyPages = pageTextLen.filter(n => n < 30).length;
-    const isFullyScanned = totalChars < 100;
-    const isMostlyScanned = pdf.numPages >= 2 && emptyPages / pdf.numPages >= 0.5;
-    if (isFullyScanned || isMostlyScanned) {
-      setLoadingMsg('스캔 PDF 감지 — Vision OCR 처리 중...');
-      const ocrTexts = [];
-      // [개선] 5 → 15페이지. 요구사항이 뒤쪽에 있는 RFP 대응.
-      const maxPages = Math.min(pdf.numPages, 15);
-      for (let i = 1; i <= maxPages; i++) {
-        // 혼합 PDF면 텍스트가 충분한 페이지는 OCR 건너뛰고 기존 텍스트 사용 (비용 절감)
-        if (isMostlyScanned && !isFullyScanned && pageTextLen[i - 1] >= 30) {
-          const page = await pdf.getPage(i);
-          const content = await page.getTextContent();
-          ocrTexts.push(`[${i}페이지]\n${reconstructPdfLines(content.items)}`);
-          continue;
-        }
-        setLoadingMsg(`Vision OCR 처리 중... (${i}/${maxPages}페이지)`);
-        const page = await pdf.getPage(i);
-        const viewport = page.getViewport({ scale: 1.5 });
-        const canvas = document.createElement('canvas');
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        const ctx = canvas.getContext('2d');
-        await page.render({ canvasContext: ctx, viewport }).promise;
-
-        // canvas → base64
-        const base64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
-
-        // Claude Vision API 호출
-        try {
-          const authHeaders = await getAuthHeaders();
-          const res = await fetch('/api/claude', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-Project-Id': id, ...authHeaders },
-            body: JSON.stringify({
-              model: 'claude-sonnet-4-5',
-              max_tokens: 4000,
-              messages: [{
-                role: 'user',
-                content: [
-                  { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64 } },
-                  { type: 'text', text: '이 문서 이미지에서 텍스트를 모두 추출해주세요. 표가 있다면 표 구조도 유지해주세요. 텍스트만 출력하세요.' }
-                ]
-              }]
-            })
-          });
-          const data = await res.json();
-          const pageText = data.content?.map(c => c.type === 'text' ? c.text : '').join('') || '';
-          ocrTexts.push(`[${i}페이지]\n${pageText}`);
-        } catch (e) {
-          console.warn(`${i}페이지 OCR 실패:`, e.message);
-        }
-      }
-      text = ocrTexts.join('\n\n');
-      if (maxPages < pdf.numPages) {
-        text += `\n\n[참고: 총 ${pdf.numPages}페이지 중 ${maxPages}페이지까지 처리됨]`;
-        alert(`⚠ 스캔 PDF OCR은 ${maxPages}페이지까지만 처리됩니다.\n(총 ${pdf.numPages}페이지 — 이후 내용은 분석에서 제외됨)\n전체가 필요하면 텍스트 레이어가 있는 PDF로 변환해 업로드하세요.`);
-      }
-    }
-    return text;
-  };
-
-  // ── 파일 읽기 ────────────────────────────────────────────────
-  const readFile = async (file) => {
-    if (file.name.endsWith('.pdf')) return await extractPdfText(file);
-    if (file.name.endsWith('.docx')) {
-      const ab = await file.arrayBuffer();
-      const result = await mammoth.extractRawText({ arrayBuffer: ab });
-      return result.value;
-    }
-    if (file.name.endsWith('.txt')) return await file.text();
-    if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
-      // xlsx는 기능정의서 직접 파싱
-      const ab = await file.arrayBuffer();
-      const wb = XLSX.read(ab, { type: 'array' });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      // 병합셀 처리
-      const merges = ws['!merges'] || [];
-      const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
-      const cellMap = {};
-      for (let R = range.s.r; R <= range.e.r; R++)
-        for (let C = range.s.c; C <= range.e.c; C++) {
-          const addr = XLSX.utils.encode_cell({r:R,c:C});
-          cellMap[`${R}_${C}`] = ws[addr]?.v ?? null;
-        }
-      for (const m of merges) {
-        const v = cellMap[`${m.s.r}_${m.s.c}`];
-        for (let R = m.s.r; R <= m.e.r; R++)
-          for (let C = m.s.c; C <= m.e.c; C++)
-            cellMap[`${R}_${C}`] = v;
-      }
-      const totalCols = range.e.c - range.s.c + 1;
-      const rows = [];
-      for (let R = range.s.r; R <= range.e.r; R++) {
-        rows.push(Array.from({ length: totalCols }, (_, offset) => cellMap[`${R}_${range.s.c + offset}`]));
-      }
-      const detected = detectFunctionColumns(rows);
-      let columns = detected.columns;
-      let headerRow = detected.headerRow;
-      if (detected.missing.length > 0) {
-        const manual = window.prompt(
-          `LV1/LV2/LV3 헤더를 자동으로 찾지 못했습니다 (${detected.missing.join(', ')}).\n` +
-          'LV1, LV2, LV3, 정의 열 문자를 쉼표로 입력하세요. 예: B,C,D,E'
-        );
-        if (manual == null) return { isXlsx: true, cancelled: true, functions: [] };
-        columns = parseManualColumnMapping(manual);
-        headerRow = -1;
-        if (!columns) throw new Error('열 지정 형식이 올바르지 않습니다. 예: B,C,D,E');
-      }
-      const parsed = parseFunctionRows(rows, columns, headerRow);
-      const sample = parsed.functions.slice(0, 3)
-        .map(f => `${f.lv1} > ${f.lv2} > ${f.lv3}`)
-        .join('\n');
-      const confirmed = window.confirm(
-        `기능목록 파싱 미리보기\n\n${sample || '(유효 행 없음)'}\n\n` +
-        `반영 ${parsed.functions.length}개 / 누락 ${parsed.stats.incompleteRows}개 (${Math.round(parsed.stats.missingRate * 100)}%) / 중복 ${parsed.stats.duplicateRows}개\n\n이 결과를 반영할까요?`
-      );
-      return { isXlsx: true, cancelled: !confirmed, functions: confirmed ? parsed.functions : [] };
-    }
-    throw new Error('HWP는 PDF로 변환 후 업로드하세요.');
-  };
-
-  // ── 파일 업로드 핸들러 ───────────────────────────────────────
-  // ── 파일 추가 핸들러 (다중 파일 지원) ──────────────────────
-  const handleFileUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    e.target.value = '';
-    setLoading(true);
-    setLoadingMsg(`"${file.name}" 읽는 중...`);
-    try {
-      const result = await readFile(file);
-
-      // xlsx 기능정의서 → xlsxFunctions에 저장
-      if (result?.isXlsx) {
-        if (result.cancelled) return;
-        if (result.functions.length === 0) {
-          alert('기능 데이터를 찾을 수 없습니다. LV1/LV2/LV3 컬럼이 있는지 확인하세요.');
-          return;
-        }
-        const newXlsx = [...xlsxFunctions, ...result.functions];
-        setXlsxFunctions(newXlsx);
-
-        // xlsx도 파일 목록에 표시 (이름만, 텍스트 없이)
-        // 기능목록을 텍스트로 변환해서 rfpText에도 포함 (기능 생성 시 활용)
-        const xlsxAsText = result.functions
-          .map(f => `${f.lv1} > ${f.lv2} > ${f.lv3}: ${f.definition || ''}`)
-          .join('\n');
-        const xlsxEntry = {
-          name: file.name,
-          text: xlsxAsText.slice(0, 5000), // xlsx 기능목록 텍스트로 변환
-          type: 'xlsx',
-          size: Math.round(file.size / 1024),
-          addedAt: new Date().toISOString(),
-          isXlsx: true,
-          functionCount: result.functions.length,
-        };
-        const existingIdx = uploadedFiles.findIndex(f => f.name === file.name);
-        const newUploadedFiles = existingIdx >= 0
-          ? uploadedFiles.map((f,i) => i===existingIdx ? xlsxEntry : f)
-          : [...uploadedFiles, xlsxEntry];
-        setUploadedFiles(newUploadedFiles);
-        saveProject({uploadedFiles: newUploadedFiles, xlsxFunctions: newXlsx});
-
-        const isUpgrade = upgradeMode; // 버튼으로 이미 선택된 모드 사용
-        const withId = result.functions.map((f,i)=>({
-          ...f, id:Date.now()+i,
-          reuseType: isUpgrade ? REUSE_TYPE.REUSED : REUSE_TYPE.NEW
-        }));
-        const base = isUpgrade ? functions : [];
-        const merged = [...base, ...withId];
-        const seen = new Set();
-        const deduped = merged.filter(f=>{
-          const k = `${f.lv1}|${f.lv2}|${f.lv3}`;
-          if(seen.has(k)) return false;
-          seen.add(k); return true;
-        });
-        setFunctions(deduped);
-        if (isUpgrade) { setUpgradeMode(true); saveSettings({ upgradeMode: true }); }
-        saveProject({functions: deduped, xlsxFunctions: newXlsx});
-        setTab('functions'); // 탭 먼저 전환
-        setTimeout(()=>{
-          if (isUpgrade) {
-            alert(`✅ 고도화 모드 적용!\n${result.functions.length}개 기능이 재사용으로 추가됐습니다 (총 ${deduped.length}개)\nFP 산정 시 신규 기능만 "신규개발"로 변경하세요.`);
-          } else {
-            // 신규 모드인데 기존 기능목록을 올렸다 → 고도화일 가능성 안내
-            const toUpgrade = window.confirm(
-              `기능정의서 ${withId.length}개를 불러왔습니다.\n\n` +
-              `기존 시스템의 기능목록이라면 "고도화 사업"일 가능성이 높습니다.\n` +
-              `지금 고도화 모드로 전환할까요?\n\n` +
-              `[확인] 고도화 모드 ON — 이 기능들을 '재사용'으로 표시하고,\n` +
-              `        이후 RFP로 신규 기능만 추가/분류합니다.\n` +
-              `[취소] 신규 모드 유지 — 이 기능들을 신규 목록으로 사용합니다.`
-            );
-            if (toUpgrade) {
-              setUpgradeMode(true);
-              saveSettings({ upgradeMode: true });
-              const remarked = deduped.map(f => ({...f, reuseType: REUSE_TYPE.REUSED}));
-              setFunctions(remarked);
-              saveProject({functions: remarked});
-              alert('✅ 고도화 모드로 전환했습니다. 이제 RFP를 올리고 "기능 생성"을 누르면 신규 기능만 추가됩니다.');
-            }
-          }
-        }, 100);
-        return;
-      }
-
-      // 텍스트 문서 → uploadedFiles 배열에 추가
-      const text = result;
-
-      // [D1] 기능목록 문서 감지 — 기존 기능목록을 PDF/DOCX로 넣으면
-      // RFP 텍스트로 삼켜져 고도화가 무효화되는 사고 방지
-      const detection = detectFunctionListPattern(text);
-      if (detection.isFunctionList) {
-        const asFunc = window.confirm(
-          `"${file.name}"이(가) 기능목록 문서로 보입니다.\n\n` +
-          `[확인] 기능정의서로 파싱 → 기능목록에 ${upgradeMode ? "'재사용'으로 추가 (고도화)" : "추가"}\n` +
-          `[취소] RFP 텍스트로 사용 (요구사항 추출용)`
-        );
-        if (asFunc) {
-          setLoadingMsg('기능정의서 파싱 중... (문서 전체)');
-          const parsed = await parseDocumentFunctions(text);
-          if (parsed.length === 0) {
-            alert('기능을 추출하지 못했습니다. RFP 텍스트로 사용하려면 다시 업로드 후 [취소]를 선택하세요.');
-            return;
-          }
-          const withId = parsed.map((f, i) => ({
-            ...f, id: Date.now() + i,
-            reuseType: upgradeMode ? REUSE_TYPE.REUSED : REUSE_TYPE.NEW,
-          }));
-          const base = upgradeMode ? functions : [];
-          const seen = new Set();
-          const merged = [...base, ...withId].filter(f => {
-            const k = `${f.lv1}|${f.lv2}|${f.lv3}`;
-            if (seen.has(k)) return false;
-            seen.add(k); return true;
-          });
-          setFunctions(merged);
-          saveProject({ functions: merged });
-          alert(upgradeMode
-            ? `✅ 고도화 모드 적용!\n"${file.name}"에서 ${withId.length}개 기능을 재사용으로 추가했습니다 (총 ${merged.length}개)`
-            : `✅ 기능정의서 파싱 완료!\n${withId.length}개 기능 추출됐습니다 (총 ${merged.length}개)`);
-          return;
-        }
-      }
-
-      const fileEntry = {
-        name: file.name,
-        text,
-        type: file.name.split('.').pop().toLowerCase(),
-        size: Math.round(text.length / 1000),
-        addedAt: new Date().toISOString(),
-      };
-
-      // 같은 이름 파일이면 교체, 아니면 추가
-      const existing = uploadedFiles.findIndex(f => f.name === file.name);
-      const newFiles = existing >= 0
-        ? uploadedFiles.map((f,i) => i===existing ? fileEntry : f)
-        : [...uploadedFiles, fileEntry];
-
-      setUploadedFiles(newFiles);
-
-      // 합산 텍스트 업데이트
-      const rfpFull = combineRfpFiles(newFiles, 150000);
-      setRfpText(rfpFull);
-      saveProject({uploadedFiles: newFiles, rfpText: rfpFull});
-
-      // 첫 파일이면 시스템 정보 자동 추출
-      if (newFiles.length === 1 || !systemName) {
-        setLoadingMsg('시스템 정보 추출 중...');
-        const info = await extractProjectInfo(text.slice(0,3000));
-        if (info.systemName && !systemName) { setSystemName(info.systemName); saveProject({systemName:info.systemName}); }
-        if (info.systemOverview && !systemOverview) { setSystemOverview(info.systemOverview); saveProject({systemOverview:info.systemOverview}); }
-      }
-
-      alert(`✅ "${file.name}" 추가 완료!\n총 ${newFiles.length}개 파일 업로드됨\n\n"기능 생성" 버튼으로 전체 파일을 종합해서 기능을 생성하세요.`);
-    } catch (err) {
-      alert('파일 읽기 오류: ' + err.message);
-    } finally {
-      setLoading(false);
-      setLoadingMsg('');
-    }
-  };
-
-  // 파일 삭제
-  const handleRemoveFile = (fileName) => {
-    const newFiles = uploadedFiles.filter(f => f.name !== fileName);
-    const rfpFull = combineRfpFiles(newFiles, 150000);
-    setUploadedFiles(newFiles);
-    setRfpText(rfpFull);
-    saveProject({uploadedFiles: newFiles, rfpText: rfpFull});
-  };
-
-  // ── 기능 생성 핸들러 ─────────────────────────────────────────
-  // ── 1단계: 도메인 분류까지만 실행 ─────────────────────────
-  const handleGenerate = async () => {
-    if (!rfpText && !userInput.trim()) {
-      return alert('파일을 업로드하거나 시스템 설명을 입력해주세요.');
-    }
-    // ── 모드-입력 정합성 체크 ──────────────────────────────────
-    // 흔한 실수: 고도화 사업인데 "신규 구축" 모드로 두고 기존 기능목록(xlsx)을
-    // 올린 경우. 이 상태로 생성하면 신규 모드라 기존 기능이 '재사용'으로 인식되지
-    // 않고, 덮어쓰기로 기존 114개가 날아간다.
-    if (!upgradeMode && functions.length > 0) {
-      const proceed = window.confirm(
-        `⚠ 현재 "신규 구축" 모드인데 이미 기능목록 ${functions.length}개가 있습니다.\n\n` +
-        `• 고도화 사업이라면 → [취소] 후 상단에서 "고도화 사업"을 선택하세요.\n` +
-        `  (기존 기능은 재사용/변경으로 자동 분류되고, 신규 기능만 추가됩니다)\n\n` +
-        `• 신규 사업이 맞다면 → [확인]. 기존 ${functions.length}개는 새로 생성된 목록으로 덮어써집니다.`
-      );
-      if (!proceed) return;
-    }
-    setLoading(true);
-    setParseStep(0);
-    setParsePct(0);
-    try {
-      const text = rfpText || userInput;
-      // 고도화 모드: 기존 기능의 LV1 목록을 도메인 추출에 전달해
-      // AI가 기존 명칭("연동계획")을 새 이름("연동계획관리")으로 바꾸지 않게 한다.
-      const existingLv1s = (upgradeMode && functions.length > 0)
-        ? [...new Set(functions.map(f => f.lv1))]
-        : [];
-      // 도메인 분류까지만 실행 (기능 확장 전 멈춤)
-      const result = await extractDomainsOnly(
-        text, userInput,
-        (step, msg, pct) => { setParseStep(step); setLoadingMsg(msg); setParsePct(pct); },
-        projectScale ? Number(projectScale) : 0,  // 목표 기능수 전달
-        existingLv1s
-      );
-      // 시스템 정보 반영
-      if (result.systemName && !systemName) setSystemName(result.systemName);
-      if (result.overview && !systemOverview) setSystemOverview(result.overview);
-      // 도메인 확인 단계로 이동
-      const requiresReview = result.analysisStatus?.infoFailed
-        || result.analysisStatus?.domainFallback
-        || result.analysisStatus?.requirementChunks?.failures?.length > 0;
-      setPendingDomains(result.domains.map(d => ({...d, enabled: !requiresReview})));
-      setPendingInfo(result);
-      setDomainStep(true);
-    } catch (err) {
-      alert('분석 오류: ' + err.message);
-    } finally {
-      setLoading(false);
-      setLoadingMsg('');
-      setParseStep(0);
-      setParsePct(0);
-    }
-  };
-
-  // ── 2단계: 도메인 확인 후 기능 확장 실행 ────────────────────
-  const handleConfirmDomains = async () => {
-    const activeDomains = pendingDomains.filter(d => d.enabled);
-    if (activeDomains.length === 0) return alert('최소 1개 이상의 LV1을 선택하세요.');
-    setDomainStep(false);
-    setLoading(true);
-    setParseStep(4);
-    setParsePct(42);
-    try {
-      const result = await expandDomainsToFunctions(
-        activeDomains,
-        pendingInfo,
-        (step, msg, pct) => { setParseStep(step); setLoadingMsg(msg); setParsePct(pct); },
-        upgradeMode ? functions : []   // 고도화면 기존 기능 전달 → 재사용/변경 자동 분류
-      );
-      const newFuncs = (result.functions||[]).map((f,i)=>({...f,id:Date.now()+i}));
-      let finalFunctions;
-      if (upgradeMode && functions.length > 0) {
-        // classifyReuse가 부여한 reuseType(재사용/기능변경/신규) 유지.
-        // 기존 기능과 완전 일치(재사용)인 항목은 기존 목록에 이미 있으므로
-        // 중복 추가하지 않고, 신규/변경만 추가한다.
-        const existingKeys = new Set(functions.map(f=>`${f.lv1}|${f.lv2}|${f.lv3}`));
-        const onlyNew = newFuncs.filter(f=>!existingKeys.has(`${f.lv1}|${f.lv2}|${f.lv3}`));
-        finalFunctions = [...functions, ...onlyNew];
-        const rc = onlyNew.filter(f=>f.reuseType===REUSE_TYPE.CHANGED).length;
-        const nc = onlyNew.filter(f=>f.reuseType===REUSE_TYPE.NEW).length;
-        const rv = onlyNew.filter(f=>f.needsReview).length;
-        setTimeout(()=>alert(`✅ 고도화 기능 생성 완료!\n추가: 신규 ${nc}개 / 변경 ${rc}개${rv>0?`\n⚠ 검토 필요 ${rv}개 (재사용/변경 여부 확인)`:''}\n총 ${finalFunctions.length}개`),100);
-      } else {
-        finalFunctions = newFuncs;
-      }
-      setFunctions(finalFunctions);
-      saveProject({
-        functions: finalFunctions,
-        systemName: pendingInfo.systemName || systemName,
-        systemOverview: pendingInfo.overview || systemOverview,
-        settings: { projectBudget, projectScale },
-        rfpText, userInput,
-      });
-      setTab('functions');
-      if (!(upgradeMode && functions.length > 0)) {
-        alert(`✅ 기능 생성 완료!\n총 ${finalFunctions.length}개 기능목록 생성`);
-      }
-    } catch (err) {
-      alert('기능 생성 오류: ' + err.message);
-    } finally {
-      setLoading(false);
-      setLoadingMsg('');
-      setParseStep(0);
-      setParsePct(0);
-      setPendingDomains([]);
-      setPendingInfo(null);
-    }
-  };
-
-  // ── 영역 제안 핸들러 ─────────────────────────────────────────
-  const handleSuggestAreas = async () => {
-    if (functions.length === 0) return alert('먼저 기능목록을 생성해주세요.');
-    const target = Number(areaTargetCount) || functions.length + 100;
-    setLoading(true);
-    setLoadingMsg('AI가 추가 가능한 업무 영역 분석 중...');
-    try {
-      const result = await suggestAreas(systemName, rfpText, functions, target, upgradeMode);
-      setAreaSuggestions(result);
-      setSelectedAreas([]);
-    } catch (err) {
-      alert('영역 제안 오류: ' + err.message);
-    } finally {
-      setLoading(false);
-      setLoadingMsg('');
-    }
-  };
-
-  // ── 선택된 영역 기능 추가 생성 ──────────────────────────────
-  const handleExpandAreas = async () => {
-    const areasToExpand = [
-      ...(areaSuggestions?.suggestions ? selectedAreas.map(i => areaSuggestions.suggestions[i]) : []),
-      ...customAreas.filter(a=>a.trim()).map(a=>({
-        lv1: a.trim(),
-        description: `${a.trim()} 관련 기능`,
-        expectedFunctions: 40,
-        sampleLv2: []
-      })),
-    ].filter(Boolean);
-
-    if (areasToExpand.length === 0) return alert('추가할 영역을 선택해주세요.');
-
-    setLoading(true);
-    let currentFunctions = [...functions];
-    let totalAdded = 0;
-
-    try {
-      for (let i = 0; i < areasToExpand.length; i++) {
-        const area = areasToExpand[i];
-        setLoadingMsg(`[${i+1}/${areasToExpand.length}] "${area.lv1}" 기능 생성 중... (현재 ${currentFunctions.length}개)`);
-        try {
-          const newFuncs = await expandArea(area, systemName, currentFunctions);
-          if (newFuncs.length > 0) {
-            const idOffset = totalAdded;
-            const createdAt = Date.now();
-            const withId = newFuncs.map((f,j)=>({...f,id:createdAt+idOffset+j}));
-            currentFunctions = [...currentFunctions, ...withId];
-            totalAdded += withId.length;
-            // 즉시 반영 (영역마다)
-            setFunctions([...currentFunctions]);
-            saveProject({functions: currentFunctions});
-          }
-        } catch (e) {
-          console.warn(`"${area.lv1}" 실패:`, e.message);
-        }
-        // Tier1 Rate Limit 방지: 영역 사이 5초 대기
-        // Tier2: 딜레이 없음
-      }
-      setAreaSuggestions(null);
-      setSelectedAreas([]);
-      setCustomAreas(['']);
-      setShowAreaPanel(false);
-      alert(`✅ ${totalAdded}개 추가 완료!\n총 ${currentFunctions.length}개 기능`);
-    } catch (err) {
-      alert('영역 추가 오류: ' + err.message);
-    } finally {
-      setLoading(false);
-      setLoadingMsg('');
-    }
-  };
-
-  // ── FP 행 업데이트 ───────────────────────────────────────────
-  const updateFP = (id, field, value) => {
-    const updated = fpList.map(f => {
-      if (f.id !== id) return f;
-      const newRow = field === 'calculationPending' && value === false
-        ? { ...f, calculationPending: false, needsReview: false }
-        : { ...f, [field]: value };
-      return autoCalcRow(newRow, fpMethod);
-    });
-    setFpList(updated);
-    const summary = calcTotalFP(updated, fpMethod);
-    saveProject({fpList: updated, fpSummary: summary});
-  };
-
-  // ── FP 산정 핸들러 ───────────────────────────────────────────
-  const handleGenerateFP = async () => {
-    if (functions.length === 0) return alert('기능목록을 먼저 생성하세요.');
-    if (fpList.length > 0 && !window.confirm(`기존 FP ${fpList.length}개를 재산정할까요?`)) return;
-    const totalChunks = Math.ceil(functions.length / 25);
-    setLoading(true);
-    setLoadingMsg(`FP 산정 중... (0/${totalChunks})`);
-    try {
-      // ── 0) 데이터그룹(ILF/EIF) 도출 ──────────────────────────
-      // [변경] 기존: LV2(메뉴)당 ILF 1개 자동배정 → ILF는 논리 데이터그룹
-      // 단위여야 하므로 메뉴 단위 배정은 같은 엔터티를 중복 계상 (ILF 43개 사고).
-      // AI가 기능 구조에서 데이터그룹을 도출하고, 그룹명을 FP 분류에도 전달해
-      // FTR 근거(참조 그룹)와 ILF 명칭을 일치시킨다.
-      const existingDataRows = fpList.filter(isDataFunction);
-      const keepExistingDataRows = existingDataRows.length > 0;
-      let dataGroups = { ilf: [], eif: [] };
-      if (!keepExistingDataRows) {
-        setLoadingMsg('데이터그룹(ILF/EIF) 도출 중...');
-        try {
-          dataGroups = await deriveDataGroups(functions, systemName, rfpText);
-        } catch (e) {
-          console.warn('데이터그룹 도출 실패 (메뉴 단위 폴백 사용):', e.message);
-        }
-      }
-
-      // ── 1) 트랜잭션 기능 분류 + 결정론적 FTR/DET 도출 ────────
-      const result = await generateFPList(
-        functions,
-        (cur, total) => { setLoadingMsg(`FP 산정 중... (${cur}/${total})`); },
-        dataGroups.ilf.map(g => g.name)
-      );
-      const withId = result.map((f,i) => {
-        // 고도화 모드: 기존 기능의 reuseType 유지
-        const originalFunc = functions.find(fn => fn.lv1===f.lv1 && fn.lv2===f.lv2 && fn.lv3===f.lv3);
-        const reuseType = (upgradeMode && originalFunc?.reuseType && originalFunc.reuseType !== REUSE_TYPE.NEW)
-          ? originalFunc.reuseType
-          : (f.reuseType || REUSE_TYPE.NEW);
-        return autoCalcRow({...f, id:Date.now()+i, ftrChange:0, detChange:0, bigo:f.bigo||'-', reuseType}, fpMethod);
-      });
-
-      // ── 2) ILF 행 생성 ────────────────────────────────────────
-      let finalFpList = keepExistingDataRows
-        ? mergeRecalculatedFPRows(withId, existingDataRows)
-        : withId;
-      if (!keepExistingDataRows) {
-        let ilfRows = [];
-        if (dataGroups.ilf.length > 0) {
-          // AI 도출 데이터그룹 기반 (ftr 필드 = RET)
-          ilfRows = dataGroups.ilf.map((g, i) => autoCalcRow({
-            id: Date.now() + 100000 + i,
-            lv1: '데이터기능',
-            lv2: (g.relatedLv2 && g.relatedLv2[0]) || '공통',
-            lv3: `${g.name} (ILF)`,
-            definition: `${g.name} 데이터그룹을 관리한다`,
-            fpType: 'ILF',
-            ftr: g.ret, det: g.det,
-            calculationPending: g.calculationPending,
-            needsReview: g.needsReview,
-            reuseType: upgradeMode ? REUSE_TYPE.REUSED : REUSE_TYPE.NEW,
-            ftrChange: 0, detChange: 0,
-            bigo: `${g.metricBasis} | 관련: ${(g.relatedLv2 || []).slice(0, 4).join(', ') || '-'}`,
-          }, fpMethod));
-        } else {
-          // 폴백: 기존 LV2 단위 방식 (검토 필요 표시 — validateAll이 과다 시 경고)
-          const lv2Groups = [...new Set(withId.map(f => `${f.lv1}||${f.lv2}`))];
-          ilfRows = lv2Groups.map((key, i) => {
-            const [lv1, lv2] = key.split('||');
-            return autoCalcRow({
-              id: Date.now() + 100000 + i,
-              lv1, lv2,
-              lv3: `${lv2} (ILF)`,
-              definition: `${lv2} 데이터를 관리한다`,
-              fpType: 'ILF',
-              ftr: 1, det: 10,
-              calculationPending: true,
-              needsReview: true,
-              reuseType: upgradeMode ? REUSE_TYPE.REUSED : REUSE_TYPE.NEW,
-              ftrChange: 0, detChange: 0, bigo: 'ILF자동배정(메뉴단위-검토필요)',
-            }, fpMethod);
-          });
-        }
-        finalFpList = [...withId, ...ilfRows];
-        setLoadingMsg(`ILF ${ilfRows.length}개 배정 완료`);
-      }
-
-      // ── 3) EIF 행 생성 ────────────────────────────────────────
-      let finalFpList2 = finalFpList;
-      const existingEIFs = finalFpList.filter(f => f.fpType === 'EIF');
-      if (existingEIFs.length === 0) {
-        let eifRows = [];
-        if (dataGroups.eif.length > 0) {
-          // AI 도출 (RFP 근거 문장 보유분만 — deriveDataGroups에서 필터됨)
-          eifRows = dataGroups.eif.slice(0, 8).map((g, i) => autoCalcRow({
-            id: Date.now() + 200000 + i,
-            lv1: '연동관리', lv2: g.name,
-            lv3: `${g.name} (EIF)`,
-            definition: `외부에서 참조하는 ${g.name} 데이터`,
-            fpType: 'EIF', ftr: g.ret, det: g.det,
-            calculationPending: g.calculationPending,
-            needsReview: g.needsReview,
-            reuseType: REUSE_TYPE.NEW,
-            ftrChange: 0, detChange: 0,
-            bigo: `${g.metricBasis} | EIF 근거: ${g.source}`,
-          }, fpMethod));
-        } else if (rfpText) {
-          // 폴백: rfpText 정규식 추출 (기존 방식)
-          const extSystems = [];
-          rfpText.split('\n').forEach(line => {
-            const m1 = line.match(/연동\s*대상\s*[:：]\s*(.{2,20})/);
-            if (m1) { const n = m1[1].trim(); if (n && !extSystems.includes(n)) extSystems.push(n); }
-            const m2 = line.match(/([가-힣]{2,10}(?:체계|시스템|서버))\s*(?:와|과|및)\s*연동/);
-            if (m2) { const n = m2[1].trim(); if (n && !extSystems.includes(n)) extSystems.push(n); }
-          });
-          eifRows = extSystems.slice(0, 5).map((sys, i) =>
-            autoCalcRow({
-              id: Date.now() + 200000 + i,
-              lv1: '연동관리', lv2: sys,
-              lv3: `${sys} (EIF)`,
-              definition: `${sys}에서 참조하는 외부 연계 데이터`,
-              fpType: 'EIF', ftr: 1, det: 5,
-              calculationPending: true,
-              needsReview: true,
-              reuseType: REUSE_TYPE.NEW,
-              ftrChange: 0, detChange: 0, bigo: 'EIF자동배정(정규식-검토필요)',
-            }, fpMethod)
-          );
-        }
-        if (eifRows.length > 0) finalFpList2 = [...finalFpList, ...eifRows];
-      }
-
-      setFpList(finalFpList2);
-      const summary = calcTotalFP(finalFpList2, fpMethod);
-      saveProject({fpList:finalFpList2, fpSummary:summary});
-      setTab('fp');
-      if (upgradeMode) {
-        const reuseCount = finalFpList.filter(f=>f.reuseType===REUSE_TYPE.REUSED).length;
-        const changeCount = finalFpList.filter(f=>f.reuseType===REUSE_TYPE.CHANGED).length;
-        const newCount = finalFpList.filter(f=>f.reuseType===REUSE_TYPE.NEW).length;
-        const ilfCount = finalFpList.filter(f=>f.fpType==='ILF').length;
-        alert(`✅ FP 산정 완료!\n재사용: ${reuseCount}개 / 기능변경: ${changeCount}개 / 신규개발: ${newCount}개\nILF: ${ilfCount}개 자동 배정`);
-      } else {
-        const ilfCount = finalFpList2.filter(f=>f.fpType==='ILF').length;
-        const eifCount = finalFpList2.filter(f=>f.fpType==='EIF').length;
-        const fallbackCount = finalFpList2.filter(f=>f.classified===false).length;
-        if (!keepExistingDataRows) {
-          alert(`✅ FP 산정 완료!\n총 ${finalFpList2.length}개 (ILF ${ilfCount}개 / EIF ${eifCount}개 포함)`
-            + (fallbackCount > 0 ? `\n⚠ 분류 폴백 ${fallbackCount}개 — 검증 버튼으로 확인하세요.` : ''));
-        }
-      }
-    } catch (err) {
-      alert('FP 산정 오류: ' + err.message);
-    } finally {
-      setLoading(false);
-      setLoadingMsg('');
-    }
-  };
-
-  // ── FP 검증 ──────────────────────────────────────────────────
-  const validateFP = () => {
-    const issues = [];
-    if (fpList.length === 0) return issues;
-    const fullKeys = fpList.map(f=>`${f.lv1}|${f.lv2}|${f.lv3?.trim()}`);
-    const dupKeys = fullKeys.filter((k,i)=>fullKeys.indexOf(k)!==i);
-    [...new Set(dupKeys)].forEach(k=>{
-      const name = k.split('|')[2];
-      issues.push({severity:'error',type:'중복',message:`"${name}" 동일 LV1/LV2 내 중복`});
-    });
-    const ilfs = fpList.filter(f=>f.fpType==='ILF');
-    if (ilfs.length===0) issues.push({severity:'error',type:'ILF부족',message:'ILF가 없습니다. 시스템이 관리하는 데이터 그룹을 ILF로 추가하세요.'});
-    const totals = {EI:0,EO:0,EQ:0,ILF:0,EIF:0};
-    fpList.forEach(f=>{if(totals[f.fpType]!==undefined) totals[f.fpType]++;});
-    if (totals.EI+totals.EO+totals.EQ===0) issues.push({severity:'error',type:'기능프로세스누락',message:'EI/EO/EQ가 모두 0입니다.'});
-    if (totals.EQ > 0) {
-      const eqRatio = totals.EQ / fpList.length;
-      if (eqRatio > 0.7) issues.push({severity:'warning',type:'EQ과다',message:`EQ 비율 ${Math.round(eqRatio*100)}%. 일부를 EI/EO로 재검토하세요.`});
-    }
-    fpList.forEach(f=>{
-      if (f.fpType==='EI' && /조회|검색|목록|상세/.test(f.lv3)) issues.push({severity:'warning',type:'FP유형의심',message:`"${f.lv3}": 조회/검색은 EQ가 맞습니다.`,id:f.id});
-      if (f.fpType==='EQ' && /등록|수정|삭제|처리|승인/.test(f.lv3)) issues.push({severity:'warning',type:'FP유형의심',message:`"${f.lv3}": 등록/수정/삭제는 EI가 맞습니다.`,id:f.id});
-      if (f.fpType==='EO' && /조회|목록|상세/.test(f.lv3) && !/통계|집계|보고/.test(f.lv3)) issues.push({severity:'warning',type:'FP유형의심',message:`"${f.lv3}": 단순 조회는 EQ가 맞습니다.`,id:f.id});
-    });
-    // 분포 검증 + 기능수 적정성 + elementary process 병합 후보 (fpValidation.js)
-    issues.push(...validateAll(functions, fpList, projectScale));
-    return issues;
-  };
-
-  // ── FP 요약 계산 ────────────────────────────────────────────
-  const stdSummary = calcTotalFP(fpList, 'standard');
-  const simpleSummary = calcTotalFP(fpList, 'simple');
-
-  // ── 개발비 계산 ──────────────────────────────────────────────
-  const costCalc = () => {
-    const { totalFP: tFP } = calcCostFP(fpList, fpMethod);
-    const sC = calcSizeCoeff(tFP);
-    const tC = sC*COST_LINK[costLinkIdx].v*COST_PERF[costPerfIdx].v*COST_ENV[costEnvIdx].v*COST_SEC[costSecIdx].v;
-    const dev = Math.round(tFP*costUnitPrice*tC);
-    const tot = Math.round(dev*(1+costProfitRate/100)+Number(costDirectExp||0));
-    const revFP = costReverseMode&&costTargetBudget ? Math.round((Number(costTargetBudget)-Number(costDirectExp||0))/(costUnitPrice*tC*(1+costProfitRate/100))) : 0;
-    return {tFP, sC, tC, dev, tot, revFP};
-  };
-
   const fmt = n => Math.round(n).toLocaleString();
   const fmtB = n => (n/1e8).toFixed(2)+'억원';
 
