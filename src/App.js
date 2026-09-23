@@ -11,7 +11,7 @@ import {
   deleteProject as dbDeleteProject,
   supabase,
 } from './utils/supabase';
-import { mergeProjectPatches } from './utils/projectUpdateQueue';
+import { flushPendingProjectUpdates, mergeProjectPatches } from './utils/projectUpdateQueue';
 
 const App = () => {
   const [projects, setProjects] = useState([]);
@@ -23,6 +23,19 @@ const App = () => {
   const projectsRef = useRef([]);
   const updateTimersRef = useRef({});
   const pendingUpdatesRef = useRef({});
+
+  const reportSaveError = useCallback((err) => {
+    setSaveError(`프로젝트 저장에 실패했습니다: ${err.message}`);
+  }, []);
+
+  const flushPendingUpdates = useCallback(() => {
+    flushPendingProjectUpdates(
+      pendingUpdatesRef.current,
+      updateTimersRef.current,
+      dbUpdateProject,
+      reportSaveError
+    );
+  }, [reportSaveError]);
 
   const loadProjects = useCallback(async () => {
     try {
@@ -95,14 +108,25 @@ const App = () => {
       try {
         await dbUpdateProject(id, mergedUpdates);
       } catch (err) {
-        setSaveError(`프로젝트 저장에 실패했습니다: ${err.message}`);
+        reportSaveError(err);
       }
     }, 500);
-  }, []);
+  }, [reportSaveError]);
 
-  useEffect(() => () => {
-    Object.values(updateTimersRef.current).forEach(clearTimeout);
-  }, []);
+  useEffect(() => {
+    const updateTimers = updateTimersRef.current;
+    const handleVisibilityChange = () => {
+      if (document.hidden) flushPendingUpdates();
+    };
+    const handlePageHide = () => flushPendingUpdates();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', handlePageHide);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', handlePageHide);
+      Object.values(updateTimers).forEach(clearTimeout);
+    };
+  }, [flushPendingUpdates]);
 
   const handleCopyProject = async (project, newName) => {
     const copied = { ...project, id: Date.now().toString(), name: newName, createdAt: new Date().toISOString() };
