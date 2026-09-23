@@ -1989,12 +1989,18 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
                   ))}
                 </div>
                 <div style={{fontSize:11,color:'#9ca3af',marginTop:10}}>도메인 수에 따라 수분 소요</div>
+                <div style={{fontSize:11,color:'#b45309',background:'#fffbeb',border:'1px solid #fde68a',borderRadius:6,padding:'8px 10px',marginTop:12,lineHeight:1.5}}>
+                  ⚠ 이 탭을 벗어나거나 다른 탭으로 이동하면 처리가 느려지거나 멈출 수 있습니다. 완료될 때까지 이 탭을 열어두세요.
+                </div>
               </>
             ) : (
               <>
                 <div style={{fontSize:28,marginBottom:12}}>⚙️</div>
                 <div style={{fontSize:14,fontWeight:700,color:'#111827',marginBottom:6}}>처리 중...</div>
                 <div style={{fontSize:13,color:'#6b7280'}}>{loadingMsg}</div>
+                <div style={{fontSize:11,color:'#b45309',background:'#fffbeb',border:'1px solid #fde68a',borderRadius:6,padding:'8px 10px',marginTop:12,lineHeight:1.5}}>
+                  ⚠ 이 탭을 벗어나거나 다른 탭으로 이동하면 처리가 느려지거나 멈출 수 있습니다. 완료될 때까지 이 탭을 열어두세요.
+                </div>
               </>
             )}
           </div>
