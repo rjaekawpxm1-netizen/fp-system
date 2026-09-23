@@ -29,6 +29,7 @@ export const setClaudeProjectContext = (projectId) => {
 
 // ── 기본 API 호출 (재시도 포함) ──────────────────────────────
 const callAPI = async (content, maxTokens = 2000, retries = 3) => {
+  let lastStatus = null;
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
       // 클라이언트 타임아웃: 게이트웨이(504)보다 먼저 끊어 명확한 메시지 제공
@@ -54,6 +55,7 @@ const callAPI = async (content, maxTokens = 2000, retries = 3) => {
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         const status = res.status;
+        lastStatus = status;
         // 529 Overloaded → 재시도
         if (status === 529 || status === 503) {
           const wait = (attempt + 1) * 5000;
@@ -90,6 +92,16 @@ const callAPI = async (content, maxTokens = 2000, retries = 3) => {
       await sleep(isTimeout ? 500 : 1000);
     }
   }
+  if (lastStatus === 502 || lastStatus === 504) {
+    throw new Error(`게이트웨이 타임아웃 — 재시도 한도 초과 (${lastStatus})`);
+  }
+  if (lastStatus === 429) {
+    throw new Error('요청 한도 초과(429) — 잠시 후 다시 시도하세요');
+  }
+  if (lastStatus === 503 || lastStatus === 529) {
+    throw new Error(`AI 서버 과부하(${lastStatus}) — 잠시 후 다시 시도하세요`);
+  }
+  throw new Error('API 재시도 한도 초과');
 };
 
 // ── JSON 파싱 (잘림 복구) ────────────────────────────────────
