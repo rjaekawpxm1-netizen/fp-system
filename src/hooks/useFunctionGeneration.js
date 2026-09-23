@@ -33,9 +33,17 @@ export const useFunctionGeneration = ({
   customAreas,
   setCustomAreas,
   setShowAreaPanel,
+  project,
+  saveSettings,
 }) => {
   const [failedDomains, setFailedDomains] = useState([]);
   const [failedRetryContext, setFailedRetryContext] = useState(null);
+
+  const checkpointInfo = (info) => {
+    const savedInfo = { ...(info || {}) };
+    delete savedInfo.rfpText;
+    return savedInfo;
+  };
 
   // ── 기능 생성 핸들러 ─────────────────────────────────────────
   // ── 1단계: 도메인 분류까지만 실행 ─────────────────────────
@@ -102,11 +110,34 @@ export const useFunctionGeneration = ({
     setParseStep(4);
     setParsePct(42);
     try {
+      const previousCheckpoint = project?.settings?.generationCheckpoint;
+      const startedAt = previousCheckpoint?.startedAt || new Date().toISOString();
+      let completed = { ...(previousCheckpoint?.completed || {}) };
+      const checkpointBase = {
+        stage: 'expanding',
+        upgradeMode,
+        info: checkpointInfo(pendingInfo),
+        domains: activeDomains,
+        startedAt,
+      };
+      saveSettings({ generationCheckpoint: {
+        ...checkpointBase,
+        completed,
+        updatedAt: new Date().toISOString(),
+      } });
       const result = await expandDomainsToFunctions(
         activeDomains,
         pendingInfo,
         (step, msg, pct) => { setParseStep(step); setLoadingMsg(msg); setParsePct(pct); },
-        upgradeMode ? functions : []   // 고도화면 기존 기능 전달 → 재사용/변경 자동 분류
+        upgradeMode ? functions : [],   // 고도화면 기존 기능 전달 → 재사용/변경 자동 분류
+        (domain, funcs) => {
+          completed = { ...completed, [domain.lv1]: funcs };
+          saveSettings({ generationCheckpoint: {
+            ...checkpointBase,
+            completed,
+            updatedAt: new Date().toISOString(),
+          } });
+        }
       );
       const newFuncs = (result.functions||[]).map((f,i)=>({...f,id:Date.now()+i}));
       const failures = result.failedDomains || [];
@@ -138,7 +169,7 @@ export const useFunctionGeneration = ({
         functions: finalFunctions,
         systemName: pendingInfo.systemName || systemName,
         systemOverview: pendingInfo.overview || systemOverview,
-        settings: { projectBudget, projectScale },
+        settings: { projectBudget, projectScale, ...(failures.length === 0 ? { generationCheckpoint: null } : {}) },
         rfpText, userInput,
       });
       setTab('functions');
@@ -165,19 +196,32 @@ export const useFunctionGeneration = ({
     setParseStep(4);
     setParsePct(42);
     try {
+      const previousCheckpoint = project?.settings?.generationCheckpoint;
+      let completed = { ...(previousCheckpoint?.completed || {}) };
       const result = await expandDomainsToFunctions(
         failedRetryContext.domains,
         failedRetryContext.info,
         (step, msg, pct) => { setParseStep(step); setLoadingMsg(msg); setParsePct(pct); },
-        failedRetryContext.upgradeMode ? functions : []
+        failedRetryContext.upgradeMode ? functions : [],
+        (domain, funcs) => {
+          completed = { ...completed, [domain.lv1]: funcs };
+          saveSettings({ generationCheckpoint: {
+            ...previousCheckpoint,
+            completed,
+            updatedAt: new Date().toISOString(),
+          } });
+        }
       );
       const createdAt = Date.now();
       const retried = (result.functions || []).map((f, i) => ({ ...f, id: createdAt + i }));
       const existingKeys = new Set(functions.map(f => `${f.lv1}|${f.lv2}|${f.lv3}`));
       const merged = [...functions, ...retried.filter(f => !existingKeys.has(`${f.lv1}|${f.lv2}|${f.lv3}`))];
       setFunctions(merged);
-      saveProject({ functions: merged });
       const failures = result.failedDomains || [];
+      saveProject({
+        functions: merged,
+        ...(failures.length === 0 ? { settings: { generationCheckpoint: null } } : {}),
+      });
       setFailedDomains(failures);
       setFailedRetryContext(failures.length > 0 ? {
         ...failedRetryContext,

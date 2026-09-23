@@ -318,7 +318,7 @@ export const extractDomainsOnly = async (text, userInput, onProgress, targetFunc
 };
 
 // ── 2단계: 선택된 도메인으로 기능 확장 ────────────────────────
-export const expandDomainsToFunctions = async (domains, info, onProgress, existingFunctions = []) => {
+export const expandDomainsToFunctions = async (domains, info, onProgress, existingFunctions = [], onDomainDone, skipLv1s = []) => {
   const report = (step, msg, pct) => onProgress && onProgress(step, msg, pct);
   const { systemName, mainUsers = ['사용자','관리자'], allReqs = [], rfpText = '', userInput = '' } = info || {};
 
@@ -353,8 +353,10 @@ export const expandDomainsToFunctions = async (domains, info, onProgress, existi
 
   let allFunctions = [];
   const failedDomains = [];
+  const skippedLv1s = new Set(skipLv1s || []);
   for (let i = 0; i < backfilled.length; i++) {
     const domain = backfilled[i];
+    if (skippedLv1s.has(domain.lv1)) continue;
     const pct = 42 + Math.round((i / backfilled.length) * 55);
     report(4, `[${i+1}/${backfilled.length}] "${domain.lv1}" 기능 확장 중...`, pct);
     // [안전망] 결과 0개면 1회 재시도 (모델이 빈 배열을 반환하는 경우 방지)
@@ -386,6 +388,7 @@ export const expandDomainsToFunctions = async (domains, info, onProgress, existi
           continue;
         }
         allFunctions = [...allFunctions, ...funcs];
+        if (onDomainDone) await onDomainDone(domain, funcs);
         expanded = true;
         break;
       } catch(e) {

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   setClaudeProjectContext,
@@ -187,6 +187,26 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
     saveProject({ settings });
   }, [saveProject]);
 
+  const generationStartedAtRef = useRef(null);
+  useEffect(() => {
+    if (!domainStep || !pendingInfo) {
+      generationStartedAtRef.current = null;
+      return;
+    }
+    if (!generationStartedAtRef.current) generationStartedAtRef.current = new Date().toISOString();
+    const info = { ...pendingInfo };
+    delete info.rfpText;
+    saveSettings({ generationCheckpoint: {
+      stage: 'domains',
+      upgradeMode,
+      info,
+      domains: pendingDomains,
+      completed: {},
+      startedAt: generationStartedAtRef.current,
+      updatedAt: new Date().toISOString(),
+    } });
+  }, [domainStep, pendingDomains, pendingInfo, upgradeMode, saveSettings]);
+
   const { handleFileUpload, handleRemoveFile } = useFileIngestion({
     id,
     project,
@@ -241,6 +261,8 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
     customAreas,
     setCustomAreas,
     setShowAreaPanel,
+    project,
+    saveSettings,
   });
   const { updateFP, handleGenerateFP, validateFP } = useFPCalculation({
     fpList,
