@@ -12,6 +12,12 @@ const response = (status, text = '') => ({
     : {}),
 });
 
+const errorResponse = (status, error) => ({
+  ok: false,
+  status,
+  json: jest.fn().mockResolvedValue({ error }),
+});
+
 const settleWithTimers = async (promise) => {
   let settled;
   promise.then(
@@ -69,6 +75,22 @@ describe('callAPI 재시도 소진 처리', () => {
 
     expect(result).toEqual({ value: '정상 응답' });
     expect(global.fetch).toHaveBeenCalledTimes(3);
+  });
+
+  test('문자열 형태의 서버 오류 메시지를 그대로 표시한다', async () => {
+    global.fetch.mockResolvedValue(errorResponse(400, 'messages 배열이 필요합니다.'));
+
+    const result = await settleWithTimers(callAPI('요청'));
+
+    expect(result.error).toEqual(expect.objectContaining({ message: 'messages 배열이 필요합니다.' }));
+  });
+
+  test('객체 형태의 서버 오류 메시지를 그대로 표시한다', async () => {
+    global.fetch.mockResolvedValue(errorResponse(400, { message: 'invalid request' }));
+
+    const result = await settleWithTimers(callAPI('요청'));
+
+    expect(result.error).toEqual(expect.objectContaining({ message: 'invalid request' }));
   });
 
   test('요구사항 청크가 계속 504이면 절반 크기의 두 요청으로 분할 재시도한다', async () => {
