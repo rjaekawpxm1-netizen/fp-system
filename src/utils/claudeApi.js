@@ -76,7 +76,8 @@ export const callAPI = async (content, maxTokens = 2000, retries = 3) => {
           await sleep(2000);
           continue;
         }
-        throw new Error(err.error?.message || `API 오류 (${status})`);
+        const serverMessage = typeof err.error === 'string' ? err.error : err.error?.message;
+        throw new Error(serverMessage || `API 오류 (${status})`);
       }
       const data = await res.json();
       if (data.error) throw new Error(data.error);
