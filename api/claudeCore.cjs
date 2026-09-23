@@ -87,6 +87,22 @@ const normalizeClaudeRequest = rawBody => {
   };
 };
 
+const callAnthropic = async (requestBody, env = process.env, fetchImpl = fetch) => {
+  const apiKey = env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw Object.assign(new Error('ANTHROPIC_API_KEY is not configured'), { status: 500 });
+  const response = await fetchImpl('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify(requestBody),
+  });
+  const data = await response.json();
+  return { status: response.status, data };
+};
+
 const handleClaudeRequest = async (req, res, options = {}) => {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   try {
@@ -101,22 +117,11 @@ const handleClaudeRequest = async (req, res, options = {}) => {
     const requestBody = normalizeClaudeRequest(req.body);
     if (!enforceIpRateLimit(req)) return res.status(429).json({ error: 'Too many requests' });
     if (!await consumeQuota(req, env, fetchImpl)) return res.status(429).json({ error: 'Daily API quota exceeded' });
-    const apiKey = env.ANTHROPIC_API_KEY;
-    if (!apiKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY is not configured' });
-    const response = await fetchImpl('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify(requestBody),
-    });
-    const data = await response.json();
-    return res.status(response.status).json(data);
+    const anthropic = await callAnthropic(requestBody, env, fetchImpl);
+    return res.status(anthropic.status).json(anthropic.data);
   } catch (error) {
     return res.status(error.status || 500).json({ error: error.message });
   }
 };
 
-module.exports = { handleClaudeRequest, normalizeClaudeRequest, MAX_BODY_CHARS, MAX_TOKENS };
+module.exports = { callAnthropic, handleClaudeRequest, normalizeClaudeRequest, MAX_BODY_CHARS, MAX_TOKENS };
