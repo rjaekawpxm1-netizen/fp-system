@@ -160,6 +160,21 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
   const [loadingMsg, setLoadingMsg] = useState('');
   const [parseStep, setParseStep] = useState(0);
   const [parsePct, setParsePct] = useState(0);
+  const [returnedFromBackground, setReturnedFromBackground] = useState(false);
+  useEffect(() => {
+    if (!loading) return undefined;
+    setReturnedFromBackground(false);
+    let wasHiddenDuringLoading = false;
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        wasHiddenDuringLoading = true;
+      } else if (wasHiddenDuringLoading) {
+        setReturnedFromBackground(true);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [loading]);
   // Virtual Scroll
   const [vsStart, setVsStart] = useState(0); // 표시 시작 인덱스
   const VS_PAGE = 100; // 한 번에 표시할 행 수
@@ -1346,13 +1361,24 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
                   ))}
                 </div>
                 <div style={{fontSize:11,color:'#9ca3af',marginTop:10}}>도메인 수에 따라 수분 소요</div>
+                <div style={{fontSize:11,color:'#b45309',background:'#fffbeb',border:'1px solid #fde68a',borderRadius:6,padding:'8px 10px',marginTop:12,lineHeight:1.5}}>
+                  ⚠ 이 탭을 벗어나거나 다른 탭으로 이동하면 처리가 느려지거나 멈출 수 있습니다. 완료될 때까지 이 탭을 열어두세요.
+                </div>
               </>
             ) : (
               <>
                 <div style={{fontSize:28,marginBottom:12}}>⚙️</div>
                 <div style={{fontSize:14,fontWeight:700,color:'#111827',marginBottom:6}}>처리 중...</div>
                 <div style={{fontSize:13,color:'#6b7280'}}>{loadingMsg}</div>
+                <div style={{fontSize:11,color:'#b45309',background:'#fffbeb',border:'1px solid #fde68a',borderRadius:6,padding:'8px 10px',marginTop:12,lineHeight:1.5}}>
+                  ⚠ 이 탭을 벗어나거나 다른 탭으로 이동하면 처리가 느려지거나 멈출 수 있습니다. 완료될 때까지 이 탭을 열어두세요.
+                </div>
               </>
+            )}
+            {returnedFromBackground && (
+              <div style={{fontSize:11,color:'#b91c1c',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:6,padding:'8px 10px',marginTop:12,lineHeight:1.5}}>
+                ⚠ 탭이 백그라운드에 있는 동안 처리가 느려졌을 수 있습니다. 잠시 기다려 주세요.
+              </div>
             )}
           </div>
         </div>
