@@ -28,7 +28,7 @@ export const setClaudeProjectContext = (projectId) => {
 };
 
 // ── 기본 API 호출 (재시도 포함) ──────────────────────────────
-const callAPI = async (content, maxTokens = 2000, retries = 3) => {
+export const callAPI = async (content, maxTokens = 2000, retries = 3) => {
   let lastStatus = null;
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
