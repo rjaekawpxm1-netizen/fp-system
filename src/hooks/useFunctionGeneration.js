@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { extractDomainsOnly, expandDomainsToFunctions, suggestAreas, expandArea } from '../utils/claudeApi';
+import { extractDomainsOnly, expandDomainsToFunctions, finalizeDomainFunctions, suggestAreas, expandArea } from '../utils/claudeApi';
 import { REUSE_TYPE } from '../utils/fpConstants';
 
 export const useFunctionGeneration = ({
   rfpText,
   userInput,
   upgradeMode,
+  setUpgradeMode,
   functions,
   setLoading,
   setParseStep,
@@ -38,11 +39,52 @@ export const useFunctionGeneration = ({
 }) => {
   const [failedDomains, setFailedDomains] = useState([]);
   const [failedRetryContext, setFailedRetryContext] = useState(null);
+  const generationCheckpoint = project?.settings?.generationCheckpoint || null;
 
   const checkpointInfo = (info) => {
     const savedInfo = { ...(info || {}) };
     delete savedInfo.rfpText;
     return savedInfo;
+  };
+
+  const mergeGeneratedFunctions = (generated, savedUpgradeMode) => {
+    const createdAt = Date.now();
+    const newFuncs = (generated || []).map((func, index) => ({ ...func, id: createdAt + index }));
+    if (!savedUpgradeMode || functions.length === 0) return newFuncs;
+    const existingKeys = new Set(functions.map(func => `${func.lv1}|${func.lv2}|${func.lv3}`));
+    return [
+      ...functions,
+      ...newFuncs.filter(func => !existingKeys.has(`${func.lv1}|${func.lv2}|${func.lv3}`)),
+    ];
+  };
+
+  const applyCheckpointFunctions = (checkpoint, completed, clearCheckpoint) => {
+    const savedUpgradeMode = Boolean(checkpoint.upgradeMode);
+    const info = { ...(checkpoint.info || {}), rfpText };
+    const rawFunctions = Object.values(completed || {}).flat();
+    const result = finalizeDomainFunctions(
+      rawFunctions,
+      info,
+      savedUpgradeMode ? functions : [],
+      (step, msg, pct) => { setParseStep(step); setLoadingMsg(msg); setParsePct(pct); }
+    );
+    const finalFunctions = mergeGeneratedFunctions(result.functions, savedUpgradeMode);
+    setUpgradeMode(savedUpgradeMode);
+    setFunctions(finalFunctions);
+    saveProject({
+      functions: finalFunctions,
+      systemName: info.systemName || systemName,
+      systemOverview: info.overview || systemOverview,
+      settings: {
+        projectBudget,
+        projectScale,
+        ...(clearCheckpoint ? { generationCheckpoint: null } : {}),
+      },
+      rfpText,
+      userInput,
+    });
+    setTab('functions');
+    return finalFunctions;
   };
 
   // ── 기능 생성 핸들러 ─────────────────────────────────────────
@@ -55,6 +97,11 @@ export const useFunctionGeneration = ({
     // 흔한 실수: 고도화 사업인데 "신규 구축" 모드로 두고 기존 기능목록(xlsx)을
     // 올린 경우. 이 상태로 생성하면 신규 모드라 기존 기능이 '재사용'으로 인식되지
     // 않고, 덮어쓰기로 기존 114개가 날아간다.
+    if (generationCheckpoint) {
+      const discard = window.confirm('저장된 진행분이 있습니다. 폐기하고 새로 시작할까요?');
+      if (!discard) return;
+      saveSettings({ generationCheckpoint: null });
+    }
     if (!upgradeMode && functions.length > 0) {
       const proceed = window.confirm(
         `⚠ 현재 "신규 구축" 모드인데 이미 기능목록 ${functions.length}개가 있습니다.\n\n` +
@@ -190,7 +237,111 @@ export const useFunctionGeneration = ({
     }
   };
 
+  const handleResumeDomainReview = () => {
+    if (generationCheckpoint?.stage !== 'domains') return;
+    setUpgradeMode(Boolean(generationCheckpoint.upgradeMode));
+    setPendingDomains(generationCheckpoint.domains || []);
+    setPendingInfo({ ...(generationCheckpoint.info || {}), rfpText });
+    setDomainStep(true);
+    setTab('setup');
+  };
+
+  const handleResumeGeneration = async () => {
+    const checkpoint = generationCheckpoint;
+    if (checkpoint?.stage !== 'expanding') return;
+    const savedUpgradeMode = Boolean(checkpoint.upgradeMode);
+    const info = { ...(checkpoint.info || {}), rfpText };
+    let completed = { ...(checkpoint.completed || {}) };
+    const completedLv1s = Object.keys(completed);
+    const remainingDomains = (checkpoint.domains || []).filter(domain => !completedLv1s.includes(domain.lv1));
+    let failures = [];
+
+    setUpgradeMode(savedUpgradeMode);
+    setLoading(true);
+    setParseStep(4);
+    setParsePct(42);
+    try {
+      if (remainingDomains.length > 0) {
+        try {
+          const result = await expandDomainsToFunctions(
+            checkpoint.domains || [],
+            info,
+            (step, msg, pct) => { setParseStep(step); setLoadingMsg(msg); setParsePct(pct); },
+            savedUpgradeMode ? functions : [],
+            (domain, funcs) => {
+              completed = { ...completed, [domain.lv1]: funcs };
+              saveSettings({ generationCheckpoint: {
+                ...checkpoint,
+                stage: 'expanding',
+                completed,
+                updatedAt: new Date().toISOString(),
+              } });
+            },
+            completedLv1s,
+            true
+          );
+          failures = result.failedDomains || [];
+        } catch (err) {
+          if (Object.values(completed).flat().length === 0 || !err.failedDomains?.length) throw err;
+          failures = err.failedDomains;
+        }
+      }
+
+      const finalFunctions = applyCheckpointFunctions(checkpoint, completed, failures.length === 0);
+      setFailedDomains(failures);
+      setFailedRetryContext(failures.length > 0 ? {
+        domains: (checkpoint.domains || []).filter(domain => failures.some(item => item.lv1 === domain.lv1)),
+        info,
+        upgradeMode: savedUpgradeMode,
+      } : null);
+      if (failures.length > 0) {
+        alert(`${failures.length}개 도메인 생성 실패: ${failures.map(item => item.lv1).join(', ')}. 완료된 결과는 저장했습니다.`);
+      } else {
+        alert(`기능 생성을 이어서 완료했습니다.\n총 ${finalFunctions.length}개 기능`);
+      }
+    } catch (err) {
+      alert('기능 생성 재개 오류: ' + err.message);
+    } finally {
+      setLoading(false);
+      setLoadingMsg('');
+      setParseStep(0);
+      setParsePct(0);
+    }
+  };
+
+  const handleApplyCompletedCheckpoint = () => {
+    const checkpoint = generationCheckpoint;
+    if (checkpoint?.stage !== 'expanding') return;
+    setLoading(true);
+    try {
+      const finalFunctions = applyCheckpointFunctions(checkpoint, checkpoint.completed || {}, true);
+      setFailedDomains([]);
+      setFailedRetryContext(null);
+      alert(`완료된 도메인 결과를 반영했습니다.\n총 ${finalFunctions.length}개 기능`);
+    } catch (err) {
+      alert('완료분 반영 오류: ' + err.message);
+    } finally {
+      setLoading(false);
+      setLoadingMsg('');
+      setParseStep(0);
+      setParsePct(0);
+    }
+  };
+
+  const handleDiscardCheckpoint = () => {
+    saveSettings({ generationCheckpoint: null });
+    setFailedDomains([]);
+    setFailedRetryContext(null);
+    setDomainStep(false);
+    setPendingDomains([]);
+    setPendingInfo(null);
+  };
+
   const handleRetryFailedDomains = async () => {
+    if (generationCheckpoint?.stage === 'expanding') {
+      await handleResumeGeneration();
+      return;
+    }
     if (!failedRetryContext || failedRetryContext.domains.length === 0) return;
     setLoading(true);
     setParseStep(4);
@@ -313,5 +464,17 @@ export const useFunctionGeneration = ({
     }
   };
 
-  return { handleGenerate, handleConfirmDomains, handleRetryFailedDomains, handleSuggestAreas, handleExpandAreas, failedDomains };
+  return {
+    handleGenerate,
+    handleConfirmDomains,
+    handleRetryFailedDomains,
+    handleResumeDomainReview,
+    handleResumeGeneration,
+    handleApplyCompletedCheckpoint,
+    handleDiscardCheckpoint,
+    handleSuggestAreas,
+    handleExpandAreas,
+    failedDomains,
+    generationCheckpoint,
+  };
 };

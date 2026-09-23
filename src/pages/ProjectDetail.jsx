@@ -188,12 +188,13 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
   }, [saveProject]);
 
   const generationStartedAtRef = useRef(null);
+  const checkpointStartedAt = project?.settings?.generationCheckpoint?.startedAt;
   useEffect(() => {
     if (!domainStep || !pendingInfo) {
       generationStartedAtRef.current = null;
       return;
     }
-    if (!generationStartedAtRef.current) generationStartedAtRef.current = new Date().toISOString();
+    if (!generationStartedAtRef.current) generationStartedAtRef.current = checkpointStartedAt || new Date().toISOString();
     const info = { ...pendingInfo };
     delete info.rfpText;
     saveSettings({ generationCheckpoint: {
@@ -205,7 +206,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
       startedAt: generationStartedAtRef.current,
       updatedAt: new Date().toISOString(),
     } });
-  }, [domainStep, pendingDomains, pendingInfo, upgradeMode, saveSettings]);
+  }, [domainStep, pendingDomains, pendingInfo, upgradeMode, saveSettings, checkpointStartedAt]);
 
   const { handleFileUpload, handleRemoveFile } = useFileIngestion({
     id,
@@ -230,10 +231,23 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
     setRfpText,
   });
 
-  const { handleGenerate, handleConfirmDomains, handleRetryFailedDomains, handleSuggestAreas, handleExpandAreas, failedDomains } = useFunctionGeneration({
+  const {
+    handleGenerate,
+    handleConfirmDomains,
+    handleRetryFailedDomains,
+    handleResumeDomainReview,
+    handleResumeGeneration,
+    handleApplyCompletedCheckpoint,
+    handleDiscardCheckpoint,
+    handleSuggestAreas,
+    handleExpandAreas,
+    failedDomains,
+    generationCheckpoint,
+  } = useFunctionGeneration({
     rfpText,
     userInput,
     upgradeMode,
+    setUpgradeMode,
     functions,
     setLoading,
     setParseStep,
@@ -831,6 +845,26 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
           {tab === 'functions' && (
             <div>
+              {generationCheckpoint && (
+                <div style={{...S.card,marginBottom:12,padding:'12px 16px',border:'1px solid #3b82f6',background:'#eff6ff',display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,flexWrap:'wrap'}}>
+                  <span style={{fontSize:12,color:'#1e3a8a'}}>
+                    {generationCheckpoint.stage === 'domains'
+                      ? '이전 도메인 확인 단계가 저장돼 있습니다.'
+                      : `이전 기능 생성이 ${(generationCheckpoint.domains || []).length}개 중 ${Object.keys(generationCheckpoint.completed || {}).length}개 도메인에서 중단됐습니다.`}
+                  </span>
+                  <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                    {generationCheckpoint.stage === 'domains' ? (
+                      <button onClick={handleResumeDomainReview} style={S.btn('#1d4ed8')}>이어서 하기</button>
+                    ) : (
+                      <>
+                        <button onClick={handleResumeGeneration} style={S.btn('#1d4ed8')}>이어서 생성</button>
+                        <button onClick={handleApplyCompletedCheckpoint} style={S.btnOutline('#1d4ed8')}>완료분만 반영</button>
+                      </>
+                    )}
+                    <button onClick={handleDiscardCheckpoint} style={S.btnOutline('#dc2626')}>폐기</button>
+                  </div>
+                </div>
+              )}
               {failedDomains.length > 0 && (
                 <div style={{...S.card,marginBottom:12,padding:'12px 16px',border:'1px solid #f59e0b',background:'#fffbeb',display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,flexWrap:'wrap'}}>
                   <span style={{fontSize:12,color:'#92400e'}}>
