@@ -213,17 +213,40 @@ export const extractDomainsOnly = async (text, userInput, onProgress, targetFunc
   report(1, `시스템: ${systemName}`, 12);
 
   // 요구사항 수집
+  // [변경] Vercel Hobby 플랜은 서버리스 함수 실행시간이 60초 고정 상한이라
+  // maxDuration을 코드로 못 늘린다. 8,000자 청크가 가끔 60초를 넘겨 504가 났음
+  // (15개 중 1개 실패 사례 확인). 4,000자로 줄여 호출당 처리시간을 낮춘다.
   const bounded = prioritizeRfpText(text, 150000);
-  const chunks = splitTextChunks(bounded, 8000, 300);
+  const chunks = splitTextChunks(bounded, 4000, 200);
   analysisStatus.requirementChunks.total = chunks.length;
 
   let allReqs = [];
+  // [변경] 재시도 3회를 다 써도 504가 계속 나면(청크 자체가 무거운 경우),
+  // 그 청크를 절반으로 쪼개 한 번 더 시도한다 — 재시도만으로는 같은 크기를
+  // 또 보내는 것이라 타임아웃이 반복될 수 있어 입력 크기 자체를 줄이는 안전망.
+  const collectFromChunk = async (chunkText, label) => {
+    try {
+      const raw = await callAPI(getRequirementCollectPrompt(chunkText, label, systemName), 3000);
+      const parsed = parseJSON(raw);
+      return (parsed.requirements || []).filter(r => r?.length > 5);
+    } catch (e) {
+      if (/시간 초과|타임아웃/.test(e.message) && chunkText.length > 1200) {
+        const half = Math.floor(chunkText.length / 2);
+        const [a, b] = [chunkText.slice(0, half), chunkText.slice(half)];
+        const [ra, rb] = await Promise.all([
+          collectFromChunk(a, `${label}-1`).catch(() => []),
+          collectFromChunk(b, `${label}-2`).catch(() => []),
+        ]);
+        return [...ra, ...rb];
+      }
+      throw e;
+    }
+  };
+
   for (let i = 0; i < chunks.length; i++) {
     report(2, `요구사항 수집 중... (${i+1}/${chunks.length})`, 12 + Math.round((i/chunks.length)*25));
     try {
-      const raw = await callAPI(getRequirementCollectPrompt(chunks[i], i+1, systemName), 3000);
-      const parsed = parseJSON(raw);
-      allReqs = [...allReqs, ...(parsed.requirements||[]).filter(r => r?.length > 5)];
+      allReqs = [...allReqs, ...await collectFromChunk(chunks[i], i + 1)];
       analysisStatus.requirementChunks.succeeded += 1;
     } catch(e) {
       analysisStatus.requirementChunks.failures.push({
