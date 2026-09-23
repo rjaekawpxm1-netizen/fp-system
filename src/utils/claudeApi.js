@@ -18,6 +18,7 @@ import { classifyReuse, summarizeReuse, snapDomainsToExisting } from './upgradeM
 import { REUSE_TYPE } from './fpConstants';
 import { deriveDataFunctionMetrics } from './dataFunctionDerivation';
 import { getAuthHeaders } from './supabase';
+import pipelineCore from './pipelineCore.cjs';
 
 const TEMPERATURE = 0;
 const MODEL = 'claude-sonnet-4-5';
@@ -148,18 +149,6 @@ const parseJSON = (text) => {
 
 // 공통 후처리: LV1이 달라도 LV2+LV3가 같으면 동일 기능 (도메인 간 중복)
 // 도메인 독립 확장 구조에서 공통기능(사용자/권한/알림 등)이
-// 여러 도메인에 중복 생성되는 것을 막는다.
-const crossLv1Dedup = (funcs) => {
-  const norm = (s) => (s || '').replace(/\s+/g, '');
-  const seen = new Set();
-  return funcs.filter(f => {
-    const key = `${norm(f.lv2)}|${norm(f.lv3)}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-};
-
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // ── 문서에서 프로젝트 정보 추출 ──────────────────────────────
@@ -318,78 +307,11 @@ export const extractDomainsOnly = async (text, userInput, onProgress, targetFunc
 };
 
 export const finalizeDomainFunctions = (allFunctions, info, existingFunctions = [], onProgress) => {
-  const report = (step, msg, pct) => onProgress && onProgress(step, msg, pct);
-  const { systemName } = info || {};
-
-  if (allFunctions.length === 0) {
-    throw new Error('기능이 생성되지 않았습니다. 업로드 문서에 기능 요구사항이 충분한지, 브라우저 콘솔(F12)의 API 오류를 확인하세요.');
-  }
-
-  // 후처리: 컨설팅 과업 필터 + 중복 제거
-  const BAD_LV1 = ['AI/ML','AIOps','클라우드 및 인프라','아키텍처 설계',
-    '실시간 데이터 스트리밍','인프라 고도화','지능형 운영','운영 자동화',
-    '포렌식','비즈니스연속성','사이버보안 통합'];
-  // RFP 사업 수행 조건에서 유래하는 행정 도메인 — 단, 시스템명 자체가
-  // 해당 업무를 다루면(예: 전사사업관리시스템) 정당한 도메인이므로 허용
-  const ADMIN_LV1 = ['사업관리','품질관리','일정관리','위험관리','교육관리','유지보수'];
-  const sysName = (systemName || '');
-  const badAdmin = ADMIN_LV1.filter(kw => !sysName.includes(kw.slice(0, 2)));
-  const BAD_LV3 = [/자동화\s*구현/,/지능화\s*적용/,/고도화\s*수행/,/아키텍처\s*설계/];
-
-  const filtered = allFunctions.filter(f => {
-    if (!f.lv1 || !f.lv2 || !f.lv3?.trim()) return false;
-    if (BAD_LV1.some(kw => f.lv1.includes(kw))) return false;
-    if (badAdmin.some(kw => f.lv1.replace(/\s/g,'') === kw)) return false;
-    if (BAD_LV3.some(p => p.test(f.lv3))) return false;
-    if (f.lv3.trim() === f.lv2.trim()) return false;
-    return true;
+  return pipelineCore.finalizeDomainFunctions(allFunctions, info, existingFunctions, {
+    classifyReuse,
+    summarizeReuse,
+    onProgress,
   });
-
-  const seen = new Set();
-  const deduped = filtered.filter(f => {
-    const key = `${f.lv1}|${f.lv2}|${f.lv3}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-
-  // LV3 동사 통일 ("~한다" 제거)
-  const verbNormalized = deduped.map(f => ({
-    ...f,
-    lv3: (f.lv3 || '').replace(/\s*한다\.?$/, '').replace(/\s*합니다\.?$/, '').trim() || f.lv3,
-  }));
-
-  // LV1 자동 통합 (10개 초과 시)
-  const lv1List = [...new Set(verbNormalized.map(f => f.lv1))];
-  let finalFuncs = verbNormalized;
-  if (lv1List.length > 10) {
-    const mergeRules = [
-      { pattern: /보안|인증|접근제어|감사/, target: '보안관리' },
-      { pattern: /운영|모니터링|장애|알람|알림/, target: '운영관리' },
-      { pattern: /통계|분석|현황|보고/, target: '통계및분석' },
-    ];
-    finalFuncs = verbNormalized.map(f => {
-      for (const rule of mergeRules) {
-        if (rule.pattern.test(f.lv1) && f.lv1 !== rule.target)
-          return { ...f, lv1: rule.target };
-      }
-      return f;
-    });
-  }
-
-  // 도메인 간 중복 제거 (LV1이 달라도 LV2+LV3 동일하면 같은 기능)
-  finalFuncs = crossLv1Dedup(finalFuncs);
-
-  // 고도화 모드: 기존 기능과 대조해 재사용/기능변경/신규 자동 분류
-  // (기존 기능이 있을 때만 동작 — 신규 사업이면 영향 없음)
-  if (existingFunctions && existingFunctions.length > 0) {
-    finalFuncs = classifyReuse(finalFuncs, existingFunctions);
-    const s = summarizeReuse(finalFuncs);
-    report(4, `완료! 신규 ${s.신규개발} / 변경 ${s.기능변경} / 재사용 ${s.재사용}`, 100);
-  } else {
-    report(4, `완료! ${finalFuncs.length}개 기능 생성`, 100);
-  }
-  return { systemName, overview: info?.overview || '', functions: finalFuncs };
 };
 
 // ── 2단계: 선택된 도메인으로 기능 확장 ────────────────────────
@@ -607,21 +529,7 @@ export const generateFPList = async (functions, onProgress, dataGroupNames = [])
     if (SLEEP_BETWEEN_CHUNKS > 0 && ci < chunks.length - 1) await sleep(SLEEP_BETWEEN_CHUNKS);
   }
 
-  // 분류 결과 + 결정론적 FTR/DET 도출 → FP 행 생성
-  return functions.map((f, i) => {
-    const derived = deriveFPRow(f, classifiedMap[i]);
-    return {
-      idx: i,
-      lv1: f.lv1, lv2: f.lv2, lv3: f.lv3,
-      definition: f.definition,
-      fpType: derived.fpType,
-      ftr: derived.ftr,
-      det: derived.det,
-      reuseType: REUSE_TYPE.NEW,
-      classified: derived.classified,
-      bigo: derived.classified ? derived.fpBasis : `분류폴백 | ${derived.fpBasis}`,
-    };
-  });
+  return pipelineCore.applyFPClassifications(functions, classifiedMap, deriveFPRow, REUSE_TYPE.NEW);
 };
 
 // ── 데이터그룹(ILF/EIF) 도출 ─────────────────────────────────
@@ -633,19 +541,5 @@ export const generateFPList = async (functions, onProgress, dataGroupNames = [])
 export const deriveDataGroups = async (functions, systemName, rfpText = '') => {
   const raw = await callAPI(getDataGroupPrompt(functions, systemName, rfpText), 3000);
   const parsed = parseJSON(raw);
-  const ilf = (parsed.ilf || [])
-    .filter(g => g.name)
-    .map(g => ({
-      name: String(g.name).trim(),
-      ...deriveDataFunctionMetrics(g),
-      relatedLv2: Array.isArray(g.relatedLv2) ? g.relatedLv2 : [],
-    }));
-  const eif = (parsed.eif || [])
-    .filter(g => g.name && g.source) // RFP 근거 없으면 제외
-    .map(g => ({
-      name: String(g.name).trim(),
-      ...deriveDataFunctionMetrics(g),
-      source: String(g.source).slice(0, 120),
-    }));
-  return { ilf, eif };
+  return pipelineCore.normalizeDataGroups(parsed, deriveDataFunctionMetrics);
 };

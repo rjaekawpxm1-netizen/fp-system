@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { extractDomainsOnly, expandDomainsToFunctions, finalizeDomainFunctions, suggestAreas, expandArea } from '../utils/claudeApi';
 import { REUSE_TYPE } from '../utils/fpConstants';
+import pipelineCore from '../utils/pipelineCore.cjs';
 
 export const useFunctionGeneration = ({
   rfpText,
@@ -48,14 +49,7 @@ export const useFunctionGeneration = ({
   };
 
   const mergeGeneratedFunctions = (generated, savedUpgradeMode) => {
-    const createdAt = Date.now();
-    const newFuncs = (generated || []).map((func, index) => ({ ...func, id: createdAt + index }));
-    if (!savedUpgradeMode || functions.length === 0) return newFuncs;
-    const existingKeys = new Set(functions.map(func => `${func.lv1}|${func.lv2}|${func.lv3}`));
-    return [
-      ...functions,
-      ...newFuncs.filter(func => !existingKeys.has(`${func.lv1}|${func.lv2}|${func.lv3}`)),
-    ];
+    return pipelineCore.mergeGeneratedFunctions(generated, functions, savedUpgradeMode);
   };
 
   const applyCheckpointFunctions = (checkpoint, completed, clearCheckpoint) => {
