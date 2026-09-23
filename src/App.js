@@ -53,17 +53,20 @@ const App = () => {
       setAuthLoading(false);
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      setSession(nextSession);
+      setSession(prev =>
+        prev && nextSession && prev.user?.id === nextSession.user?.id ? prev : nextSession
+      );
       setAuthLoading(false);
     });
     return () => subscription.unsubscribe();
   }, []);
 
+  const userId = session?.user?.id;
   useEffect(() => {
     if (authLoading) return;
-    if (session) loadProjects();
+    if (userId) loadProjects();
     else { setProjects([]); setLoading(false); }
-  }, [authLoading, session, loadProjects]);
+  }, [authLoading, userId, loadProjects]);
   useEffect(() => { projectsRef.current = projects; }, [projects]);
 
   const handleCreateProject = async (name) => {
