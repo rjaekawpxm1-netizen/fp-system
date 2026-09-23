@@ -22,3 +22,16 @@ export const flushPendingProjectUpdates = (pendingUpdates, updateTimers, save, o
     }
   });
 };
+
+export const registerProjectSaveFlush = (flush, doc = document, browserWindow = window) => {
+  const handleVisibilityChange = () => {
+    if (doc.hidden) flush();
+  };
+  const handlePageHide = () => flush();
+  doc.addEventListener('visibilitychange', handleVisibilityChange);
+  browserWindow.addEventListener('pagehide', handlePageHide);
+  return () => {
+    doc.removeEventListener('visibilitychange', handleVisibilityChange);
+    browserWindow.removeEventListener('pagehide', handlePageHide);
+  };
+};

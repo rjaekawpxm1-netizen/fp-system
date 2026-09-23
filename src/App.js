@@ -11,7 +11,7 @@ import {
   deleteProject as dbDeleteProject,
   supabase,
 } from './utils/supabase';
-import { flushPendingProjectUpdates, mergeProjectPatches } from './utils/projectUpdateQueue';
+import { flushPendingProjectUpdates, mergeProjectPatches, registerProjectSaveFlush } from './utils/projectUpdateQueue';
 
 const App = () => {
   const [projects, setProjects] = useState([]);
@@ -115,15 +115,9 @@ const App = () => {
 
   useEffect(() => {
     const updateTimers = updateTimersRef.current;
-    const handleVisibilityChange = () => {
-      if (document.hidden) flushPendingUpdates();
-    };
-    const handlePageHide = () => flushPendingUpdates();
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('pagehide', handlePageHide);
+    const unregisterFlush = registerProjectSaveFlush(flushPendingUpdates);
     return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('pagehide', handlePageHide);
+      unregisterFlush();
       Object.values(updateTimers).forEach(clearTimeout);
     };
   }, [flushPendingUpdates]);

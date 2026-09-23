@@ -1,4 +1,8 @@
-import { mergeProjectPatches } from '../projectUpdateQueue';
+import {
+  flushPendingProjectUpdates,
+  mergeProjectPatches,
+  registerProjectSaveFlush,
+} from '../projectUpdateQueue';
 
 describe('mergeProjectPatches', () => {
   test('debounce 기간의 서로 다른 필드를 모두 보존', () => {
@@ -16,5 +20,52 @@ describe('mergeProjectPatches', () => {
       { settings: { projectBudget: '100', fpMethod: 'standard' } },
       { settings: { fpMethod: 'simple', upgradeMode: true } },
     )).toEqual({ settings: { projectBudget: '100', fpMethod: 'simple', upgradeMode: true } });
+  });
+
+  test('체크포인트 저장 시 기존 settings 값을 보존', () => {
+    expect(mergeProjectPatches(
+      { settings: { projectBudget: '100', projectScale: '250', fpMethod: 'standard' } },
+      { settings: { generationCheckpoint: { stage: 'domains', completed: {} } } },
+    )).toEqual({
+      settings: {
+        projectBudget: '100',
+        projectScale: '250',
+        fpMethod: 'standard',
+        generationCheckpoint: { stage: 'domains', completed: {} },
+      },
+    });
+  });
+
+  test('visibilitychange로 hidden이 되면 debounce를 기다리지 않고 저장', () => {
+    jest.useFakeTimers();
+    const save = jest.fn().mockResolvedValue(undefined);
+    const projectPatch = { settings: { generationCheckpoint: { stage: 'expanding' } } };
+    const pendingUpdates = { p1: projectPatch };
+    const updateTimers = { p1: setTimeout(() => {}, 500) };
+    const listeners = {};
+    const fakeDocument = {
+      hidden: false,
+      addEventListener: (name, listener) => { listeners[name] = listener; },
+      removeEventListener: jest.fn(),
+    };
+    const fakeWindow = {
+      addEventListener: (name, listener) => { listeners[name] = listener; },
+      removeEventListener: jest.fn(),
+    };
+    const unregister = registerProjectSaveFlush(
+      () => flushPendingProjectUpdates(pendingUpdates, updateTimers, save),
+      fakeDocument,
+      fakeWindow
+    );
+
+    fakeDocument.hidden = true;
+    listeners.visibilitychange();
+
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(save).toHaveBeenCalledWith('p1', projectPatch);
+    expect(pendingUpdates).toEqual({});
+    expect(updateTimers).toEqual({});
+    unregister();
+    jest.useRealTimers();
   });
 });
