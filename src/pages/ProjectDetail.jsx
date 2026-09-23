@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   setClaudeProjectContext,
@@ -14,6 +14,7 @@ import { useFileIngestion } from '../hooks/useFileIngestion';
 import { useFunctionGeneration } from '../hooks/useFunctionGeneration';
 import { useFPCalculation } from '../hooks/useFPCalculation';
 import { useDerivedTotals } from '../hooks/useDerivedTotals';
+import { useServerGenerationJob } from '../hooks/useServerGenerationJob';
 
 // ── 상수 ──────────────────────────────────────────────────────
 const FP_TYPES = ['ILF','EIF','EI','EO','EQ'];
@@ -91,7 +92,7 @@ const S = {
   tag: (bg, color) => ({ background:bg, color, fontSize:10, padding:'2px 7px', borderRadius:10, fontWeight:600 }),
 };
 
-const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
+const ProjectDetail = ({ projects, onUpdateProject, onCopyProject, onReloadProjects }) => {
   const { id } = useParams();
   const navigate = useNavigate();
   const project = projects.find(p => p.id === id);
@@ -160,21 +161,6 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
   const [loadingMsg, setLoadingMsg] = useState('');
   const [parseStep, setParseStep] = useState(0);
   const [parsePct, setParsePct] = useState(0);
-  const [returnedFromBackground, setReturnedFromBackground] = useState(false);
-  useEffect(() => {
-    if (!loading) return undefined;
-    setReturnedFromBackground(false);
-    let wasHiddenDuringLoading = false;
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        wasHiddenDuringLoading = true;
-      } else if (wasHiddenDuringLoading) {
-        setReturnedFromBackground(true);
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [loading]);
   // Virtual Scroll
   const [vsStart, setVsStart] = useState(0); // 표시 시작 인덱스
   const VS_PAGE = 100; // 한 번에 표시할 행 수
@@ -186,27 +172,6 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
   const saveSettings = useCallback((settings) => {
     saveProject({ settings });
   }, [saveProject]);
-
-  const generationStartedAtRef = useRef(null);
-  const checkpointStartedAt = project?.settings?.generationCheckpoint?.startedAt;
-  useEffect(() => {
-    if (!domainStep || !pendingInfo) {
-      generationStartedAtRef.current = null;
-      return;
-    }
-    if (!generationStartedAtRef.current) generationStartedAtRef.current = checkpointStartedAt || new Date().toISOString();
-    const info = { ...pendingInfo };
-    delete info.rfpText;
-    saveSettings({ generationCheckpoint: {
-      stage: 'domains',
-      upgradeMode,
-      info,
-      domains: pendingDomains,
-      completed: {},
-      startedAt: generationStartedAtRef.current,
-      updatedAt: new Date().toISOString(),
-    } });
-  }, [domainStep, pendingDomains, pendingInfo, upgradeMode, saveSettings, checkpointStartedAt]);
 
   const { handleFileUpload, handleRemoveFile } = useFileIngestion({
     id,
@@ -232,12 +197,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
   });
 
   const {
-    handleGenerate,
-    handleConfirmDomains,
     handleRetryFailedDomains,
-    handleResumeDomainReview,
-    handleResumeGeneration,
-    handleApplyCompletedCheckpoint,
     handleDiscardCheckpoint,
     handleSuggestAreas,
     handleExpandAreas,
@@ -278,7 +238,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
     project,
     saveSettings,
   });
-  const { updateFP, handleGenerateFP, validateFP } = useFPCalculation({
+  const { updateFP, validateFP } = useFPCalculation({
     fpList,
     fpMethod,
     autoCalcRow,
@@ -293,6 +253,32 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
     setTab,
     projectScale,
   });
+  const {
+    job: generationJob,
+    restoring: restoringJob,
+    resuming: resumingJob,
+    jobLocked,
+    progress: jobProgress,
+    handleGenerate,
+    handleConfirmDomains: confirmServerDomains,
+    handleGenerateFP,
+    handleResume: handleResumeJob,
+  } = useServerGenerationJob({
+    project,
+    rfpText,
+    userInput,
+    projectScale,
+    upgradeMode,
+    functions,
+    fpList,
+    fpMethod,
+    setPendingDomains,
+    setPendingInfo,
+    setDomainStep,
+    setTab,
+    reloadProjects: onReloadProjects,
+  });
+  const handleConfirmDomains = () => confirmServerDomains(pendingDomains);
   const { stdSummary, simpleSummary, costCalc } = useDerivedTotals({
     fpList,
     fpMethod,
@@ -520,6 +506,30 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
 
         {/* ── 탭 콘텐츠 ── */}
         <div style={S.content}>
+          {(generationJob || restoringJob) && (
+            <div style={{...S.card,padding:'12px 16px',border:'1px solid #60a5fa',background:'#eff6ff',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}>
+              <div style={{flex:1,minWidth:220}}>
+                <div style={{fontSize:13,fontWeight:700,color:'#1e3a8a'}}>
+                  {restoringJob ? '서버 작업 상태 확인 중...' : generationJob.status === 'paused_quota'
+                    ? '일일 한도 초과로 작업이 일시정지됐습니다.'
+                    : generationJob.status === 'awaiting_confirmation'
+                      ? '도메인 분석 완료 — 아래 구조를 확인해 주세요.'
+                      : resumingJob ? '중단된 서버 작업 재개 중...' : '서버에서 작업을 계속 진행하고 있습니다.'}
+                </div>
+                {!restoringJob && generationJob?.status === 'running' && (
+                  <div style={{marginTop:7,height:6,borderRadius:4,background:'#bfdbfe',overflow:'hidden'}}>
+                    <div style={{width:`${jobProgress}%`,height:'100%',background:'#2563eb',transition:'width .3s'}} />
+                  </div>
+                )}
+                <div style={{fontSize:11,color:'#475569',marginTop:5}}>
+                  다른 탭으로 이동하거나 창을 닫아도 서버에서 계속 진행됩니다.
+                </div>
+              </div>
+              {generationJob?.status === 'paused_quota' && (
+                <button onClick={handleResumeJob} style={S.btn('#1d4ed8')}>이어서 진행</button>
+              )}
+            </div>
+          )}
 
           {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
               탭1: 프로젝트 설정
@@ -844,23 +854,14 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
               탭2: 기능목록
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
           {tab === 'functions' && (
-            <div>
+            <div style={{position:'relative'}}>
+              {jobLocked && <div aria-label="기능목록 편집 잠금" style={{position:'absolute',inset:0,zIndex:20,background:'rgba(248,250,252,.45)',cursor:'not-allowed'}} />}
               {generationCheckpoint && (
                 <div style={{...S.card,marginBottom:12,padding:'12px 16px',border:'1px solid #3b82f6',background:'#eff6ff',display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,flexWrap:'wrap'}}>
                   <span style={{fontSize:12,color:'#1e3a8a'}}>
-                    {generationCheckpoint.stage === 'domains'
-                      ? '이전 도메인 확인 단계가 저장돼 있습니다.'
-                      : `이전 기능 생성이 ${(generationCheckpoint.domains || []).length}개 중 ${Object.keys(generationCheckpoint.completed || {}).length}개 도메인에서 중단됐습니다.`}
+                    이전 방식의 중단 기록입니다. 폐기 후 서버 작업으로 새로 시작하세요.
                   </span>
                   <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-                    {generationCheckpoint.stage === 'domains' ? (
-                      <button onClick={handleResumeDomainReview} style={S.btn('#1d4ed8')}>이어서 하기</button>
-                    ) : (
-                      <>
-                        <button onClick={handleResumeGeneration} style={S.btn('#1d4ed8')}>이어서 생성</button>
-                        <button onClick={handleApplyCompletedCheckpoint} style={S.btnOutline('#1d4ed8')}>완료분만 반영</button>
-                      </>
-                    )}
                     <button onClick={handleDiscardCheckpoint} style={S.btnOutline('#dc2626')}>폐기</button>
                   </div>
                 </div>
@@ -1213,7 +1214,8 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
               탭3: FP 산정표
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
           {tab === 'fp' && (
-            <div>
+            <div style={{position:'relative'}}>
+              {jobLocked && <div aria-label="FP표 편집 잠금" style={{position:'absolute',inset:0,zIndex:20,background:'rgba(248,250,252,.45)',cursor:'not-allowed'}} />}
               {/* 헤더 */}
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12,flexWrap:'wrap',gap:8}}>
                 <div style={{display:'flex',alignItems:'center',gap:12}}>
@@ -1426,7 +1428,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
                 </div>
                 <div style={{fontSize:11,color:'#9ca3af',marginTop:10}}>도메인 수에 따라 수분 소요</div>
                 <div style={{fontSize:11,color:'#b45309',background:'#fffbeb',border:'1px solid #fde68a',borderRadius:6,padding:'8px 10px',marginTop:12,lineHeight:1.5}}>
-                  ⚠ 이 탭을 벗어나거나 다른 탭으로 이동하면 처리가 느려지거나 멈출 수 있습니다. 완료될 때까지 이 탭을 열어두세요.
+                  다른 탭으로 이동하거나 창을 닫아도 서버에서 계속 진행됩니다.
                 </div>
               </>
             ) : (
@@ -1435,14 +1437,9 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
                 <div style={{fontSize:14,fontWeight:700,color:'#111827',marginBottom:6}}>처리 중...</div>
                 <div style={{fontSize:13,color:'#6b7280'}}>{loadingMsg}</div>
                 <div style={{fontSize:11,color:'#b45309',background:'#fffbeb',border:'1px solid #fde68a',borderRadius:6,padding:'8px 10px',marginTop:12,lineHeight:1.5}}>
-                  ⚠ 이 탭을 벗어나거나 다른 탭으로 이동하면 처리가 느려지거나 멈출 수 있습니다. 완료될 때까지 이 탭을 열어두세요.
+                  다른 탭으로 이동하거나 창을 닫아도 서버에서 계속 진행됩니다.
                 </div>
               </>
-            )}
-            {returnedFromBackground && (
-              <div style={{fontSize:11,color:'#b91c1c',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:6,padding:'8px 10px',marginTop:12,lineHeight:1.5}}>
-                ⚠ 탭이 백그라운드에 있는 동안 처리가 느려졌을 수 있습니다. 잠시 기다려 주세요.
-              </div>
             )}
           </div>
         </div>

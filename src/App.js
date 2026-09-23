@@ -188,6 +188,7 @@ const App = () => {
               projects={projects}
               onUpdateProject={handleUpdateProject}
               onCopyProject={handleCopyProject}
+              onReloadProjects={loadProjects}
             />
           }/>
         </Routes>
