@@ -210,7 +210,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
     setRfpText,
   });
 
-  const { handleGenerate, handleConfirmDomains, handleSuggestAreas, handleExpandAreas } = useFunctionGeneration({
+  const { handleGenerate, handleConfirmDomains, handleRetryFailedDomains, handleSuggestAreas, handleExpandAreas, failedDomains } = useFunctionGeneration({
     rfpText,
     userInput,
     upgradeMode,
@@ -809,6 +809,14 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject }) => {
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
           {tab === 'functions' && (
             <div>
+              {failedDomains.length > 0 && (
+                <div style={{...S.card,marginBottom:12,padding:'12px 16px',border:'1px solid #f59e0b',background:'#fffbeb',display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,flexWrap:'wrap'}}>
+                  <span style={{fontSize:12,color:'#92400e'}}>
+                    ⚠ {failedDomains.length}개 도메인 생성 실패: {failedDomains.map(item=>item.lv1).join(', ')}
+                  </span>
+                  <button onClick={handleRetryFailedDomains} style={S.btn('#d97706')}>실패 도메인만 다시 생성</button>
+                </div>
+              )}
               {/* 검색/필터 바 */}
               <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap',alignItems:'center'}}>
                 <div style={{position:'relative',flex:1,minWidth:180}}>

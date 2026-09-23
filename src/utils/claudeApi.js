@@ -397,11 +397,6 @@ export const expandDomainsToFunctions = async (domains, info, onProgress, existi
     if (!expanded) failedDomains.push({ lv1: domain.lv1, message: lastError || '확장 실패' });
   }
 
-  if (failedDomains.length > 0) {
-    const names = failedDomains.map(item => item.lv1).join(', ');
-    throw new Error(`일부 도메인의 기능 확장에 실패해 결과를 저장하지 않았습니다: ${names}. 다시 시도하세요.`);
-  }
-
   // [안전망] 전체 0개면 조용한 "완료! 0개" 대신 명시적 에러
   if (allFunctions.length === 0) {
     throw new Error('기능이 생성되지 않았습니다. 업로드 문서에 기능 요구사항이 충분한지, 브라우저 콘솔(F12)의 API 오류를 확인하세요.');
@@ -471,7 +466,7 @@ export const expandDomainsToFunctions = async (domains, info, onProgress, existi
   } else {
     report(4, `완료! ${finalFuncs.length}개 기능 생성`, 100);
   }
-  return { systemName, overview: info?.overview || '', functions: finalFuncs };
+  return { systemName, overview: info?.overview || '', functions: finalFuncs, failedDomains };
 };
 
 // ── 추가 영역 제안 ────────────────────────────────────────────

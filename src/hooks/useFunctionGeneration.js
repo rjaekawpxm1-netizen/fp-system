@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { extractDomainsOnly, expandDomainsToFunctions, suggestAreas, expandArea } from '../utils/claudeApi';
 import { REUSE_TYPE } from '../utils/fpConstants';
 
@@ -33,6 +34,9 @@ export const useFunctionGeneration = ({
   setCustomAreas,
   setShowAreaPanel,
 }) => {
+  const [failedDomains, setFailedDomains] = useState([]);
+  const [failedRetryContext, setFailedRetryContext] = useState(null);
+
   // ── 기능 생성 핸들러 ─────────────────────────────────────────
   // ── 1단계: 도메인 분류까지만 실행 ─────────────────────────
   const handleGenerate = async () => {
@@ -105,6 +109,13 @@ export const useFunctionGeneration = ({
         upgradeMode ? functions : []   // 고도화면 기존 기능 전달 → 재사용/변경 자동 분류
       );
       const newFuncs = (result.functions||[]).map((f,i)=>({...f,id:Date.now()+i}));
+      const failures = result.failedDomains || [];
+      setFailedDomains(failures);
+      setFailedRetryContext(failures.length > 0 ? {
+        domains: activeDomains.filter(domain => failures.some(item => item.lv1 === domain.lv1)),
+        info: pendingInfo,
+        upgradeMode,
+      } : null);
       let finalFunctions;
       if (upgradeMode && functions.length > 0) {
         // classifyReuse가 부여한 reuseType(재사용/기능변경/신규) 유지.
@@ -116,7 +127,9 @@ export const useFunctionGeneration = ({
         const rc = onlyNew.filter(f=>f.reuseType===REUSE_TYPE.CHANGED).length;
         const nc = onlyNew.filter(f=>f.reuseType===REUSE_TYPE.NEW).length;
         const rv = onlyNew.filter(f=>f.needsReview).length;
-        setTimeout(()=>alert(`✅ 고도화 기능 생성 완료!\n추가: 신규 ${nc}개 / 변경 ${rc}개${rv>0?`\n⚠ 검토 필요 ${rv}개 (재사용/변경 여부 확인)`:''}\n총 ${finalFunctions.length}개`),100);
+        if (failures.length === 0) {
+          setTimeout(()=>alert(`✅ 고도화 기능 생성 완료!\n추가: 신규 ${nc}개 / 변경 ${rc}개${rv>0?`\n⚠ 검토 필요 ${rv}개 (재사용/변경 여부 확인)`:''}\n총 ${finalFunctions.length}개`),100);
+        }
       } else {
         finalFunctions = newFuncs;
       }
@@ -129,7 +142,9 @@ export const useFunctionGeneration = ({
         rfpText, userInput,
       });
       setTab('functions');
-      if (!(upgradeMode && functions.length > 0)) {
+      if (failures.length > 0) {
+        alert(`⚠ ${failures.length}개 도메인 생성 실패: ${failures.map(item => item.lv1).join(', ')}. 성공한 결과는 저장했습니다.`);
+      } else if (!(upgradeMode && functions.length > 0)) {
         alert(`✅ 기능 생성 완료!\n총 ${finalFunctions.length}개 기능목록 생성`);
       }
     } catch (err) {
@@ -141,6 +156,45 @@ export const useFunctionGeneration = ({
       setParsePct(0);
       setPendingDomains([]);
       setPendingInfo(null);
+    }
+  };
+
+  const handleRetryFailedDomains = async () => {
+    if (!failedRetryContext || failedRetryContext.domains.length === 0) return;
+    setLoading(true);
+    setParseStep(4);
+    setParsePct(42);
+    try {
+      const result = await expandDomainsToFunctions(
+        failedRetryContext.domains,
+        failedRetryContext.info,
+        (step, msg, pct) => { setParseStep(step); setLoadingMsg(msg); setParsePct(pct); },
+        failedRetryContext.upgradeMode ? functions : []
+      );
+      const createdAt = Date.now();
+      const retried = (result.functions || []).map((f, i) => ({ ...f, id: createdAt + i }));
+      const existingKeys = new Set(functions.map(f => `${f.lv1}|${f.lv2}|${f.lv3}`));
+      const merged = [...functions, ...retried.filter(f => !existingKeys.has(`${f.lv1}|${f.lv2}|${f.lv3}`))];
+      setFunctions(merged);
+      saveProject({ functions: merged });
+      const failures = result.failedDomains || [];
+      setFailedDomains(failures);
+      setFailedRetryContext(failures.length > 0 ? {
+        ...failedRetryContext,
+        domains: failedRetryContext.domains.filter(domain => failures.some(item => item.lv1 === domain.lv1)),
+      } : null);
+      if (failures.length > 0) {
+        alert(`⚠ ${failures.length}개 도메인 생성 실패: ${failures.map(item => item.lv1).join(', ')}. 성공한 결과는 저장했습니다.`);
+      } else {
+        alert(`✅ 실패 도메인 재생성 완료!\n총 ${merged.length}개 기능`);
+      }
+    } catch (err) {
+      alert('실패 도메인 재생성 오류: ' + err.message);
+    } finally {
+      setLoading(false);
+      setLoadingMsg('');
+      setParseStep(0);
+      setParsePct(0);
     }
   };
 
@@ -215,5 +269,5 @@ export const useFunctionGeneration = ({
     }
   };
 
-  return { handleGenerate, handleConfirmDomains, handleSuggestAreas, handleExpandAreas };
+  return { handleGenerate, handleConfirmDomains, handleRetryFailedDomains, handleSuggestAreas, handleExpandAreas, failedDomains };
 };
