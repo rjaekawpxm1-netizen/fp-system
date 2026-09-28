@@ -94,6 +94,7 @@ describe('서버 생성 작업 실행기', () => {
     await insertJob(repository, { type: 'domains', state: { steps: [] } });
     const conflict = await invoke(handler, 'start', { headers: userHeaders, body: { projectId: 'p1', type: 'domains', input: { rfpText: '요구사항' } } });
     expect(conflict.status).toBe(409);
+    expect(conflict.body).toEqual(expect.objectContaining({ jobId: 'j1', status: 'running', type: 'domains' }));
   });
 
   test('tick은 worker secret이 없거나 틀리면 401', async () => {

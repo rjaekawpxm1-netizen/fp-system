@@ -268,7 +268,13 @@ const createJobsHandler = options => {
         const { projectId, type, input = {} } = req.body || {};
         const project = await repository.getProject(projectId);
         if (!project || project.owner_id !== user.id) return send(res, 403, { error: 'Project access denied' });
-        if (await repository.findActive(projectId)) return send(res, 409, { error: 'An active job already exists' });
+        const active = await repository.findActive(projectId);
+        if (active) return send(res, 409, {
+          error: 'An active job already exists',
+          jobId: active.id,
+          status: active.status,
+          type: active.type,
+        });
         const state = buildInitialState(type, input, project);
         const job = await repository.insert({ project_id: projectId, owner_id: user.id, type, status: 'running', step: 0, total_steps: state.steps.length, state });
         await triggerNext(job.id);

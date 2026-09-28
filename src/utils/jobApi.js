@@ -11,7 +11,10 @@ const requestJob = async (action, { method = 'GET', body, query = {} } = {}) => 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = new Error(data.error || `작업 API 오류 (${response.status})`);
+    error.data = data;
+    Object.assign(error, data);
     error.status = response.status;
+    error.jobStatus = data.status;
     throw error;
   }
   return data;

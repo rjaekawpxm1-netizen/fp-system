@@ -21,6 +21,7 @@ export const useServerGenerationJob = ({
   const [job, setJob] = useState(null);
   const [restoring, setRestoring] = useState(true);
   const [resuming, setResuming] = useState(false);
+  const [jobNotice, setJobNotice] = useState('');
   const completedRef = useRef(null);
 
   const applyJob = useCallback(async nextJob => {
@@ -41,6 +42,18 @@ export const useServerGenerationJob = ({
       setTab(nextJob.type === 'fp' ? 'fp' : 'functions');
     }
   }, [reloadProjects, rfpText, setDomainStep, setPendingDomains, setPendingInfo, setTab]);
+
+  const reconnectConflict = async (error, requestedType) => {
+    if (error.status !== 409 || !error.jobId) return false;
+    const active = await getJob(error.jobId);
+    await applyJob(active);
+    setJobNotice(active.type !== requestedType
+      ? requestedType === 'fp'
+        ? '진행 중인 기능 생성 작업이 끝난 뒤 FP 산정을 시작할 수 있습니다.'
+        : '진행 중인 FP 산정 작업이 끝난 뒤 기능 생성을 시작할 수 있습니다.'
+      : '이미 진행 중인 작업에 다시 연결했습니다.');
+    return true;
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -70,7 +83,10 @@ export const useServerGenerationJob = ({
 
   const handleGenerate = async () => {
     if (!rfpText && !userInput.trim()) return alert('파일을 업로드하거나 시스템 설명을 입력해주세요.');
-    if (job && ACTIVE.has(job.status)) return alert('이미 진행 중인 서버 작업이 있습니다.');
+    if (job && ACTIVE.has(job.status)) {
+      if (job.type === 'fp') setJobNotice('진행 중인 FP 산정 작업이 끝난 뒤 기능 생성을 시작할 수 있습니다.');
+      return;
+    }
     try {
       const started = await startJob(project.id, 'domains', {
         rfpText,
@@ -80,6 +96,7 @@ export const useServerGenerationJob = ({
       });
       await applyJob({ id: started.jobId, project_id: project.id, type: 'domains', status: 'running', step: 0, total_steps: null, state: {} });
     } catch (error) {
+      if (await reconnectConflict(error, 'domains')) return;
       alert('기능 생성 작업 시작 오류: ' + error.message);
     }
   };
@@ -98,12 +115,16 @@ export const useServerGenerationJob = ({
 
   const handleGenerateFP = async () => {
     if (!functions.length) return alert('기능목록을 먼저 생성하세요.');
-    if (job && ACTIVE.has(job.status)) return alert('이미 진행 중인 서버 작업이 있습니다.');
+    if (job && ACTIVE.has(job.status)) {
+      if (job.type !== 'fp') setJobNotice('진행 중인 기능 생성 작업이 끝난 뒤 FP 산정을 시작할 수 있습니다.');
+      return;
+    }
     if (fpList.length && !window.confirm(`기존 FP ${fpList.length}개를 재산정할까요?`)) return;
     try {
       const started = await startJob(project.id, 'fp', { functions, fpList, fpMethod, upgradeMode, rfpText });
       await applyJob({ id: started.jobId, project_id: project.id, type: 'fp', status: 'running', step: 0, total_steps: Math.ceil(functions.length / 25) + 2, state: {} });
     } catch (error) {
+      if (await reconnectConflict(error, 'fp')) return;
       alert('FP 산정 작업 시작 오류: ' + error.message);
     }
   };
@@ -126,6 +147,7 @@ export const useServerGenerationJob = ({
     jobLocked: Boolean(job && ACTIVE.has(job.status)),
     jobError: job?.status === 'failed' ? job.error || '서버 작업에 실패했습니다.' : '',
     canRetry: job?.status === 'failed',
+    jobNotice,
     progress: job?.total_steps ? Math.round(((job.step || 0) / job.total_steps) * 100) : 0,
     handleGenerate,
     handleConfirmDomains,

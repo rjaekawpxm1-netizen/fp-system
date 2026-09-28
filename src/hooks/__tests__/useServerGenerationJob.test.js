@@ -93,3 +93,32 @@ test('failed 작업의 오류와 재시도 동작을 제공한다', async () => 
   expect(result.current.canRetry).toBe(true);
   expect(result.current.jobError).toContain('3회 실패');
 });
+
+test('시작 요청 409에 jobId가 있으면 alert 없이 활성 작업에 재연결한다', async () => {
+  const alertSpy = jest.spyOn(window, 'alert').mockImplementation(() => {});
+  startJob.mockRejectedValue(Object.assign(new Error('An active job already exists'), { status: 409, jobId: 'existing' }));
+  getJob.mockResolvedValue(activeJob({ id: 'existing', type: 'domains', status: 'paused_quota', step: 2 }));
+  const { result } = renderHook(() => useServerGenerationJob(createProps()));
+  await waitFor(() => expect(result.current.restoring).toBe(false));
+
+  await result.current.handleGenerate();
+
+  await waitFor(() => expect(result.current.job?.id).toBe('existing'));
+  expect(getJob).toHaveBeenCalledWith('existing');
+  expect(alertSpy).not.toHaveBeenCalled();
+  alertSpy.mockRestore();
+});
+
+test('FP 요청과 활성 작업 타입이 다르면 재연결 안내를 제공한다', async () => {
+  const alertSpy = jest.spyOn(window, 'alert').mockImplementation(() => {});
+  startJob.mockRejectedValue(Object.assign(new Error('An active job already exists'), { status: 409, jobId: 'domains-job' }));
+  getJob.mockResolvedValue(activeJob({ id: 'domains-job', type: 'domains', status: 'paused_quota' }));
+  const { result } = renderHook(() => useServerGenerationJob(createProps()));
+  await waitFor(() => expect(result.current.restoring).toBe(false));
+
+  await result.current.handleGenerateFP();
+
+  await waitFor(() => expect(result.current.jobNotice).toContain('기능 생성 작업이 끝난 뒤 FP 산정'));
+  expect(alertSpy).not.toHaveBeenCalled();
+  alertSpy.mockRestore();
+});

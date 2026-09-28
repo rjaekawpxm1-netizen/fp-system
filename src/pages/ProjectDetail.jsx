@@ -260,6 +260,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject, onReloadProje
     jobLocked,
     jobError,
     canRetry: canRetryJob,
+    jobNotice,
     progress: jobProgress,
     handleGenerate,
     handleConfirmDomains: confirmServerDomains,
@@ -528,6 +529,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject, onReloadProje
                 <div style={{fontSize:11,color:'#475569',marginTop:5}}>
                   다른 탭으로 이동하거나 창을 닫아도 서버에서 계속 진행됩니다.
                 </div>
+                {jobNotice && <div style={{fontSize:11,color:'#92400e',marginTop:5}}>{jobNotice}</div>}
               </div>
               {generationJob?.status === 'paused_quota' && (
                 <button onClick={handleResumeJob} style={S.btn('#1d4ed8')}>이어서 진행</button>
