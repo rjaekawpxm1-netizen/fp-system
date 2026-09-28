@@ -72,6 +72,10 @@ export const useFunctionGeneration = ({
       settings: {
         projectBudget,
         projectScale,
+        toBeFunctionReport: {
+          excluded: result.excluded || [],
+          mergedLv1Count: result.mergedLv1Count || 0,
+        },
         ...(clearCheckpoint ? { generationCheckpoint: null } : {}),
       },
       rfpText,
@@ -210,7 +214,15 @@ export const useFunctionGeneration = ({
         functions: finalFunctions,
         systemName: pendingInfo.systemName || systemName,
         systemOverview: pendingInfo.overview || systemOverview,
-        settings: { projectBudget, projectScale, ...(failures.length === 0 ? { generationCheckpoint: null } : {}) },
+        settings: {
+          projectBudget,
+          projectScale,
+          toBeFunctionReport: {
+            excluded: result.excluded || [],
+            mergedLv1Count: result.mergedLv1Count || 0,
+          },
+          ...(failures.length === 0 ? { generationCheckpoint: null } : {}),
+        },
         rfpText, userInput,
       });
       setTab('functions');

@@ -161,6 +161,8 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject, onReloadProje
   const [loadingMsg, setLoadingMsg] = useState('');
   const [parseStep, setParseStep] = useState(0);
   const [parsePct, setParsePct] = useState(0);
+  const toBeFunctionReport = project?.settings?.toBeFunctionReport || {};
+  const excludedFunctions = toBeFunctionReport.excluded || [];
   // Virtual Scroll
   const [vsStart, setVsStart] = useState(0); // 표시 시작 인덱스
   const VS_PAGE = 100; // 한 번에 표시할 행 수
@@ -923,6 +925,22 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject, onReloadProje
                   </span>
                   <button onClick={handleRetryFailedDomains} style={S.btn('#d97706')}>실패 도메인만 다시 생성</button>
                 </div>
+              )}
+              {(excludedFunctions.length > 0 || toBeFunctionReport.mergedLv1Count > 0) && (
+                <details style={{...S.card,marginBottom:12,padding:'10px 14px',border:'1px solid #f59e0b',background:'#fffbeb'}}>
+                  <summary style={{cursor:'pointer',fontSize:12,fontWeight:600,color:'#92400e'}}>
+                    제외된 비기능 항목 {excludedFunctions.length}개 보기{toBeFunctionReport.mergedLv1Count ? ` · LV1 중복 ${toBeFunctionReport.mergedLv1Count}건 통합` : ''}
+                  </summary>
+                  {excludedFunctions.length > 0 && (
+                    <div style={{marginTop:8,display:'flex',gap:6,flexWrap:'wrap'}}>
+                      {excludedFunctions.map((item,index) => (
+                        <span key={`${item.lv1}|${item.lv2}|${item.lv3}|${index}`} style={{fontSize:11,padding:'3px 7px',borderRadius:5,background:'#fff',border:'1px solid #fde68a',color:'#92400e'}}>
+                          {item.lv1} · {item.lv2} · {item.lv3}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </details>
               )}
               {/* 검색/필터 바 */}
               <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap',alignItems:'center'}}>
