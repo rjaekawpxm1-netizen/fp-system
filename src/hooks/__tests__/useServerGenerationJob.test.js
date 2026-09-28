@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { formatJobStep, getStartButtonState, useServerGenerationJob } from '../useServerGenerationJob';
+import { formatJobStep, getJobDocumentTitle, getStartButtonState, useServerGenerationJob } from '../useServerGenerationJob';
 import { cancelJob, confirmJob, getActiveJob, getJob, resumeJob, startJob } from '../../utils/jobApi';
 
 jest.mock('../../utils/jobApi', () => ({
@@ -192,4 +192,10 @@ test('시작 요청이 끝나기 전 중복 호출을 차단한다', async () =>
   expect(startJob).toHaveBeenCalledTimes(1);
   resolveStart({ jobId: 'started-once' });
   await Promise.all([first, second]);
+});
+
+test('running 진행률과 완료 상태의 브라우저 탭 제목을 생성한다', () => {
+  expect(getJobDocumentTitle('running', 50)).toBe('(50%) fp-system');
+  expect(getJobDocumentTitle('completed', 100)).toBe('✅ 완료 - fp-system');
+  expect(getJobDocumentTitle('failed', 50, '원래 제목')).toBe('원래 제목');
 });

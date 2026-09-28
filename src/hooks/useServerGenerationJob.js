@@ -36,6 +36,12 @@ export const getStartButtonState = ({ jobLocked, starting, progress, idleLabel }
   label: jobLocked ? `진행 중… (${progress}%)` : starting ? '시작 중…' : idleLabel,
 });
 
+export const getJobDocumentTitle = (status, progress, fallback = 'fp-system') => {
+  if (status === 'running') return `(${progress}%) fp-system`;
+  if (status === 'completed') return '✅ 완료 - fp-system';
+  return fallback;
+};
+
 export const useServerGenerationJob = ({
   project,
   rfpText,
@@ -63,6 +69,8 @@ export const useServerGenerationJob = ({
   const startingRef = useRef(false);
   const observedStepRef = useRef({ id: null, step: 0 });
   const cancelHideTimerRef = useRef(null);
+  const titleTimerRef = useRef(null);
+  const originalTitleRef = useRef(document.title);
 
   const applyJob = useCallback(async nextJob => {
     setJob(nextJob);
@@ -94,7 +102,7 @@ export const useServerGenerationJob = ({
   }, [reloadProjects, rfpText, setDomainStep, setPendingDomains, setPendingInfo, setTab]);
 
   useEffect(() => {
-    if (!job) return undefined;
+    if (!job?.id) return undefined;
     setClock(Date.now());
     const timer = setInterval(() => setClock(Date.now()), 1000);
     return () => clearInterval(timer);
@@ -259,6 +267,25 @@ export const useServerGenerationJob = ({
   const currentStep = steps[job?.step || 0];
   const elapsedSeconds = job?.created_at ? Math.max(0, Math.floor((clock - new Date(job.created_at).getTime()) / 1000)) : 0;
   const updatedSeconds = job?.updated_at ? Math.max(0, Math.floor((clock - new Date(job.updated_at).getTime()) / 1000)) : 0;
+  const progress = job?.total_steps ? Math.round(((job.step || 0) / job.total_steps) * 100) : 0;
+
+  useEffect(() => {
+    clearTimeout(titleTimerRef.current);
+    if (job?.status === 'running') {
+      document.title = getJobDocumentTitle(job.status, progress, originalTitleRef.current);
+    } else if (job?.status === 'completed') {
+      document.title = getJobDocumentTitle(job.status, progress, originalTitleRef.current);
+      titleTimerRef.current = setTimeout(() => { document.title = originalTitleRef.current; }, 5000);
+    } else {
+      document.title = originalTitleRef.current;
+    }
+    return () => clearTimeout(titleTimerRef.current);
+  }, [job?.status, progress]);
+
+  useEffect(() => () => {
+    clearTimeout(titleTimerRef.current);
+    document.title = originalTitleRef.current;
+  }, []);
 
   return {
     job,
@@ -269,7 +296,7 @@ export const useServerGenerationJob = ({
     jobError: job?.status === 'failed' ? job.error || '서버 작업에 실패했습니다.' : '',
     canRetry: job?.status === 'failed',
     jobNotice,
-    progress: job?.total_steps ? Math.round(((job.step || 0) / job.total_steps) * 100) : 0,
+    progress,
     jobTitle: JOB_TITLES[job?.type] || '서버 작업',
     currentStepLabel: formatJobStep(currentStep, steps),
     elapsed: formatClock(elapsedSeconds),
