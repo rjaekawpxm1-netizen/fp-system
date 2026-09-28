@@ -78,7 +78,7 @@ const createHarness = overrides => {
   });
   const triggerNext = jest.fn(async () => {});
   const now = overrides?.now || (() => new Date('2026-09-23T03:00:00.000Z'));
-  const handler = createJobsHandler({ repository, authenticate: auth, callModel, triggerNext, workerSecret: 'worker-secret', now, executeStep: overrides?.executeStep });
+  const handler = createJobsHandler({ repository, authenticate: overrides?.authenticate || auth, callModel, triggerNext, workerSecret: 'worker-secret', now, executeStep: overrides?.executeStep });
   return { repository, callModel, triggerNext, handler };
 };
 
@@ -87,6 +87,24 @@ const insertJob = async (repository, values) => repository.insert({
 });
 
 describe('서버 생성 작업 실행기', () => {
+  test('top-level failures log only the action, status, and message', async () => {
+    const error = Object.assign(new Error('authentication unavailable'), { status: 503 });
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const { handler } = createHarness({ authenticate: jest.fn(async () => { throw error; }) });
+
+    try {
+      const response = await invoke(handler, 'status', {
+        headers: userHeaders,
+        query: { projectId: 'p1' },
+      });
+
+      expect(response).toEqual({ status: 503, body: { error: 'authentication unavailable' } });
+      expect(consoleError).toHaveBeenCalledWith('[jobs]', 'status', 503, 'authentication unavailable');
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   test('start는 다른 사용자 프로젝트를 403으로 거절하고 활성 작업 중복을 409로 거절', async () => {
     const { handler, repository } = createHarness();
     const forbidden = await invoke(handler, 'start', { headers: { authorization: 'Bearer u2' }, body: { projectId: 'p1', type: 'domains', input: { rfpText: '요구사항' } } });

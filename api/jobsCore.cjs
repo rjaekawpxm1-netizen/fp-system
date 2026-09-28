@@ -331,6 +331,7 @@ const createJobsHandler = options => {
       }
       return send(res, 400, { error: 'Unknown action' });
     } catch (error) {
+      console.error('[jobs]', action, error.status, error.message);
       return send(res, error.status || 500, { error: error.message });
     }
   };
