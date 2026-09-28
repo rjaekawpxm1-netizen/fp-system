@@ -25,3 +25,5 @@ yarn-error.log*
 
 # local evaluation inputs (may contain non-public customer RFPs)
 /eval/fixtures/
+
+eval/fixtures/*.pdf
