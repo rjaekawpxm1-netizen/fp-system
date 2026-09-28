@@ -20,11 +20,14 @@ module.exports = function(app) {
       if (response.status < 200 || response.status >= 300) throw new Error(response.data?.error?.message || `Anthropic API error (${response.status})`);
       return response.data;
     },
-    triggerNext: jobId => fetchImpl(`${process.env.APP_BASE_URL || 'http://localhost:3000'}/api/jobs?action=tick`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Worker-Secret': process.env.JOB_WORKER_SECRET },
-      body: JSON.stringify({ jobId }),
-    }),
+    triggerNext: jobId => {
+      fetchImpl(`${process.env.APP_BASE_URL || 'http://localhost:3000'}/api/jobs?action=tick`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Worker-Secret': process.env.JOB_WORKER_SECRET },
+        body: JSON.stringify({ jobId }),
+      }).catch(error => console.warn('[jobs] tick 호출 실패:', error.message));
+      return Promise.resolve();
+    },
     workerSecret: process.env.JOB_WORKER_SECRET,
     dailyQuota: process.env.API_DAILY_QUOTA,
   });
