@@ -1,0 +1,119 @@
+const { diceSimilarity } = require('./textSimilarity.cjs');
+
+const ACTION_VERB = /(등록|수정|삭제|목록\s*조회|상세\s*조회|조회|검색|처리|실행|요청|확정|반려|설정|승인|출력|발급|배포|모니터링|진단|검증|분석|탐지|추천|작성|전송|접수|변환|분류|관리)$/;
+const NON_FUNCTIONAL = /(대용량|병렬|분산\s*처리|실시간\s*연동|백업|복구|시스템\s*인프라|보안\s*관리|암호화|성능|가용성|생체\s*인증|접근\s*제어|인터페이스)/;
+const AI_SIGNAL = /(생성형\s*AI|LLM|RAG|에이전트|AI\s*플랫폼|인공지능)/i;
+const CONSULTING_ISMP = /(ISMP|ISP|컨설팅)/i;
+
+const normalize = value => String(value || '').replace(/\s+/g, '').replace(/[()[\]{}_/.,-]/g, '').toLowerCase();
+const stripActionVerb = value => String(value || '').replace(/\s+/g, '')
+  .replace(/(등록|수정|삭제|목록조회|상세조회|조회|검색|처리|실행|요청|확정|반려|설정|승인|출력|발급|배포|모니터링|진단|검증|분석|탐지|추천|작성|전송|접수|변환|분류|관리)$/g, '');
+const lv1DiceSimilarity = (left, right) => diceSimilarity(stripActionVerb(left), stripActionVerb(right));
+const hasActionVerb = value => ACTION_VERB.test(String(value || '').trim());
+const hasExecutionVerb = value => ACTION_VERB.test(String(value || '').trim().replace(/관리$/, ''));
+const isAiService = func => /AI|인공지능|LLM|RAG|에이전트|모델/i.test(`${func.lv1} ${func.lv2} ${func.lv3}`);
+
+const expandManagement = func => {
+  const name = String(func.lv3 || '').trim();
+  if (!/관리$/.test(name)) return [func];
+  const entity = name.replace(/관리$/, '').trim() || String(func.lv2 || '').trim();
+  return ['등록', '수정', '삭제', '목록조회', '상세조회'].map(action => ({
+    ...func,
+    lv3: `${entity} ${action}`,
+    definition: func.definition || `${entity}을 ${action}한다`,
+    expandedFrom: name,
+  }));
+};
+
+const mergeSimilarLv1s = functions => {
+  const lv1s = [...new Set(functions.map(func => func.lv1))];
+  const targetBySource = new Map();
+  for (let left = 0; left < lv1s.length; left += 1) {
+    for (let right = left + 1; right < lv1s.length; right += 1) {
+      const source = lv1s[right];
+      const target = lv1s[left];
+      if (lv1DiceSimilarity(source, target) < 0.85) continue;
+      const sourceLv2 = functions.filter(func => func.lv1 === source).map(func => func.lv2);
+      const targetLv2 = functions.filter(func => func.lv1 === target).map(func => func.lv2);
+      const relatedLv2 = sourceLv2.some(a => targetLv2.some(b => {
+        const A = normalize(a), B = normalize(b);
+        return A === B || A.includes(B) || B.includes(A) || diceSimilarity(a, b) >= 0.6;
+      }));
+      if (relatedLv2) targetBySource.set(source, target);
+    }
+  }
+  const resolve = value => {
+    const visited = new Set();
+    let current = value;
+    while (targetBySource.has(current) && !visited.has(current)) {
+      visited.add(current);
+      current = targetBySource.get(current);
+    }
+    return current;
+  };
+  return {
+    functions: functions.map(func => {
+      const target = resolve(func.lv1);
+      return target === func.lv1 ? func : { ...func, lv1: target, mergedFrom: func.lv1 };
+    }),
+    mergedLv1Count: targetBySource.size,
+  };
+};
+
+const addRequiredAiAreas = (functions, info) => {
+  const sourceText = [info?.rfpText, info?.overview, info?.projectType, ...(info?.allReqs || [])].join('\n');
+  if (!CONSULTING_ISMP.test(sourceText) || !AI_SIGNAL.test(sourceText)) return functions;
+  const result = functions.map(func => (
+    /시스템\s*인프라/.test(func.lv1) ? { ...func, lv1: 'AI 운영관리', mergedFrom: func.lv1 } : func
+  ));
+  const required = [
+    ['AI 공통 플랫폼', '지식베이스', '지식베이스 등록'],
+    ['AI 공통 플랫폼', '프롬프트관리', '프롬프트 설정'],
+    ['AI 공통 플랫폼', '에이전트관리', '에이전트 등록'],
+    ['AI 운영관리', '모델관리', 'AI 모델 등록'],
+    ['AI 운영관리', '모델관리', 'AI 모델 배포'],
+    ['AI 운영관리', '성능관리', 'AI 성능 모니터링'],
+    ['AI 운영관리', '거버넌스', 'AI 거버넌스 설정'],
+    ['직원 업무지원 AI', '법령검색', '법령 검색'],
+    ['직원 업무지원 AI', '문서초안', '문서 초안 작성'],
+  ];
+  const lv1s = new Set(result.map(func => normalize(func.lv1)));
+  for (const [lv1, lv2, lv3] of required) {
+    if (!lv1s.has(normalize(lv1))) {
+      result.push({ lv1, lv2, lv3, definition: `${lv3} 기능`, requiredAiArea: true });
+      lv1s.add(normalize(lv1));
+    }
+  }
+  return result;
+};
+
+const applyToBeFunctionRules = (functions, info = {}) => {
+  const excluded = [];
+  const candidates = (functions || []).filter(func => {
+    const label = `${func.lv2 || ''} ${func.lv3 || ''}`.trim();
+    if (NON_FUNCTIONAL.test(label) && !hasExecutionVerb(label)) {
+      excluded.push({ ...func, reason: '비기능 항목' });
+      return false;
+    }
+    return true;
+  });
+  const expanded = candidates.flatMap(expandManagement);
+  const reviewed = expanded.map(func => {
+    if (func.needsReview || (isAiService(func) && !hasActionVerb(func.lv3))) {
+      return { ...func, needsReview: true };
+    }
+    return func;
+  });
+  const merged = mergeSimilarLv1s(reviewed);
+  const required = addRequiredAiAreas(merged.functions, info);
+  const seen = new Set();
+  const deduped = required.filter(func => {
+    const key = `${normalize(func.lv1)}|${normalize(func.lv2)}|${normalize(func.lv3)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return { functions: deduped, excluded, mergedLv1Count: merged.mergedLv1Count };
+};
+
+module.exports = { applyToBeFunctionRules, hasActionVerb };

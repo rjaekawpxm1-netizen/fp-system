@@ -13,6 +13,7 @@
 //
 // 의존성 0. 기존 fpValidation의 norm과 동일 철학이되 독립 구현(순환참조 방지).
 import { REUSE_TYPE } from './fpConstants';
+import { diceSimilarity as sharedDiceSimilarity } from './textSimilarity.cjs';
 
 const norm = (s) => (s || '')
   .replace(/\s+/g, '')
@@ -21,24 +22,7 @@ const norm = (s) => (s || '')
   .toLowerCase();
 
 // 문자 bigram Dice 유사도 (한국어 짧은 기능명에 적합)
-export const diceSimilarity = (a, b) => {
-  const A = norm(a), B = norm(b);
-  if (!A && !B) return 1;
-  if (A === B) return 1;
-  if (A.length < 2 || B.length < 2) return A === B ? 1 : 0;
-  const bigrams = (s) => {
-    const m = new Map();
-    for (let i = 0; i < s.length - 1; i++) {
-      const bg = s.slice(i, i + 2);
-      m.set(bg, (m.get(bg) || 0) + 1);
-    }
-    return m;
-  };
-  const ma = bigrams(A), mb = bigrams(B);
-  let inter = 0;
-  for (const [bg, c] of ma) if (mb.has(bg)) inter += Math.min(c, mb.get(bg));
-  return (2 * inter) / (A.length - 1 + B.length - 1);
-};
+export const diceSimilarity = sharedDiceSimilarity;
 
 /**
  * 생성 기능 목록을 기존 기능과 대조해 reuseType을 부여한다.

@@ -1,3 +1,5 @@
+const { applyToBeFunctionRules } = require('./toBeFunctionRules.cjs');
+
 const parseModelJSON = text => {
   let clean = String(text || '').replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
   try { return JSON.parse(clean); } catch (_) {}
@@ -67,6 +69,8 @@ const finalizeDomainFunctions = (allFunctions, info, existingFunctions = [], opt
     });
   }
   finalFunctions = crossLv1Dedup(finalFunctions);
+  const toBeResult = applyToBeFunctionRules(finalFunctions, info);
+  finalFunctions = toBeResult.functions;
   if (existingFunctions?.length && classifyReuse) {
     finalFunctions = classifyReuse(finalFunctions, existingFunctions);
     const summary = summarizeReuse ? summarizeReuse(finalFunctions) : {};
@@ -74,7 +78,14 @@ const finalizeDomainFunctions = (allFunctions, info, existingFunctions = [], opt
   } else {
     report(4, `완료! ${finalFunctions.length}개 기능 생성`, 100);
   }
-  return { systemName, overview: info?.overview || '', functions: finalFunctions };
+  const result = {
+    systemName,
+    overview: info?.overview || '',
+    functions: finalFunctions,
+  };
+  if (toBeResult.excluded.length) result.excluded = toBeResult.excluded;
+  if (toBeResult.mergedLv1Count) result.mergedLv1Count = toBeResult.mergedLv1Count;
+  return result;
 };
 
 const mergeGeneratedFunctions = (generated, existingFunctions, upgradeMode, idBase = Date.now()) => {
