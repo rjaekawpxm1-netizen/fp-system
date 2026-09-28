@@ -14,7 +14,7 @@ import { useFileIngestion } from '../hooks/useFileIngestion';
 import { useFunctionGeneration } from '../hooks/useFunctionGeneration';
 import { useFPCalculation } from '../hooks/useFPCalculation';
 import { useDerivedTotals } from '../hooks/useDerivedTotals';
-import { useServerGenerationJob } from '../hooks/useServerGenerationJob';
+import { getStartButtonState, useServerGenerationJob } from '../hooks/useServerGenerationJob';
 
 // ── 상수 ──────────────────────────────────────────────────────
 const FP_TYPES = ['ILF','EIF','EI','EO','EQ'];
@@ -257,6 +257,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject, onReloadProje
     job: generationJob,
     restoring: restoringJob,
     resuming: resumingJob,
+    starting: startingJob,
     jobLocked,
     jobError,
     canRetry: canRetryJob,
@@ -289,6 +290,13 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject, onReloadProje
     reloadProjects: onReloadProjects,
   });
   const handleConfirmDomains = () => confirmServerDomains(pendingDomains);
+  const generationButton = getStartButtonState({
+    jobLocked,
+    starting: startingJob,
+    progress: jobProgress,
+    idleLabel: upgradeMode ? '🔧 신규 기능 추가' : '🚀 기능 생성 시작',
+  });
+  const fpButton = getStartButtonState({ jobLocked, starting: startingJob, progress: jobProgress, idleLabel: 'AI FP 산정 →' });
   const { stdSummary, simpleSummary, costCalc } = useDerivedTotals({
     fpList,
     fpMethod,
@@ -398,8 +406,8 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject, onReloadProje
           </div>
           <div style={{display:'flex',gap:8}}>
             {tab==='functions' && (
-              <button onClick={handleGenerateFP} style={S.btn('#16a34a')}>
-                AI FP 산정 →
+              <button onClick={handleGenerateFP} disabled={fpButton.disabled} style={{...S.btn('#16a34a'),opacity:fpButton.disabled?.6:1,cursor:fpButton.disabled?'not-allowed':'pointer'}}>
+                {fpButton.label}
               </button>
             )}
             {tab==='fp' && (
@@ -785,8 +793,8 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject, onReloadProje
                     {upgradeMode && functions.length===0 && <div style={{marginTop:6,fontSize:11,color:'#fcd34d'}}>⚠️ 먼저 기존 기능정의서(xlsx)를 업로드하세요.</div>}
                     {functions.length>0 && <div style={{marginTop:6,fontSize:11,color:'#93c5fd'}}>현재 {functions.length}개 기능 {upgradeMode?'(재사용 포함)':'있음 — 재생성하면 덮어쓰기'}</div>}
                   </div>
-                  <button onClick={handleGenerate} style={{...S.btn('#fff','#1e3a8a'),padding:'12px 28px',fontSize:14,flexShrink:0}}>
-                    {upgradeMode ? '🔧 신규 기능 추가' : '🚀 기능 생성 시작'}
+                  <button onClick={handleGenerate} disabled={generationButton.disabled} style={{...S.btn('#fff','#1e3a8a'),padding:'12px 28px',fontSize:14,flexShrink:0,opacity:generationButton.disabled?.65:1,cursor:generationButton.disabled?'not-allowed':'pointer'}}>
+                    {generationButton.label}
                   </button>
                 </div>
               </div>

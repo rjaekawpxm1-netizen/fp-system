@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { formatJobStep, useServerGenerationJob } from '../useServerGenerationJob';
+import { formatJobStep, getStartButtonState, useServerGenerationJob } from '../useServerGenerationJob';
 import { cancelJob, confirmJob, getActiveJob, getJob, resumeJob, startJob } from '../../utils/jobApi';
 
 jest.mock('../../utils/jobApi', () => ({
@@ -174,4 +174,22 @@ test('실행 중 작업을 확인 후 취소하고 패널 상태를 cancelled로
 
   expect(cancelJob).toHaveBeenCalledWith('j1');
   Object.defineProperty(window, 'confirm', { configurable: true, value: originalConfirm });
+});
+
+test('jobLocked이면 시작 버튼을 비활성화하고 진행률을 라벨에 표시한다', () => {
+  expect(getStartButtonState({ jobLocked: true, starting: false, progress: 42, idleLabel: '기능 생성 시작' }))
+    .toEqual({ disabled: true, label: '진행 중… (42%)' });
+});
+
+test('시작 요청이 끝나기 전 중복 호출을 차단한다', async () => {
+  let resolveStart;
+  startJob.mockReturnValue(new Promise(resolve => { resolveStart = resolve; }));
+  const { result } = renderHook(() => useServerGenerationJob(createProps()));
+  await waitFor(() => expect(result.current.restoring).toBe(false));
+
+  const first = result.current.handleGenerate();
+  const second = result.current.handleGenerate();
+  expect(startJob).toHaveBeenCalledTimes(1);
+  resolveStart({ jobId: 'started-once' });
+  await Promise.all([first, second]);
 });

@@ -31,6 +31,11 @@ const JOB_TITLES = {
 
 const formatClock = seconds => `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
 
+export const getStartButtonState = ({ jobLocked, starting, progress, idleLabel }) => ({
+  disabled: Boolean(jobLocked || starting),
+  label: jobLocked ? `진행 중… (${progress}%)` : starting ? '시작 중…' : idleLabel,
+});
+
 export const useServerGenerationJob = ({
   project,
   rfpText,
@@ -53,7 +58,9 @@ export const useServerGenerationJob = ({
   const [jobNotice, setJobNotice] = useState('');
   const [recentLogs, setRecentLogs] = useState([]);
   const [clock, setClock] = useState(Date.now());
+  const [starting, setStarting] = useState(false);
   const completedRef = useRef(null);
+  const startingRef = useRef(false);
   const observedStepRef = useRef({ id: null, step: 0 });
   const cancelHideTimerRef = useRef(null);
 
@@ -158,10 +165,13 @@ export const useServerGenerationJob = ({
 
   const handleGenerate = async () => {
     if (!rfpText && !userInput.trim()) return alert('파일을 업로드하거나 시스템 설명을 입력해주세요.');
+    if (startingRef.current) return;
     if (job && ACTIVE.has(job.status)) {
       if (job.type === 'fp') setJobNotice('진행 중인 FP 산정 작업이 끝난 뒤 기능 생성을 시작할 수 있습니다.');
       return;
     }
+    startingRef.current = true;
+    setStarting(true);
     try {
       const started = await startJob(project.id, 'domains', {
         rfpText,
@@ -174,6 +184,9 @@ export const useServerGenerationJob = ({
     } catch (error) {
       if (await reconnectConflict(error, 'domains')) return;
       alert('기능 생성 작업 시작 오류: ' + error.message);
+    } finally {
+      startingRef.current = false;
+      setStarting(false);
     }
   };
 
@@ -192,11 +205,14 @@ export const useServerGenerationJob = ({
 
   const handleGenerateFP = async () => {
     if (!functions.length) return alert('기능목록을 먼저 생성하세요.');
+    if (startingRef.current) return;
     if (job && ACTIVE.has(job.status)) {
       if (job.type !== 'fp') setJobNotice('진행 중인 기능 생성 작업이 끝난 뒤 FP 산정을 시작할 수 있습니다.');
       return;
     }
     if (fpList.length && !window.confirm(`기존 FP ${fpList.length}개를 재산정할까요?`)) return;
+    startingRef.current = true;
+    setStarting(true);
     try {
       const started = await startJob(project.id, 'fp', { functions, fpList, fpMethod, upgradeMode, rfpText });
       const now = new Date().toISOString();
@@ -204,6 +220,9 @@ export const useServerGenerationJob = ({
     } catch (error) {
       if (await reconnectConflict(error, 'fp')) return;
       alert('FP 산정 작업 시작 오류: ' + error.message);
+    } finally {
+      startingRef.current = false;
+      setStarting(false);
     }
   };
 
@@ -245,6 +264,7 @@ export const useServerGenerationJob = ({
     job,
     restoring,
     resuming,
+    starting,
     jobLocked: Boolean(job && ACTIVE.has(job.status)),
     jobError: job?.status === 'failed' ? job.error || '서버 작업에 실패했습니다.' : '',
     canRetry: job?.status === 'failed',
