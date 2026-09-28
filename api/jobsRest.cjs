@@ -6,7 +6,10 @@ const serviceHeaders = env => ({
 
 const expectJson = async response => {
   const body = await response.json().catch(() => null);
-  if (!response.ok) throw Object.assign(new Error(body?.message || body?.error || `Supabase request failed (${response.status})`), { status: response.status });
+  if (!response.ok) throw Object.assign(
+    new Error(body?.message || body?.error || `Supabase request failed (${response.status})`),
+    { status: response.status, code: body?.code }
+  );
   return body;
 };
 
@@ -28,7 +31,7 @@ const createRestRepository = (env = process.env, fetchImpl = fetch) => {
   return {
     get: id => selectOne(`generation_jobs?id=eq.${encodeURIComponent(id)}&select=*&limit=1`),
     getProject: id => selectOne(`projects?id=eq.${encodeURIComponent(id)}&select=*&limit=1`),
-    findActive: projectId => selectOne(`generation_jobs?project_id=eq.${encodeURIComponent(projectId)}&status=in.(${encodeURIComponent('queued,running,awaiting_confirmation,paused_quota')})&select=*&order=created_at.desc&limit=1`),
+    findActive: projectId => selectOne(`generation_jobs?project_id=eq.${encodeURIComponent(projectId)}&status=in.(queued,running,awaiting_confirmation,paused_quota)&select=*&order=created_at.desc&limit=1`),
     insert: async row => {
       const rows = await expectJson(await fetchImpl(`${base}/generation_jobs`, {
         method: 'POST', headers: { ...headers, Prefer: 'return=representation' }, body: JSON.stringify(row),

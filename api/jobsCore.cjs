@@ -276,7 +276,20 @@ const createJobsHandler = options => {
           type: active.type,
         });
         const state = buildInitialState(type, input, project);
-        const job = await repository.insert({ project_id: projectId, owner_id: user.id, type, status: 'running', step: 0, total_steps: state.steps.length, state });
+        let job;
+        try {
+          job = await repository.insert({ project_id: projectId, owner_id: user.id, type, status: 'running', step: 0, total_steps: state.steps.length, state });
+        } catch (error) {
+          if (error.status !== 409 && error.code !== '23505') throw error;
+          const conflictedJob = await repository.findActive(projectId);
+          if (!conflictedJob) throw error;
+          return send(res, 409, {
+            error: 'An active job already exists',
+            jobId: conflictedJob.id,
+            status: conflictedJob.status,
+            type: conflictedJob.type,
+          });
+        }
         await triggerNext(job.id);
         return send(res, 201, { jobId: job.id });
       }
@@ -284,7 +297,12 @@ const createJobsHandler = options => {
         const job = req.query?.jobId
           ? await repository.get(req.query.jobId)
           : await repository.findActive(req.query?.projectId);
-        if (!job || job.owner_id !== user.id) return send(res, 404, { error: 'Job not found' });
+        if (!job) return send(res, 404, { error: 'Job not found' });
+        if (job.owner_id !== user.id) {
+          return send(res, req.query?.projectId ? 403 : 404, {
+            error: req.query?.projectId ? 'Project access denied' : 'Job not found',
+          });
+        }
         return send(res, 200, job);
       }
       const job = await repository.get(req.body?.jobId);

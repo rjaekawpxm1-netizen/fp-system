@@ -97,6 +97,58 @@ describe('서버 생성 작업 실행기', () => {
     expect(conflict.body).toEqual(expect.objectContaining({ jobId: 'j1', status: 'running', type: 'domains' }));
   });
 
+  test('start insert conflict returns the active job created by a concurrent request', async () => {
+    const repository = createRepository();
+    const originalFindActive = repository.findActive;
+    repository.findActive = jest.fn()
+      .mockResolvedValueOnce(null)
+      .mockImplementation(originalFindActive);
+    repository.insert = jest.fn(async row => {
+      repository.jobs.set('j-race', {
+        id: 'j-race',
+        ...row,
+        status: 'running',
+      });
+      throw Object.assign(new Error('duplicate key'), { status: 409, code: '23505' });
+    });
+    const { handler, triggerNext } = createHarness({ repository });
+
+    const response = await invoke(handler, 'start', {
+      headers: userHeaders,
+      body: { projectId: 'p1', type: 'domains', input: { rfpText: 'requirements' } },
+    });
+
+    expect(response).toEqual({
+      status: 409,
+      body: {
+        error: 'An active job already exists',
+        jobId: 'j-race',
+        status: 'running',
+        type: 'domains',
+      },
+    });
+    expect(repository.findActive).toHaveBeenCalledTimes(2);
+    expect(triggerNext).not.toHaveBeenCalled();
+  });
+
+  test('status by projectId returns 403 when the active job belongs to another user', async () => {
+    const { handler, repository } = createHarness();
+    repository.jobs.set('j-foreign', {
+      id: 'j-foreign',
+      project_id: 'p1',
+      owner_id: 'u2',
+      type: 'domains',
+      status: 'running',
+    });
+
+    const response = await invoke(handler, 'status', {
+      headers: userHeaders,
+      query: { projectId: 'p1' },
+    });
+
+    expect(response).toEqual({ status: 403, body: { error: 'Project access denied' } });
+  });
+
   test('tick은 worker secret이 없거나 틀리면 401', async () => {
     const { handler } = createHarness();
     expect((await invoke(handler, 'tick')).status).toBe(401);
