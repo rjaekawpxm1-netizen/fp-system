@@ -57,6 +57,7 @@ export const useServerGenerationJob = ({
   setTab,
   reloadProjects,
   refreshCompletedProject,
+  onFunctionReport,
   onServerJobActivityChange,
   restoreDelay = wait,
 }) => {
@@ -91,6 +92,9 @@ export const useServerGenerationJob = ({
     try {
       const refreshed = await refreshCompletedProject?.(completedJob.type);
       if (!refreshed) throw new Error('Project refresh is unavailable');
+      if (completedJob.type === 'functions' && completedJob.state?.toBeFunctionReport) {
+        await onFunctionReport?.(completedJob.state.toBeFunctionReport);
+      }
       const count = completedJob.type === 'fp'
         ? (refreshed.fpList || []).length
         : (refreshed.functions || []).length;
@@ -102,7 +106,7 @@ export const useServerGenerationJob = ({
       setCompletionSync({ status: 'error', message: '결과 불러오기 실패' });
       return null;
     }
-  }, [dismissCompletedJob, refreshCompletedProject]);
+  }, [dismissCompletedJob, onFunctionReport, refreshCompletedProject]);
 
   const applyJob = useCallback(async nextJob => {
     onServerJobActivityChange?.(nextJob?.project_id || project.id, ACTIVE.has(nextJob?.status));

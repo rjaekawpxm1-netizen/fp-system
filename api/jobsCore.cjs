@@ -144,6 +144,10 @@ const defaultExecuteStep = async (job, step, callModel) => {
     const raw = Object.values(state.completed || {}).flat();
     const finalized = pipelineCore.finalizeDomainFunctions(raw, state.info || {}, state.existingFunctions || []);
     state.finalFunctions = pipelineCore.mergeGeneratedFunctions(finalized.functions, state.existingFunctions || [], state.upgradeMode);
+    state.toBeFunctionReport = {
+      excluded: finalized.excluded || [],
+      mergedLv1Count: finalized.mergedLv1Count || 0,
+    };
     value = state.finalFunctions;
   } else if (step.kind === 'fp_finalize') {
     value = (state.functions || []).map((func, index) => {

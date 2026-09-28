@@ -161,7 +161,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject, onReloadProje
   const [loadingMsg, setLoadingMsg] = useState('');
   const [parseStep, setParseStep] = useState(0);
   const [parsePct, setParsePct] = useState(0);
-  const toBeFunctionReport = project?.settings?.toBeFunctionReport || {};
+  const [toBeFunctionReport, setToBeFunctionReport] = useState(project?.settings?.toBeFunctionReport || {});
   const excludedFunctions = toBeFunctionReport.excluded || [];
   // Virtual Scroll
   const [vsStart, setVsStart] = useState(0); // 표시 시작 인덱스
@@ -174,6 +174,19 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject, onReloadProje
   const saveSettings = useCallback((settings) => {
     saveProject({ settings });
   }, [saveProject]);
+
+  useEffect(() => {
+    setToBeFunctionReport(project?.settings?.toBeFunctionReport || {});
+  }, [project?.id, project?.settings?.toBeFunctionReport]);
+
+  const saveToBeFunctionReport = useCallback((report) => {
+    const nextReport = {
+      excluded: report?.excluded || [],
+      mergedLv1Count: report?.mergedLv1Count || 0,
+    };
+    setToBeFunctionReport(nextReport);
+    saveSettings({ toBeFunctionReport: nextReport });
+  }, [saveSettings]);
 
   const refreshCompletedProject = useCallback(async type => {
     const refreshed = await onRefreshProject?.(id, type);
@@ -301,6 +314,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject, onReloadProje
     setTab,
     reloadProjects: onReloadProjects,
     refreshCompletedProject,
+    onFunctionReport: saveToBeFunctionReport,
     onServerJobActivityChange,
   });
   const handleConfirmDomains = () => confirmServerDomains(pendingDomains);
