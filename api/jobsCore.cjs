@@ -3,6 +3,8 @@ const pipelineCore = require('../src/utils/pipelineCore.cjs');
 
 const ACTIVE_STATUSES = ['queued', 'running', 'awaiting_confirmation', 'paused_quota'];
 const AI_STEPS = new Set(['project_info', 'requirements', 'domain_classify', 'domain_expand', 'data_groups', 'fp_classify']);
+const MAX_STEP_ATTEMPTS = 3;
+const TRANSIENT_ERROR = /(?:529|503|502|504|overloaded|시간\s*초과|타임아웃|timeout)/i;
 
 const send = (res, status, body) => res.status(status).json(body);
 const bearerToken = req => {
@@ -29,6 +31,14 @@ const extractText = response => {
   if (response?.content) return response.content.map(item => item.type === 'text' ? item.text : '').join('');
   return JSON.stringify(response || {});
 };
+const stepLabel = step => step?.label || step?.domain?.lv1 || step?.kind || 'unknown';
+const resetSplitAttempts = (attempts = {}, splitIndex) => Object.fromEntries(
+  Object.entries(attempts).flatMap(([key, value]) => {
+    const index = Number(key);
+    if (index === splitIndex) return [];
+    return [[String(index > splitIndex ? index + 1 : index), value]];
+  })
+);
 
 const prompts = {
   projectInfo: input => `다음 문서에서 시스템 정보를 JSON으로 추출하세요. {"systemName":"","systemOverview":"","mainUsers":[],"projectType":""}\n${input}`,
@@ -191,15 +201,40 @@ const createJobsHandler = options => {
               { ...step, chunk: step.chunk.slice(0, half), label: `${step.label}-1` },
               { ...step, chunk: step.chunk.slice(half), label: `${step.label}-2` },
             ];
-            const state = { ...job.state, steps: [...job.state.steps.slice(0, job.step), ...replacement, ...job.state.steps.slice(job.step + 1)] };
+            const state = {
+              ...job.state,
+              steps: [...job.state.steps.slice(0, job.step), ...replacement, ...job.state.steps.slice(job.step + 1)],
+              stepAttempts: resetSplitAttempts(job.state?.stepAttempts, job.step),
+            };
             const updated = await repository.updateIfNotCancelled(job.id, { state, total_steps: state.steps.length, status: 'running', error: null, lease_until: null, updated_at: now().toISOString() });
             if (!updated) return send(res, 200, { status: 'cancelled' });
             await triggerNext(job.id);
             return send(res, 202, { status: 'running', split: true, totalSteps: state.steps.length });
           }
-          const updated = await repository.updateIfNotCancelled(job.id, { status: 'running', error: error.message, lease_until: null, updated_at: now().toISOString() });
+          const attempts = Number(job.state?.stepAttempts?.[job.step] || 0) + 1;
+          const state = {
+            ...job.state,
+            stepAttempts: { ...(job.state?.stepAttempts || {}), [job.step]: attempts },
+          };
+          const failed = attempts >= MAX_STEP_ATTEMPTS;
+          const errorMessage = failed
+            ? `${stepLabel(step)} ${MAX_STEP_ATTEMPTS}회 실패: ${error.message}`
+            : error.message;
+          const updated = await repository.updateIfNotCancelled(job.id, {
+            state,
+            status: failed ? 'failed' : 'running',
+            error: errorMessage,
+            lease_until: null,
+            updated_at: now().toISOString(),
+          });
           if (!updated) return send(res, 200, { status: 'cancelled' });
-          return send(res, 500, { error: error.message, retryable: true });
+          if (!failed && TRANSIENT_ERROR.test(error.message)) await triggerNext(job.id);
+          return send(res, 500, { error: errorMessage, retryable: !failed, status: failed ? 'failed' : 'running' });
+        }
+        if (nextState.stepAttempts?.[job.step] !== undefined) {
+          const stepAttempts = { ...nextState.stepAttempts };
+          delete stepAttempts[job.step];
+          nextState = { ...nextState, stepAttempts };
         }
         const nextStep = job.step + 1;
         const complete = nextStep >= nextState.steps.length;
@@ -254,8 +289,10 @@ const createJobsHandler = options => {
       }
       if (action === 'resume') {
         const stale = now().getTime() - new Date(job.updated_at).getTime() >= 120000;
-        if (job.status !== 'paused_quota' && !(job.status === 'running' && stale)) return send(res, 409, { error: 'Job is not resumable' });
-        await repository.update(job.id, { status: 'running', lease_until: null, error: null, updated_at: now().toISOString() });
+        if (!['paused_quota', 'failed'].includes(job.status) && !(job.status === 'running' && stale)) return send(res, 409, { error: 'Job is not resumable' });
+        const state = { ...(job.state || {}), stepAttempts: { ...(job.state?.stepAttempts || {}) } };
+        delete state.stepAttempts[job.step];
+        await repository.update(job.id, { state, status: 'running', lease_until: null, error: null, updated_at: now().toISOString() });
         await triggerNext(job.id);
         return send(res, 200, { status: 'running' });
       }
@@ -277,6 +314,7 @@ const createJobsHandler = options => {
 
 module.exports = {
   ACTIVE_STATUSES,
+  MAX_STEP_ATTEMPTS,
   buildFunctionsState,
   buildInitialState,
   createJobsHandler,

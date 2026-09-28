@@ -84,3 +84,12 @@ test('paused_quota 상태를 복원하고 사용자가 이어서 진행할 수 �
   expect(resumeJob).toHaveBeenCalledWith('j1');
   expect(getJob).toHaveBeenCalledWith('j1');
 });
+
+test('failed 작업의 오류와 재시도 동작을 제공한다', async () => {
+  getActiveJob.mockResolvedValue(activeJob({ status: 'failed', error: 'project_info 3회 실패: JSON 파싱 실패' }));
+  const { result } = renderHook(() => useServerGenerationJob(createProps()));
+  await waitFor(() => expect(result.current.job?.status).toBe('failed'));
+
+  expect(result.current.canRetry).toBe(true);
+  expect(result.current.jobError).toContain('3회 실패');
+});

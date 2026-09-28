@@ -124,6 +124,8 @@ export const useServerGenerationJob = ({
     restoring,
     resuming,
     jobLocked: Boolean(job && ACTIVE.has(job.status)),
+    jobError: job?.status === 'failed' ? job.error || '서버 작업에 실패했습니다.' : '',
+    canRetry: job?.status === 'failed',
     progress: job?.total_steps ? Math.round(((job.step || 0) / job.total_steps) * 100) : 0,
     handleGenerate,
     handleConfirmDomains,

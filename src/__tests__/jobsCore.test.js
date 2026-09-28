@@ -136,6 +136,52 @@ describe('서버 생성 작업 실행기', () => {
     expect(repository.jobs.get(job.id).step).toBe(0);
     expect(repository.jobs.get(job.id).state.results.previous).toEqual({ ok: true });
     expect((await invoke(handler, 'tick', { headers: workerHeaders, body: { jobId: job.id } })).status).toBe(200);
+    expect(repository.jobs.get(job.id).state.stepAttempts).toEqual({});
+  });
+
+  test('같은 스텝이 3회 실패하면 failed로 종료하고 쿼터 소모를 제한한다', async () => {
+    const callModel = jest.fn(async () => { throw new Error('JSON 파싱 실패'); });
+    const { handler, repository, triggerNext } = createHarness({ callModel });
+    const state = { input: {}, results: {}, steps: [{ kind: 'project_info' }] };
+    const job = await insertJob(repository, { type: 'domains', state, total_steps: 1 });
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await invoke(handler, 'tick', { headers: workerHeaders, body: { jobId: job.id } });
+    }
+
+    expect(repository.jobs.get(job.id).status).toBe('failed');
+    expect(repository.jobs.get(job.id).error).toBe('project_info 3회 실패: JSON 파싱 실패');
+    expect(repository.consumeQuota).toHaveBeenCalledTimes(3);
+    expect(triggerNext).not.toHaveBeenCalled();
+  });
+
+  test('529 일시 오류는 즉시 재호출하고 다음 성공 시 attempts를 정리한다', async () => {
+    const callModel = jest.fn()
+      .mockRejectedValueOnce(new Error('Anthropic overloaded (529)'))
+      .mockResolvedValueOnce(JSON.stringify({ systemName: '복구 시스템' }));
+    const { handler, repository, triggerNext } = createHarness({ callModel });
+    const state = { input: {}, results: {}, steps: [{ kind: 'project_info' }] };
+    const job = await insertJob(repository, { type: 'domains', state, total_steps: 1 });
+
+    await invoke(handler, 'tick', { headers: workerHeaders, body: { jobId: job.id } });
+    expect(triggerNext).toHaveBeenCalledTimes(1);
+    expect(repository.jobs.get(job.id).state.stepAttempts).toEqual({ 0: 1 });
+
+    await invoke(handler, 'tick', { headers: workerHeaders, body: { jobId: job.id } });
+    expect(repository.jobs.get(job.id).status).toBe('awaiting_confirmation');
+    expect(repository.jobs.get(job.id).state.stepAttempts).toEqual({});
+  });
+
+  test('failed 작업을 resume하면 현재 스텝 attempts를 초기화한다', async () => {
+    const { handler, repository, triggerNext } = createHarness();
+    const state = { input: {}, results: {}, stepAttempts: { 0: 3, 2: 1 }, steps: [{ kind: 'project_info' }] };
+    const job = await insertJob(repository, { type: 'domains', status: 'failed', state, total_steps: 1 });
+
+    const response = await invoke(handler, 'resume', { headers: userHeaders, body: { jobId: job.id } });
+
+    expect(response.body.status).toBe('running');
+    expect(repository.jobs.get(job.id).state.stepAttempts).toEqual({ 2: 1 });
+    expect(triggerNext).toHaveBeenCalledWith(job.id);
   });
 
   test('쿼터 초과는 완료 결과를 보존해 paused_quota로 멈추고 resume 가능', async () => {
@@ -158,6 +204,7 @@ describe('서버 생성 작업 실행기', () => {
     const response = await invoke(handler, 'tick', { headers: workerHeaders, body: { jobId: job.id } });
     expect(response.body.split).toBe(true);
     expect(repository.jobs.get(job.id).state.steps).toHaveLength(2);
+    expect(repository.jobs.get(job.id).state.stepAttempts).toEqual({});
   });
 
   test('cancel 뒤 tick은 모델을 호출하지 않는다', async () => {

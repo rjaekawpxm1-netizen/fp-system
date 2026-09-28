@@ -258,6 +258,8 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject, onReloadProje
     restoring: restoringJob,
     resuming: resumingJob,
     jobLocked,
+    jobError,
+    canRetry: canRetryJob,
     progress: jobProgress,
     handleGenerate,
     handleConfirmDomains: confirmServerDomains,
@@ -510,7 +512,9 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject, onReloadProje
             <div style={{...S.card,padding:'12px 16px',border:'1px solid #60a5fa',background:'#eff6ff',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}>
               <div style={{flex:1,minWidth:220}}>
                 <div style={{fontSize:13,fontWeight:700,color:'#1e3a8a'}}>
-                  {restoringJob ? '서버 작업 상태 확인 중...' : generationJob.status === 'paused_quota'
+                  {restoringJob ? '서버 작업 상태 확인 중...' : generationJob.status === 'failed'
+                    ? jobError
+                    : generationJob.status === 'paused_quota'
                     ? '일일 한도 초과로 작업이 일시정지됐습니다.'
                     : generationJob.status === 'awaiting_confirmation'
                       ? '도메인 분석 완료 — 아래 구조를 확인해 주세요.'
@@ -527,6 +531,9 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject, onReloadProje
               </div>
               {generationJob?.status === 'paused_quota' && (
                 <button onClick={handleResumeJob} style={S.btn('#1d4ed8')}>이어서 진행</button>
+              )}
+              {canRetryJob && (
+                <button onClick={handleResumeJob} disabled={resumingJob} style={S.btn('#dc2626')}>{resumingJob ? '재시도 중...' : '재시도'}</button>
               )}
             </div>
           )}
