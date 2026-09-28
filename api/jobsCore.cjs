@@ -176,7 +176,8 @@ const createJobsHandler = options => {
         if (AI_STEPS.has(step.kind)) {
           const allowed = await repository.consumeQuota(job.owner_id, Number(options.dailyQuota) || 200);
           if (!allowed) {
-            await repository.update(job.id, { status: 'paused_quota', lease_until: null, updated_at: now().toISOString() });
+            const updated = await repository.updateIfNotCancelled(job.id, { status: 'paused_quota', lease_until: null, updated_at: now().toISOString() });
+            if (!updated) return send(res, 200, { status: 'cancelled' });
             return send(res, 200, { status: 'paused_quota' });
           }
         }
@@ -191,11 +192,13 @@ const createJobsHandler = options => {
               { ...step, chunk: step.chunk.slice(half), label: `${step.label}-2` },
             ];
             const state = { ...job.state, steps: [...job.state.steps.slice(0, job.step), ...replacement, ...job.state.steps.slice(job.step + 1)] };
-            await repository.update(job.id, { state, total_steps: state.steps.length, status: 'running', error: null, lease_until: null, updated_at: now().toISOString() });
+            const updated = await repository.updateIfNotCancelled(job.id, { state, total_steps: state.steps.length, status: 'running', error: null, lease_until: null, updated_at: now().toISOString() });
+            if (!updated) return send(res, 200, { status: 'cancelled' });
             await triggerNext(job.id);
             return send(res, 202, { status: 'running', split: true, totalSteps: state.steps.length });
           }
-          await repository.update(job.id, { status: 'running', error: error.message, lease_until: null, updated_at: now().toISOString() });
+          const updated = await repository.updateIfNotCancelled(job.id, { status: 'running', error: error.message, lease_until: null, updated_at: now().toISOString() });
+          if (!updated) return send(res, 200, { status: 'cancelled' });
           return send(res, 500, { error: error.message, retryable: true });
         }
         const nextStep = job.step + 1;
@@ -208,14 +211,18 @@ const createJobsHandler = options => {
         } else if (complete) {
           status = 'completed';
           if (job.type === 'functions') {
-            await repository.updateProject(job.project_id, { functions: nextState.finalFunctions || [] });
             result = { functionCount: nextState.finalFunctions?.length || 0 };
           } else if (job.type === 'fp') {
-            await repository.updateProject(job.project_id, { fpList: nextState.finalFpList || [] });
             result = { fpCount: nextState.finalFpList?.length || 0 };
           }
         }
-        await repository.update(job.id, { state: nextState, step: nextStep, status, result, error: null, lease_until: null, updated_at: now().toISOString() });
+        const updated = await repository.updateIfNotCancelled(job.id, { state: nextState, step: nextStep, status, result, error: null, lease_until: null, updated_at: now().toISOString() });
+        if (!updated) return send(res, 200, { status: 'cancelled' });
+        if (complete && job.type === 'functions') {
+          await repository.updateProject(job.project_id, { functions: nextState.finalFunctions || [] });
+        } else if (complete && job.type === 'fp') {
+          await repository.updateProject(job.project_id, { fpList: nextState.finalFpList || [] });
+        }
         if (status === 'running') await triggerNext(job.id);
         return send(res, 200, { status, step: nextStep, totalSteps: nextState.steps.length });
       }

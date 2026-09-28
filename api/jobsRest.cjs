@@ -36,6 +36,10 @@ const createRestRepository = (env = process.env, fetchImpl = fetch) => {
       return rows[0];
     },
     update: (id, changes) => patch(`generation_jobs?id=eq.${encodeURIComponent(id)}&select=*`, changes),
+    updateIfNotCancelled: (id, changes) => patch(
+      `generation_jobs?id=eq.${encodeURIComponent(id)}&status=neq.cancelled&select=*`,
+      changes
+    ),
     updateProject: (id, changes) => patch(`projects?id=eq.${encodeURIComponent(id)}&select=id`, changes),
     acquire: (id, leaseUntil) => patch(
       `generation_jobs?id=eq.${encodeURIComponent(id)}&or=(lease_until.is.null,lease_until.lt.${encodeURIComponent(new Date().toISOString())})&status=in.(queued,running)&select=*`,

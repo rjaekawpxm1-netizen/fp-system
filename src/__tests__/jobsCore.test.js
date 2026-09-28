@@ -26,10 +26,16 @@ const createRepository = () => {
       Object.assign(job, changes);
       return job;
     },
-    updateProject: async (id, changes) => {
+    updateIfNotCancelled: async (id, changes) => {
+      const job = jobs.get(id);
+      if (!job || job.status === 'cancelled') return null;
+      Object.assign(job, changes);
+      return job;
+    },
+    updateProject: jest.fn(async (id, changes) => {
       Object.assign(projects.get(id), changes);
       return projects.get(id);
-    },
+    }),
     acquire: async (id, leaseUntil) => {
       const job = jobs.get(id);
       if (!job || !['queued', 'running'].includes(job.status) || job.lease_until) return null;
@@ -72,7 +78,7 @@ const createHarness = overrides => {
   });
   const triggerNext = jest.fn(async () => {});
   const now = overrides?.now || (() => new Date('2026-09-23T03:00:00.000Z'));
-  const handler = createJobsHandler({ repository, authenticate: auth, callModel, triggerNext, workerSecret: 'worker-secret', now });
+  const handler = createJobsHandler({ repository, authenticate: auth, callModel, triggerNext, workerSecret: 'worker-secret', now, executeStep: overrides?.executeStep });
   return { repository, callModel, triggerNext, handler };
 };
 
@@ -161,6 +167,45 @@ describe('서버 생성 작업 실행기', () => {
     await invoke(handler, 'cancel', { headers: userHeaders, body: { jobId: job.id } });
     await invoke(handler, 'tick', { headers: workerHeaders, body: { jobId: job.id } });
     expect(callModel).not.toHaveBeenCalled();
+  });
+
+  test('스텝 실행 중 취소하면 결과 저장과 다음 tick을 건너뛴다', async () => {
+    const repository = createRepository();
+    const executeStep = jest.fn(async (job, step) => {
+      repository.jobs.get(job.id).status = 'cancelled';
+      return { ...job.state, results: { 0: [] }, finalFunctions: [], steps: [step] };
+    });
+    const { handler, triggerNext } = createHarness({ repository, executeStep });
+    const state = { steps: [{ kind: 'functions_finalize' }], results: {}, completed: {} };
+    const job = await insertJob(repository, { type: 'functions', state, total_steps: 1 });
+
+    const response = await invoke(handler, 'tick', { headers: workerHeaders, body: { jobId: job.id } });
+
+    expect(response.body.status).toBe('cancelled');
+    expect(repository.jobs.get(job.id).status).toBe('cancelled');
+    expect(triggerNext).not.toHaveBeenCalled();
+    expect(repository.updateProject).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ['split', new Error('응답 시간 초과'), '가'.repeat(2000)],
+    ['오류', new Error('영구 오류'), '짧은 청크'],
+  ])('%s 저장 경로에서도 실행 중 취소 상태를 유지한다', async (_label, thrown, chunk) => {
+    const repository = createRepository();
+    const callModel = jest.fn(async () => {
+      repository.jobs.get('j1').status = 'cancelled';
+      throw thrown;
+    });
+    const { handler, triggerNext } = createHarness({ repository, callModel });
+    const state = { input: {}, info: { systemName: '테스트' }, allReqs: [], results: {}, steps: [{ kind: 'requirements', chunk, label: 1 }] };
+    const job = await insertJob(repository, { type: 'domains', state, total_steps: 1 });
+
+    const response = await invoke(handler, 'tick', { headers: workerHeaders, body: { jobId: job.id } });
+
+    expect(response.body.status).toBe('cancelled');
+    expect(repository.jobs.get(job.id).status).toBe('cancelled');
+    expect(triggerNext).not.toHaveBeenCalled();
+    expect(repository.updateProject).not.toHaveBeenCalled();
   });
 
   test('domains 완료 시 awaiting_confirmation과 재개 입력을 보존', async () => {
