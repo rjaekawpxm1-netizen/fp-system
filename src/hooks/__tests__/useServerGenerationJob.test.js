@@ -1,8 +1,9 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { useServerGenerationJob } from '../useServerGenerationJob';
-import { confirmJob, getActiveJob, getJob, resumeJob, startJob } from '../../utils/jobApi';
+import { formatJobStep, useServerGenerationJob } from '../useServerGenerationJob';
+import { cancelJob, confirmJob, getActiveJob, getJob, resumeJob, startJob } from '../../utils/jobApi';
 
 jest.mock('../../utils/jobApi', () => ({
+  cancelJob: jest.fn(),
   confirmJob: jest.fn(),
   getActiveJob: jest.fn(),
   getJob: jest.fn(),
@@ -29,6 +30,7 @@ beforeEach(() => {
   resumeJob.mockResolvedValue({ status: 'running' });
   startJob.mockResolvedValue({ jobId: 'j1' });
   confirmJob.mockResolvedValue({ jobId: 'j2' });
+  cancelJob.mockResolvedValue({ status: 'cancelled' });
 });
 
 afterEach(() => {
@@ -150,4 +152,26 @@ test('탭이 visible로 복귀하면 작업이 없을 때 활성 작업을 다�
 
   await waitFor(() => expect(result.current.job?.id).toBe('visible-job'));
   expect(getActiveJob).toHaveBeenCalledWith('p1');
+});
+
+test('requirements 세 번째 단계를 전체 청크 수와 함께 표시한다', () => {
+  const steps = [
+    { kind: 'project_info' },
+    ...Array.from({ length: 28 }, (_, index) => ({ kind: 'requirements', label: index + 1 })),
+    { kind: 'domain_classify' },
+  ];
+  expect(formatJobStep(steps[3], steps)).toBe('요구사항 수집 (청크 3/28)');
+});
+
+test('실행 중 작업을 확인 후 취소하고 패널 상태를 cancelled로 바꾼다', async () => {
+  const originalConfirm = window.confirm;
+  Object.defineProperty(window, 'confirm', { configurable: true, value: jest.fn(() => true) });
+  getActiveJob.mockResolvedValue(activeJob());
+  const { result } = renderHook(() => useServerGenerationJob(createProps()));
+  await waitFor(() => expect(result.current.job?.status).toBe('running'));
+
+  await result.current.handleCancel();
+
+  expect(cancelJob).toHaveBeenCalledWith('j1');
+  Object.defineProperty(window, 'confirm', { configurable: true, value: originalConfirm });
 });

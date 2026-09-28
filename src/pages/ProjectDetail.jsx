@@ -262,10 +262,17 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject, onReloadProje
     canRetry: canRetryJob,
     jobNotice,
     progress: jobProgress,
+    jobTitle,
+    currentStepLabel,
+    elapsed: jobElapsed,
+    updatedSeconds: jobUpdatedSeconds,
+    delayed: jobDelayed,
+    recentLogs: jobRecentLogs,
     handleGenerate,
     handleConfirmDomains: confirmServerDomains,
     handleGenerateFP,
     handleResume: handleResumeJob,
+    handleCancel: handleCancelJob,
   } = useServerGenerationJob({
     project,
     rfpText,
@@ -510,32 +517,44 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject, onReloadProje
         {/* ── 탭 콘텐츠 ── */}
         <div style={S.content}>
           {(generationJob || restoringJob) && (
-            <div style={{...S.card,padding:'12px 16px',border:'1px solid #60a5fa',background:'#eff6ff',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}>
-              <div style={{flex:1,minWidth:220}}>
-                <div style={{fontSize:13,fontWeight:700,color:'#1e3a8a'}}>
-                  {restoringJob ? '서버 작업 상태 확인 중...' : generationJob.status === 'failed'
-                    ? jobError
-                    : generationJob.status === 'paused_quota'
-                    ? '일일 한도 초과로 작업이 일시정지됐습니다.'
-                    : generationJob.status === 'awaiting_confirmation'
-                      ? '도메인 분석 완료 — 아래 구조를 확인해 주세요.'
-                      : resumingJob ? '중단된 서버 작업 재개 중...' : '서버에서 작업을 계속 진행하고 있습니다.'}
-                </div>
-                {!restoringJob && generationJob?.status === 'running' && (
-                  <div style={{marginTop:7,height:6,borderRadius:4,background:'#bfdbfe',overflow:'hidden'}}>
-                    <div style={{width:`${jobProgress}%`,height:'100%',background:'#2563eb',transition:'width .3s'}} />
+            <div aria-label="서버 작업 진행 상황" style={{...S.card,position:'sticky',top:0,zIndex:50,padding:'14px 16px',marginBottom:14,border:`1px solid ${jobDelayed?'#f59e0b':'#60a5fa'}`,background:jobDelayed?'#fffbeb':'#eff6ff',boxShadow:'0 4px 14px rgba(15,23,42,.12)'}}>
+              {restoringJob && !generationJob ? (
+                <div style={{fontSize:13,fontWeight:700,color:'#1e3a8a'}}>서버 작업 상태 확인 중...</div>
+              ) : (
+                <>
+                  <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}>
+                    <div style={{flex:1,minWidth:240}}>
+                      <div style={{fontSize:13,fontWeight:800,color:'#1e3a8a'}}>{jobTitle}</div>
+                      <div style={{fontSize:12,fontWeight:600,color:generationJob.status==='failed'?'#b91c1c':'#334155',marginTop:4}}>
+                        {generationJob.status === 'failed' ? jobError
+                          : generationJob.status === 'paused_quota' ? '일일 한도 초과로 작업이 일시정지됐습니다.'
+                          : generationJob.status === 'awaiting_confirmation' ? '도메인 분석 완료 — 구조 확인을 기다리고 있습니다.'
+                          : generationJob.status === 'cancelled' ? '작업이 취소됐습니다.'
+                          : resumingJob ? '중단된 서버 작업 재개 중...'
+                          : currentStepLabel}
+                      </div>
+                      {jobNotice && <div style={{fontSize:11,color:'#92400e',marginTop:5}}>{jobNotice}</div>}
+                    </div>
+                    <div style={{display:'flex',gap:7,alignItems:'center',flexWrap:'wrap'}}>
+                      {generationJob.status === 'running' && <button onClick={handleCancelJob} style={S.btnOutline('#dc2626')}>작업 취소</button>}
+                      {generationJob.status === 'paused_quota' && <button onClick={handleResumeJob} style={S.btn('#1d4ed8')}>이어서 진행</button>}
+                      {canRetryJob && <button onClick={handleResumeJob} disabled={resumingJob} style={S.btn('#dc2626')}>{resumingJob ? '재시도 중...' : '재시도'}</button>}
+                      {generationJob.status === 'awaiting_confirmation' && <button onClick={()=>{setTab('setup');setTimeout(()=>document.getElementById('domain-review')?.scrollIntoView({behavior:'smooth',block:'start'}),0);}} style={S.btn('#1d4ed8')}>도메인 확인하러 가기</button>}
+                    </div>
                   </div>
-                )}
-                <div style={{fontSize:11,color:'#475569',marginTop:5}}>
-                  다른 탭으로 이동하거나 창을 닫아도 서버에서 계속 진행됩니다.
-                </div>
-                {jobNotice && <div style={{fontSize:11,color:'#92400e',marginTop:5}}>{jobNotice}</div>}
-              </div>
-              {generationJob?.status === 'paused_quota' && (
-                <button onClick={handleResumeJob} style={S.btn('#1d4ed8')}>이어서 진행</button>
-              )}
-              {canRetryJob && (
-                <button onClick={handleResumeJob} disabled={resumingJob} style={S.btn('#dc2626')}>{resumingJob ? '재시도 중...' : '재시도'}</button>
+                  <div style={{display:'flex',justifyContent:'space-between',fontSize:11,color:'#475569',marginTop:10,gap:10,flexWrap:'wrap'}}>
+                    <span>진행 {generationJob.step || 0} / {generationJob.total_steps || '-'} · {jobProgress}%</span>
+                    <span>경과 {jobElapsed}</span>
+                    <span style={{color:jobDelayed?'#c2410c':'#475569',fontWeight:jobDelayed?700:400}}>{jobDelayed?'응답 지연 — 자동 복구 대기 중':`마지막 갱신 ${jobUpdatedSeconds}초 전`}</span>
+                  </div>
+                  <div style={{marginTop:7,height:7,borderRadius:4,background:'#bfdbfe',overflow:'hidden'}}>
+                    <div style={{width:`${jobProgress}%`,height:'100%',background:jobDelayed?'#f59e0b':'#2563eb',transition:'width .3s'}} />
+                  </div>
+                  {jobRecentLogs.length > 0 && <div style={{display:'flex',gap:5,alignItems:'center',flexWrap:'wrap',marginTop:9,fontSize:10,color:'#475569'}}>
+                    <span style={{fontWeight:700}}>최근 로그</span>
+                    {jobRecentLogs.map((log,index)=><span key={`${log}-${index}`} style={{padding:'2px 6px',borderRadius:10,background:'#fff',border:'1px solid #bfdbfe'}}>✓ {log}</span>)}
+                  </div>}
+                </>
               )}
             </div>
           )}
@@ -774,7 +793,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject, onReloadProje
 
               {/* ── 도메인 확인 단계 ── */}
               {domainStep && pendingDomains.length > 0 && (
-                <div style={{...S.card,border:'2px solid #1d4ed8',marginTop:0}}>
+                <div id="domain-review" style={{...S.card,border:'2px solid #1d4ed8',marginTop:0,scrollMarginTop:140}}>
                   <div style={{...S.cardHeader,background:'#eff6ff'}}>
                     <div>
                       <span style={{fontSize:14,fontWeight:700,color:'#1d4ed8'}}>📋 2단계: LV1 메뉴 구조 확인</span>

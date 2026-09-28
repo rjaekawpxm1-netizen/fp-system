@@ -1,11 +1,35 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { confirmJob, getActiveJob, getJob, resumeJob, startJob } from '../utils/jobApi';
+import { cancelJob, confirmJob, getActiveJob, getJob, resumeJob, startJob } from '../utils/jobApi';
 
 const ACTIVE = new Set(['queued', 'running', 'awaiting_confirmation', 'paused_quota']);
 const RESTORE_RETRY_MS = 5000;
 const RESTORE_RETRIES = 3;
 const POLL_INTERVALS = { queued: 3000, running: 3000, paused_quota: 30000, failed: 30000 };
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+export const formatJobStep = (step, steps = []) => {
+  if (!step) return '완료 처리 중';
+  const sameKind = steps.filter(candidate => candidate.kind === step.kind);
+  const absoluteIndex = steps.indexOf(step);
+  const kindIndex = steps.slice(0, absoluteIndex + 1).filter(candidate => candidate.kind === step.kind).length;
+  if (step.kind === 'project_info') return '문서에서 시스템 정보 추출';
+  if (step.kind === 'requirements') return `요구사항 수집 (청크 ${kindIndex}/${sameKind.length})`;
+  if (step.kind === 'domain_classify') return '업무 도메인(LV1) 분류';
+  if (step.kind === 'domain_expand') return `'${step.domain?.lv1 || step.label || '도메인'}' 기능 확장`;
+  if (step.kind === 'data_groups') return '데이터 기능(ILF/EIF) 도출';
+  if (step.kind === 'fp_classify') return `FP 유형 분류 (묶음 ${kindIndex}/${sameKind.length})`;
+  if (step.kind === 'functions_finalize') return '기능목록 최종 정리 및 저장';
+  if (step.kind === 'fp_finalize') return 'FP 산정 결과 최종 저장';
+  return step.label || step.kind || '처리 중';
+};
+
+const JOB_TITLES = {
+  domains: 'AI 기능목록 생성 1/2 (도메인 분석)',
+  functions: 'AI 기능목록 생성 2/2 (기능 확장)',
+  fp: 'FP 산정',
+};
+
+const formatClock = seconds => `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
 
 export const useServerGenerationJob = ({
   project,
@@ -27,10 +51,24 @@ export const useServerGenerationJob = ({
   const [restoring, setRestoring] = useState(true);
   const [resuming, setResuming] = useState(false);
   const [jobNotice, setJobNotice] = useState('');
+  const [recentLogs, setRecentLogs] = useState([]);
+  const [clock, setClock] = useState(Date.now());
   const completedRef = useRef(null);
+  const observedStepRef = useRef({ id: null, step: 0 });
+  const cancelHideTimerRef = useRef(null);
 
   const applyJob = useCallback(async nextJob => {
     setJob(nextJob);
+    const steps = nextJob?.state?.steps || [];
+    const completedStep = Math.max(0, Math.min(Number(nextJob?.step) || 0, steps.length));
+    const observed = observedStepRef.current;
+    if (nextJob?.id !== observed.id || completedStep < observed.step) {
+      setRecentLogs(steps.slice(0, completedStep).map(step => formatJobStep(step, steps)).slice(-5));
+    } else if (completedStep > observed.step) {
+      const added = steps.slice(observed.step, completedStep).map(step => formatJobStep(step, steps));
+      setRecentLogs(current => [...current, ...added].slice(-5));
+    }
+    observedStepRef.current = { id: nextJob?.id || null, step: completedStep };
     if (nextJob?.status === 'awaiting_confirmation' && nextJob.type === 'domains') {
       const domains = (nextJob.state?.domains || []).map(domain => ({ ...domain, enabled: domain.enabled !== false }));
       setPendingDomains(domains);
@@ -47,6 +85,15 @@ export const useServerGenerationJob = ({
       setTab(nextJob.type === 'fp' ? 'fp' : 'functions');
     }
   }, [reloadProjects, rfpText, setDomainStep, setPendingDomains, setPendingInfo, setTab]);
+
+  useEffect(() => {
+    if (!job) return undefined;
+    setClock(Date.now());
+    const timer = setInterval(() => setClock(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [job?.id]);
+
+  useEffect(() => () => clearTimeout(cancelHideTimerRef.current), []);
 
   const reconnectConflict = async (error, requestedType) => {
     if (error.status !== 409 || !error.jobId) return false;
@@ -122,7 +169,8 @@ export const useServerGenerationJob = ({
         targetFuncCount: projectScale ? Number(projectScale) : 0,
         existingLv1s: upgradeMode ? [...new Set(functions.map(func => func.lv1))] : [],
       });
-      await applyJob({ id: started.jobId, project_id: project.id, type: 'domains', status: 'running', step: 0, total_steps: null, state: {} });
+      const now = new Date().toISOString();
+      await applyJob({ id: started.jobId, project_id: project.id, type: 'domains', status: 'running', step: 0, total_steps: null, state: {}, created_at: now, updated_at: now });
     } catch (error) {
       if (await reconnectConflict(error, 'domains')) return;
       alert('기능 생성 작업 시작 오류: ' + error.message);
@@ -135,7 +183,8 @@ export const useServerGenerationJob = ({
     try {
       const next = await confirmJob(job.id, { domains, upgradeMode, existingFunctions: upgradeMode ? functions : [] });
       setDomainStep(false);
-      await applyJob({ id: next.jobId, project_id: project.id, type: 'functions', status: 'running', step: 0, total_steps: domains.length + 1, state: {} });
+      const now = new Date().toISOString();
+      await applyJob({ id: next.jobId, project_id: project.id, type: 'functions', status: 'running', step: 0, total_steps: domains.length + 1, state: {}, created_at: now, updated_at: now });
     } catch (error) {
       alert('기능 생성 확인 오류: ' + error.message);
     }
@@ -150,7 +199,8 @@ export const useServerGenerationJob = ({
     if (fpList.length && !window.confirm(`기존 FP ${fpList.length}개를 재산정할까요?`)) return;
     try {
       const started = await startJob(project.id, 'fp', { functions, fpList, fpMethod, upgradeMode, rfpText });
-      await applyJob({ id: started.jobId, project_id: project.id, type: 'fp', status: 'running', step: 0, total_steps: Math.ceil(functions.length / 25) + 2, state: {} });
+      const now = new Date().toISOString();
+      await applyJob({ id: started.jobId, project_id: project.id, type: 'fp', status: 'running', step: 0, total_steps: Math.ceil(functions.length / 25) + 2, state: {}, created_at: now, updated_at: now });
     } catch (error) {
       if (await reconnectConflict(error, 'fp')) return;
       alert('FP 산정 작업 시작 오류: ' + error.message);
@@ -168,6 +218,29 @@ export const useServerGenerationJob = ({
     } finally { setResuming(false); }
   };
 
+  const handleCancel = async () => {
+    if (!job?.id || job.status !== 'running') return;
+    if (!window.confirm('진행 중인 서버 작업을 취소할까요?')) return;
+    try {
+      await cancelJob(job.id);
+      const cancelledId = job.id;
+      setJob(current => current?.id === cancelledId ? { ...current, status: 'cancelled', updated_at: new Date().toISOString() } : current);
+      clearTimeout(cancelHideTimerRef.current);
+      cancelHideTimerRef.current = setTimeout(() => {
+        setJob(current => current?.id === cancelledId ? null : current);
+        setJobNotice('');
+        setRecentLogs([]);
+      }, 3000);
+    } catch (error) {
+      alert('작업 취소 오류: ' + error.message);
+    }
+  };
+
+  const steps = job?.state?.steps || [];
+  const currentStep = steps[job?.step || 0];
+  const elapsedSeconds = job?.created_at ? Math.max(0, Math.floor((clock - new Date(job.created_at).getTime()) / 1000)) : 0;
+  const updatedSeconds = job?.updated_at ? Math.max(0, Math.floor((clock - new Date(job.updated_at).getTime()) / 1000)) : 0;
+
   return {
     job,
     restoring,
@@ -177,9 +250,16 @@ export const useServerGenerationJob = ({
     canRetry: job?.status === 'failed',
     jobNotice,
     progress: job?.total_steps ? Math.round(((job.step || 0) / job.total_steps) * 100) : 0,
+    jobTitle: JOB_TITLES[job?.type] || '서버 작업',
+    currentStepLabel: formatJobStep(currentStep, steps),
+    elapsed: formatClock(elapsedSeconds),
+    updatedSeconds,
+    delayed: job?.status === 'running' && updatedSeconds > 120,
+    recentLogs,
     handleGenerate,
     handleConfirmDomains,
     handleGenerateFP,
     handleResume,
+    handleCancel,
   };
 };
