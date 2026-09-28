@@ -92,7 +92,7 @@ const S = {
   tag: (bg, color) => ({ background:bg, color, fontSize:10, padding:'2px 7px', borderRadius:10, fontWeight:600 }),
 };
 
-const ProjectDetail = ({ projects, onUpdateProject, onCopyProject, onReloadProjects, onRefreshProject }) => {
+const ProjectDetail = ({ projects, onUpdateProject, onCopyProject, onReloadProjects, onRefreshProject, onServerJobActivityChange }) => {
   const { id } = useParams();
   const navigate = useNavigate();
   const project = projects.find(p => p.id === id);
@@ -299,6 +299,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject, onReloadProje
     setTab,
     reloadProjects: onReloadProjects,
     refreshCompletedProject,
+    onServerJobActivityChange,
   });
   const handleConfirmDomains = () => confirmServerDomains(pendingDomains);
   const generationButton = getStartButtonState({

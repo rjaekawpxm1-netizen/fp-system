@@ -6,14 +6,20 @@ export const mergeProjectPatches = (currentPatch, nextPatch) => {
   return merged;
 };
 
-export const flushPendingProjectUpdates = (pendingUpdates, updateTimers, save, onError) => {
+export const withoutProjectFields = (patch, fields = []) => Object.fromEntries(
+  Object.entries(patch || {}).filter(([field]) => !fields.includes(field))
+);
+
+export const flushPendingProjectUpdates = (pendingUpdates, updateTimers, save, onError, omittedFieldsForProject = () => []) => {
   const entries = Object.entries(pendingUpdates || {});
   return entries.map(([id, updates]) => {
     if (updateTimers?.[id]) clearTimeout(updateTimers[id]);
     delete pendingUpdates[id];
     if (updateTimers) delete updateTimers[id];
+    const updatesToSave = withoutProjectFields(updates, omittedFieldsForProject(id));
+    if (!Object.keys(updatesToSave).length) return Promise.resolve();
     try {
-      return Promise.resolve(save(id, updates)).catch(error => {
+      return Promise.resolve(save(id, updatesToSave)).catch(error => {
         if (onError) onError(error);
       });
     } catch (error) {

@@ -2,6 +2,7 @@ import {
   flushPendingProjectUpdates,
   mergeProjectPatches,
   registerProjectSaveFlush,
+  withoutProjectFields,
 } from '../projectUpdateQueue';
 
 describe('mergeProjectPatches', () => {
@@ -68,4 +69,38 @@ describe('mergeProjectPatches', () => {
     unregister();
     jest.useRealTimers();
   });
+});
+
+test('active server jobs omit functions and fpList from a hidden-tab flush payload', () => {
+  const save = jest.fn().mockResolvedValue(undefined);
+  const pendingUpdates = {
+    p1: {
+      functions: [{ id: 1 }],
+      fpList: [{ id: 2 }],
+      settings: { fpMethod: 'standard' },
+    },
+  };
+  const updateTimers = {};
+  const listeners = {};
+  const fakeDocument = {
+    hidden: false,
+    addEventListener: (name, listener) => { listeners[name] = listener; },
+    removeEventListener: jest.fn(),
+  };
+  const fakeWindow = {
+    addEventListener: (name, listener) => { listeners[name] = listener; },
+    removeEventListener: jest.fn(),
+  };
+  const unregister = registerProjectSaveFlush(
+    () => flushPendingProjectUpdates(pendingUpdates, updateTimers, save, undefined, () => ['functions', 'fpList']),
+    fakeDocument,
+    fakeWindow
+  );
+
+  fakeDocument.hidden = true;
+  listeners.visibilitychange();
+
+  expect(save).toHaveBeenCalledWith('p1', { settings: { fpMethod: 'standard' } });
+  expect(withoutProjectFields({ functions: [], fpList: [], name: 'keep' }, ['functions', 'fpList'])).toEqual({ name: 'keep' });
+  unregister();
 });

@@ -57,6 +57,7 @@ export const useServerGenerationJob = ({
   setTab,
   reloadProjects,
   refreshCompletedProject,
+  onServerJobActivityChange,
   restoreDelay = wait,
 }) => {
   const [job, setJob] = useState(null);
@@ -104,6 +105,7 @@ export const useServerGenerationJob = ({
   }, [dismissCompletedJob, refreshCompletedProject]);
 
   const applyJob = useCallback(async nextJob => {
+    onServerJobActivityChange?.(nextJob?.project_id || project.id, ACTIVE.has(nextJob?.status));
     setJob(nextJob);
     const steps = nextJob?.state?.steps || [];
     const completedStep = Math.max(0, Math.min(Number(nextJob?.step) || 0, steps.length));
@@ -133,7 +135,7 @@ export const useServerGenerationJob = ({
         setTab(nextJob.type === 'fp' ? 'fp' : 'functions');
       }
     }
-  }, [reloadProjects, rfpText, setDomainStep, setPendingDomains, setPendingInfo, setTab, syncCompletedResult]);
+  }, [onServerJobActivityChange, project.id, reloadProjects, rfpText, setDomainStep, setPendingDomains, setPendingInfo, setTab, syncCompletedResult]);
 
   useEffect(() => {
     if (!job?.id) return undefined;

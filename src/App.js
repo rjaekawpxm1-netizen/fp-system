@@ -12,7 +12,9 @@ import {
   deleteProject as dbDeleteProject,
   supabase,
 } from './utils/supabase';
-import { flushPendingProjectUpdates, mergeProjectPatches, registerProjectSaveFlush } from './utils/projectUpdateQueue';
+import { flushPendingProjectUpdates, mergeProjectPatches, registerProjectSaveFlush, withoutProjectFields } from './utils/projectUpdateQueue';
+
+const SERVER_JOB_FIELDS = ['functions', 'fpList'];
 
 const App = () => {
   const [projects, setProjects] = useState([]);
@@ -25,6 +27,7 @@ const App = () => {
   const projectsRef = useRef([]);
   const updateTimersRef = useRef({});
   const pendingUpdatesRef = useRef({});
+  const activeServerJobProjectsRef = useRef(new Set());
 
   const reportSaveError = useCallback((err) => {
     setSaveError(`프로젝트 저장에 실패했습니다: ${err.message}`);
@@ -35,9 +38,28 @@ const App = () => {
       pendingUpdatesRef.current,
       updateTimersRef.current,
       dbUpdateProject,
-      reportSaveError
+      reportSaveError,
+      id => activeServerJobProjectsRef.current.has(id) ? SERVER_JOB_FIELDS : []
     );
   }, [reportSaveError]);
+
+  const handleServerJobActivityChange = useCallback((id, active) => {
+    if (active) {
+      activeServerJobProjectsRef.current.add(id);
+      const pending = pendingUpdatesRef.current[id];
+      if (!pending) return;
+      const nextPending = withoutProjectFields(pending, SERVER_JOB_FIELDS);
+      if (Object.keys(nextPending).length) {
+        pendingUpdatesRef.current[id] = nextPending;
+      } else {
+        delete pendingUpdatesRef.current[id];
+        if (updateTimersRef.current[id]) clearTimeout(updateTimersRef.current[id]);
+        delete updateTimersRef.current[id];
+      }
+    } else {
+      activeServerJobProjectsRef.current.delete(id);
+    }
+  }, []);
 
   const refreshProjectFromServer = useCallback(async (id, jobType) => {
     const refreshed = await fetchProject(id);
@@ -215,6 +237,7 @@ const App = () => {
               onCopyProject={handleCopyProject}
               onReloadProjects={loadProjects}
               onRefreshProject={refreshProjectFromServer}
+              onServerJobActivityChange={handleServerJobActivityChange}
             />
           }/>
         </Routes>
