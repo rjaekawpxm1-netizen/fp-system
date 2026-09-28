@@ -4,15 +4,17 @@ import App from './App';
 let mockAuthCallback;
 const mockGetSession = jest.fn();
 const mockFetchProjects = jest.fn();
+const mockFetchProject = jest.fn();
 const mockUpdateProject = jest.fn();
 
-jest.mock('./pages/ProjectDetail', () => ({ projects, onUpdateProject }) => {
+jest.mock('./pages/ProjectDetail', () => ({ projects, onUpdateProject, onRefreshProject }) => {
   const projectItem = projects.find(item => item.id === 'p1');
   return (
     <div>
       <span>프로젝트 작업 화면</span>
       <span>{projectItem?.name}</span>
       <button onClick={() => onUpdateProject('p1', { name: '로컬 수정' })}>프로젝트 수정</button>
+      <button onClick={() => onRefreshProject('p1', 'functions')}>서버 결과 반영</button>
     </div>
   );
 });
@@ -29,6 +31,7 @@ jest.mock('./utils/supabase', () => ({
     signOut: jest.fn(),
   } },
   fetchProjects: (...args) => mockFetchProjects(...args),
+  fetchProject: (...args) => mockFetchProject(...args),
   createProject: jest.fn(),
   updateProject: (...args) => mockUpdateProject(...args),
   deleteProject: jest.fn(),
@@ -46,6 +49,7 @@ beforeEach(() => {
   mockAuthCallback = null;
   mockGetSession.mockReset().mockResolvedValue({ data: { session: session('u1') } });
   mockFetchProjects.mockReset().mockResolvedValue([]);
+  mockFetchProject.mockReset();
   mockUpdateProject.mockReset().mockResolvedValue(undefined);
   window.history.pushState({}, '', '/');
 });
@@ -115,4 +119,20 @@ test('저장 대기 patch가 있으면 재조회 결과보다 우선해 유지�
   await waitFor(() => expect(mockFetchProjects).toHaveBeenCalledTimes(2));
   expect(screen.getByText('로컬 수정')).toBeInTheDocument();
   expect(screen.queryByText('서버 재조회')).not.toBeInTheDocument();
+});
+
+test('completed job result replaces the local project from a single DB fetch', async () => {
+  window.history.pushState({}, '', '/project/p1');
+  mockFetchProjects.mockResolvedValueOnce([project('서버 원본')]);
+  mockFetchProject.mockResolvedValue({
+    ...project('서버 반영'),
+    functions: Array.from({ length: 89 }, (_, id) => ({ id })),
+  });
+  render(<App />);
+  await screen.findByText('프로젝트 작업 화면');
+
+  fireEvent.click(screen.getByText('서버 결과 반영'));
+
+  await waitFor(() => expect(mockFetchProject).toHaveBeenCalledWith('p1'));
+  await waitFor(() => expect(screen.getByText('서버 반영')).toBeInTheDocument());
 });

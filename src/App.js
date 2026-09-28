@@ -6,6 +6,7 @@ import ProjectDetail from './pages/ProjectDetail';
 import Login from './pages/Login';
 import {
   fetchProjects,
+  fetchProject,
   createProject as dbCreateProject,
   updateProject as dbUpdateProject,
   deleteProject as dbDeleteProject,
@@ -37,6 +38,30 @@ const App = () => {
       reportSaveError
     );
   }, [reportSaveError]);
+
+  const refreshProjectFromServer = useCallback(async (id, jobType) => {
+    const refreshed = await fetchProject(id);
+    const field = jobType === 'fp' ? 'fpList' : 'functions';
+    const pending = pendingUpdatesRef.current[id];
+    if (pending?.[field] !== undefined) {
+      const nextPending = { ...pending };
+      delete nextPending[field];
+      if (Object.keys(nextPending).length) {
+        pendingUpdatesRef.current[id] = nextPending;
+      } else {
+        delete pendingUpdatesRef.current[id];
+        if (updateTimersRef.current[id]) clearTimeout(updateTimersRef.current[id]);
+        delete updateTimersRef.current[id];
+      }
+    }
+    const remainingPending = pendingUpdatesRef.current[id];
+    const nextProjects = projectsRef.current.map(project =>
+      project.id === id ? mergeProjectPatches(refreshed, remainingPending) : project
+    );
+    projectsRef.current = nextProjects;
+    setProjects(nextProjects);
+    return refreshed;
+  }, []);
 
   const loadProjects = useCallback(async () => {
     try {
@@ -189,6 +214,7 @@ const App = () => {
               onUpdateProject={handleUpdateProject}
               onCopyProject={handleCopyProject}
               onReloadProjects={loadProjects}
+              onRefreshProject={refreshProjectFromServer}
             />
           }/>
         </Routes>

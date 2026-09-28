@@ -92,7 +92,7 @@ const S = {
   tag: (bg, color) => ({ background:bg, color, fontSize:10, padding:'2px 7px', borderRadius:10, fontWeight:600 }),
 };
 
-const ProjectDetail = ({ projects, onUpdateProject, onCopyProject, onReloadProjects }) => {
+const ProjectDetail = ({ projects, onUpdateProject, onCopyProject, onReloadProjects, onRefreshProject }) => {
   const { id } = useParams();
   const navigate = useNavigate();
   const project = projects.find(p => p.id === id);
@@ -172,6 +172,14 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject, onReloadProje
   const saveSettings = useCallback((settings) => {
     saveProject({ settings });
   }, [saveProject]);
+
+  const refreshCompletedProject = useCallback(async type => {
+    const refreshed = await onRefreshProject?.(id, type);
+    if (!refreshed) throw new Error('Project refresh is unavailable');
+    if (type === 'fp') setFpList(refreshed.fpList || []);
+    else setFunctions(refreshed.functions || []);
+    return refreshed;
+  }, [id, onRefreshProject]);
 
   const { handleFileUpload, handleRemoveFile } = useFileIngestion({
     id,
@@ -269,11 +277,13 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject, onReloadProje
     updatedSeconds: jobUpdatedSeconds,
     delayed: jobDelayed,
     recentLogs: jobRecentLogs,
+    completionSync,
     handleGenerate,
     handleConfirmDomains: confirmServerDomains,
     handleGenerateFP,
     handleResume: handleResumeJob,
     handleCancel: handleCancelJob,
+    retryCompletedResult,
   } = useServerGenerationJob({
     project,
     rfpText,
@@ -288,6 +298,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject, onReloadProje
     setDomainStep,
     setTab,
     reloadProjects: onReloadProjects,
+    refreshCompletedProject,
   });
   const handleConfirmDomains = () => confirmServerDomains(pendingDomains);
   const generationButton = getStartButtonState({
@@ -538,10 +549,12 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject, onReloadProje
                           : generationJob.status === 'paused_quota' ? '일일 한도 초과로 작업이 일시정지됐습니다.'
                           : generationJob.status === 'awaiting_confirmation' ? '도메인 분석 완료 — 구조 확인을 기다리고 있습니다.'
                           : generationJob.status === 'cancelled' ? '작업이 취소됐습니다.'
+                          : generationJob.status === 'completed' ? completionSync?.message || '결과 반영 중...'
                           : resumingJob ? '중단된 서버 작업 재개 중...'
                           : currentStepLabel}
                       </div>
                       {jobNotice && <div style={{fontSize:11,color:'#92400e',marginTop:5}}>{jobNotice}</div>}
+                      {completionSync?.status === 'error' && <button onClick={retryCompletedResult} style={{...S.btnOutline('#dc2626'),marginTop:7}}>결과 다시 불러오기</button>}
                     </div>
                     <div style={{display:'flex',gap:7,alignItems:'center',flexWrap:'wrap'}}>
                       {generationJob.status === 'running' && <button onClick={handleCancelJob} style={S.btnOutline('#dc2626')}>작업 취소</button>}

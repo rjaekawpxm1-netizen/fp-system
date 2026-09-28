@@ -56,6 +56,7 @@ export const useServerGenerationJob = ({
   setDomainStep,
   setTab,
   reloadProjects,
+  refreshCompletedProject,
   restoreDelay = wait,
 }) => {
   const [job, setJob] = useState(null);
@@ -63,6 +64,7 @@ export const useServerGenerationJob = ({
   const [resuming, setResuming] = useState(false);
   const [jobNotice, setJobNotice] = useState('');
   const [recentLogs, setRecentLogs] = useState([]);
+  const [completionSync, setCompletionSync] = useState(null);
   const [clock, setClock] = useState(Date.now());
   const [starting, setStarting] = useState(false);
   const completedRef = useRef(null);
@@ -70,9 +72,36 @@ export const useServerGenerationJob = ({
   const observedStepRef = useRef({ id: null, step: 0 });
   const cancelHideTimerRef = useRef(null);
   const titleTimerRef = useRef(null);
+  const completionTimerRef = useRef(null);
   const originalTitleRef = useRef(document.title);
   const restoreDelayRef = useRef(restoreDelay);
   restoreDelayRef.current = restoreDelay;
+
+  const dismissCompletedJob = useCallback(jobId => {
+    clearTimeout(completionTimerRef.current);
+    completionTimerRef.current = setTimeout(() => {
+      setJob(current => current?.id === jobId ? null : current);
+      setCompletionSync(null);
+    }, 5000);
+  }, []);
+
+  const syncCompletedResult = useCallback(async completedJob => {
+    setCompletionSync({ status: 'loading' });
+    try {
+      const refreshed = await refreshCompletedProject?.(completedJob.type);
+      if (!refreshed) throw new Error('Project refresh is unavailable');
+      const count = completedJob.type === 'fp'
+        ? (refreshed.fpList || []).length
+        : (refreshed.functions || []).length;
+      const label = completedJob.type === 'fp' ? 'FP 항목' : '기능';
+      setCompletionSync({ status: 'success', message: `✅ 완료: ${label} ${count}개로 반영했습니다.` });
+      dismissCompletedJob(completedJob.id);
+      return refreshed;
+    } catch (error) {
+      setCompletionSync({ status: 'error', message: '결과 불러오기 실패' });
+      return null;
+    }
+  }, [dismissCompletedJob, refreshCompletedProject]);
 
   const applyJob = useCallback(async nextJob => {
     setJob(nextJob);
@@ -95,13 +124,16 @@ export const useServerGenerationJob = ({
     }
     if (nextJob?.status === 'completed' && completedRef.current !== nextJob.id) {
       completedRef.current = nextJob.id;
-      await reloadProjects?.();
-      setDomainStep(false);
-      setPendingDomains([]);
-      setPendingInfo(null);
-      setTab(nextJob.type === 'fp' ? 'fp' : 'functions');
+      const refreshed = await syncCompletedResult(nextJob);
+      if (refreshed) {
+        await reloadProjects?.();
+        setDomainStep(false);
+        setPendingDomains([]);
+        setPendingInfo(null);
+        setTab(nextJob.type === 'fp' ? 'fp' : 'functions');
+      }
     }
-  }, [reloadProjects, rfpText, setDomainStep, setPendingDomains, setPendingInfo, setTab]);
+  }, [reloadProjects, rfpText, setDomainStep, setPendingDomains, setPendingInfo, setTab, syncCompletedResult]);
 
   useEffect(() => {
     if (!job?.id) return undefined;
@@ -286,6 +318,7 @@ export const useServerGenerationJob = ({
 
   useEffect(() => () => {
     clearTimeout(titleTimerRef.current);
+    clearTimeout(completionTimerRef.current);
     document.title = originalTitleRef.current;
   }, []);
 
@@ -305,10 +338,12 @@ export const useServerGenerationJob = ({
     updatedSeconds,
     delayed: job?.status === 'running' && updatedSeconds > 120,
     recentLogs,
+    completionSync,
     handleGenerate,
     handleConfirmDomains,
     handleGenerateFP,
     handleResume,
     handleCancel,
+    retryCompletedResult: () => job?.status === 'completed' ? syncCompletedResult(job) : Promise.resolve(null),
   };
 };

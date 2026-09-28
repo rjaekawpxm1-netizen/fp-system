@@ -20,7 +20,9 @@ const createProps = overrides => ({
   project: { id: 'p1' }, rfpText: '회원 요구사항', userInput: '', projectScale: '10', upgradeMode: false,
   functions: [{ lv1: '회원', lv2: '회원정보', lv3: '회원 조회' }], fpList: [], fpMethod: 'standard',
   setPendingDomains: jest.fn(), setPendingInfo: jest.fn(), setDomainStep: jest.fn(), setTab: jest.fn(),
-  reloadProjects: jest.fn().mockResolvedValue(undefined), ...overrides,
+  reloadProjects: jest.fn().mockResolvedValue(undefined),
+  refreshCompletedProject: jest.fn(async () => ({ functions: [], fpList: [] })),
+  ...overrides,
 });
 
 beforeEach(() => {
@@ -40,6 +42,7 @@ afterEach(() => {
 test('시작 후 3초 폴링으로 완료 결과를 반영한다', async () => {
   jest.useFakeTimers();
   const props = createProps();
+  props.refreshCompletedProject.mockResolvedValue({ functions: Array.from({ length: 89 }, () => ({})), fpList: [] });
   const { result } = renderHook(() => useServerGenerationJob(props));
   await act(async () => {});
   await act(async () => result.current.handleGenerate());
@@ -49,6 +52,7 @@ test('시작 후 3초 폴링으로 완료 결과를 반영한다', async () => {
 
   expect(startJob).toHaveBeenCalledWith('p1', 'domains', expect.objectContaining({ rfpText: '회원 요구사항' }));
   expect(props.reloadProjects).toHaveBeenCalled();
+  expect(props.refreshCompletedProject).toHaveBeenCalledWith('functions');
   expect(props.setTab).toHaveBeenCalledWith('functions');
   jest.useRealTimers();
 });
