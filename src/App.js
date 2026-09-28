@@ -7,6 +7,7 @@ import Login from './pages/Login';
 import {
   fetchProjects,
   fetchProject,
+  fetchLatestCompletedJobs,
   createProject as dbCreateProject,
   updateProject as dbUpdateProject,
   deleteProject as dbDeleteProject,
@@ -89,9 +90,27 @@ const App = () => {
     try {
       setLoading(true); setError(null);
       const data = await fetchProjects();
-      const mergedData = data.map(project =>
-        mergeProjectPatches(project, pendingUpdatesRef.current[project.id])
-      );
+      const completedJobs = await fetchLatestCompletedJobs(data.map(project => project.id)).catch(() => []);
+      const completedByProject = new Map(completedJobs.map(job => [job.project_id, job]));
+      const mergedData = data.map(project => {
+        const cached = projectsRef.current.find(item => item.id === project.id);
+        const completedJob = completedByProject.get(project.id);
+        const jobIsNewerThanCache = completedJob && cached
+          && Date.parse(completedJob.updated_at) > Date.parse(cached.updatedAt);
+        if (jobIsNewerThanCache) {
+          const field = completedJob.type === 'fp' ? 'fpList' : 'functions';
+          const pending = pendingUpdatesRef.current[project.id];
+          const remainingPending = withoutProjectFields(pending, [field]);
+          if (Object.keys(remainingPending).length) {
+            pendingUpdatesRef.current[project.id] = remainingPending;
+          } else if (pending) {
+            delete pendingUpdatesRef.current[project.id];
+            if (updateTimersRef.current[project.id]) clearTimeout(updateTimersRef.current[project.id]);
+            delete updateTimersRef.current[project.id];
+          }
+        }
+        return mergeProjectPatches(project, pendingUpdatesRef.current[project.id]);
+      });
       projectsRef.current = mergedData;
       setProjects(mergedData);
     } catch (err) {

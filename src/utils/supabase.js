@@ -32,6 +32,22 @@ export const fetchProject = async (id) => {
   return dbToProject(data);
 };
 
+export const fetchLatestCompletedJobs = async (projectIds) => {
+  if (!projectIds.length) return [];
+  const { data, error } = await supabase
+    .from('generation_jobs')
+    .select('project_id,type,updated_at')
+    .in('project_id', projectIds)
+    .eq('status', 'completed')
+    .order('updated_at', { ascending: false });
+  if (error) throw error;
+  const latestByProject = new Map();
+  for (const job of data || []) {
+    if (!latestByProject.has(job.project_id)) latestByProject.set(job.project_id, job);
+  }
+  return [...latestByProject.values()];
+};
+
 // 프로젝트 생성
 export const createProject = async (project) => {
   const { data, error } = await supabase

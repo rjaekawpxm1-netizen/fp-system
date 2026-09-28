@@ -5,16 +5,20 @@ let mockAuthCallback;
 const mockGetSession = jest.fn();
 const mockFetchProjects = jest.fn();
 const mockFetchProject = jest.fn();
+const mockFetchLatestCompletedJobs = jest.fn();
 const mockUpdateProject = jest.fn();
 
-jest.mock('./pages/ProjectDetail', () => ({ projects, onUpdateProject, onRefreshProject }) => {
+jest.mock('./pages/ProjectDetail', () => ({ projects, onUpdateProject, onRefreshProject, onReloadProjects }) => {
   const projectItem = projects.find(item => item.id === 'p1');
   return (
     <div>
       <span>프로젝트 작업 화면</span>
       <span>{projectItem?.name}</span>
+      <span>기능 {projectItem?.functions.length || 0}개</span>
       <button onClick={() => onUpdateProject('p1', { name: '로컬 수정' })}>프로젝트 수정</button>
+      <button onClick={() => onUpdateProject('p1', { functions: [] })}>빈 기능 대기</button>
       <button onClick={() => onRefreshProject('p1', 'functions')}>서버 결과 반영</button>
+      <button onClick={onReloadProjects}>프로젝트 다시 읽기</button>
     </div>
   );
 });
@@ -32,6 +36,7 @@ jest.mock('./utils/supabase', () => ({
   } },
   fetchProjects: (...args) => mockFetchProjects(...args),
   fetchProject: (...args) => mockFetchProject(...args),
+  fetchLatestCompletedJobs: (...args) => mockFetchLatestCompletedJobs(...args),
   createProject: jest.fn(),
   updateProject: (...args) => mockUpdateProject(...args),
   deleteProject: jest.fn(),
@@ -50,6 +55,7 @@ beforeEach(() => {
   mockGetSession.mockReset().mockResolvedValue({ data: { session: session('u1') } });
   mockFetchProjects.mockReset().mockResolvedValue([]);
   mockFetchProject.mockReset();
+  mockFetchLatestCompletedJobs.mockReset().mockResolvedValue([]);
   mockUpdateProject.mockReset().mockResolvedValue(undefined);
   window.history.pushState({}, '', '/');
 });
@@ -135,4 +141,25 @@ test('completed job result replaces the local project from a single DB fetch', a
 
   await waitFor(() => expect(mockFetchProject).toHaveBeenCalledWith('p1'));
   await waitFor(() => expect(screen.getByText('서버 반영')).toBeInTheDocument());
+});
+
+test('a completed job newer than the cache keeps DB functions ahead of a pending empty array', async () => {
+  window.history.pushState({}, '', '/project/p1');
+  const cached = { ...project('캐시 프로젝트'), updatedAt: '2026-09-28T06:34:00.000Z' };
+  const refreshed = {
+    ...project('서버 프로젝트'),
+    updatedAt: '2026-09-28T06:35:00.000Z',
+    functions: Array.from({ length: 89 }, (_, id) => ({ id })),
+  };
+  mockFetchProjects.mockResolvedValueOnce([cached]).mockResolvedValueOnce([refreshed]);
+  mockFetchLatestCompletedJobs
+    .mockResolvedValueOnce([])
+    .mockResolvedValueOnce([{ project_id: 'p1', type: 'functions', updated_at: '2026-09-28T06:34:57.000Z' }]);
+  render(<App />);
+  await screen.findByText('기능 0개');
+
+  fireEvent.click(screen.getByText('빈 기능 대기'));
+  fireEvent.click(screen.getByText('프로젝트 다시 읽기'));
+
+  await waitFor(() => expect(screen.getByText('기능 89개')).toBeInTheDocument());
 });
