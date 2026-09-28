@@ -141,6 +141,27 @@ test('초기 활성 작업 조회가 네트워크 오류 후 성공하면 패널
   expect(restoreDelay).toHaveBeenCalledWith(5000);
 });
 
+test('restore uses the latest delay function without restarting its effect', async () => {
+  let rejectFirstLookup;
+  getActiveJob.mockImplementationOnce(() => new Promise((_, reject) => {
+    rejectFirstLookup = reject;
+  }));
+  const firstDelay = jest.fn().mockResolvedValue(undefined);
+  const latestDelay = jest.fn().mockResolvedValue(undefined);
+  const props = createProps();
+  let restoreDelay = firstDelay;
+  const { rerender, result } = renderHook(() => useServerGenerationJob({ ...props, restoreDelay }));
+
+  restoreDelay = latestDelay;
+  rerender();
+  await act(async () => { rejectFirstLookup(new Error('network unavailable')); });
+
+  await waitFor(() => expect(result.current.restoring).toBe(false));
+  expect(firstDelay).not.toHaveBeenCalled();
+  expect(latestDelay).toHaveBeenCalledWith(5000);
+  expect(getActiveJob).toHaveBeenCalledTimes(2);
+});
+
 test('탭이 visible로 복귀하면 작업이 없을 때 활성 작업을 다시 조회한다', async () => {
   const { result } = renderHook(() => useServerGenerationJob(createProps()));
   await waitFor(() => expect(result.current.restoring).toBe(false));

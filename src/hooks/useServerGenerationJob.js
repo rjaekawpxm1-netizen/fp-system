@@ -71,6 +71,8 @@ export const useServerGenerationJob = ({
   const cancelHideTimerRef = useRef(null);
   const titleTimerRef = useRef(null);
   const originalTitleRef = useRef(document.title);
+  const restoreDelayRef = useRef(restoreDelay);
+  restoreDelayRef.current = restoreDelay;
 
   const applyJob = useCallback(async nextJob => {
     setJob(nextJob);
@@ -142,13 +144,13 @@ export const useServerGenerationJob = ({
             if (error.status !== 404) console.warn('작업 상태 복원 실패:', error.message);
             return;
           }
-          await restoreDelay(RESTORE_RETRY_MS);
+          await restoreDelayRef.current(RESTORE_RETRY_MS);
         }
       }
     };
     restore().finally(() => { if (!cancelled) { setRestoring(false); setResuming(false); } });
     return () => { cancelled = true; };
-  }, [project.id, applyJob, restoreDelay]);
+  }, [project.id, applyJob, restoreDelayRef]);
 
   useEffect(() => {
     const interval = job?.id ? POLL_INTERVALS[job.status] : null;
