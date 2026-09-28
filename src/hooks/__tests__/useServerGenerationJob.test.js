@@ -31,6 +31,10 @@ beforeEach(() => {
   confirmJob.mockResolvedValue({ jobId: 'j2' });
 });
 
+afterEach(() => {
+  jest.useRealTimers();
+});
+
 test('시작 후 3초 폴링으로 완료 결과를 반영한다', async () => {
   jest.useFakeTimers();
   const props = createProps();
@@ -121,4 +125,29 @@ test('FP 요청과 활성 작업 타입이 다르면 재연결 안내를 제공�
   await waitFor(() => expect(result.current.jobNotice).toContain('기능 생성 작업이 끝난 뒤 FP 산정'));
   expect(alertSpy).not.toHaveBeenCalled();
   alertSpy.mockRestore();
+});
+
+test('초기 활성 작업 조회가 네트워크 오류 후 성공하면 패널 상태를 복원한다', async () => {
+  getActiveJob
+    .mockRejectedValueOnce(new Error('network unavailable'))
+    .mockResolvedValueOnce(activeJob({ id: 'retry-job', step: 2 }));
+  const restoreDelay = jest.fn().mockResolvedValue(undefined);
+  const { result } = renderHook(() => useServerGenerationJob(createProps({ restoreDelay })));
+
+  await waitFor(() => expect(result.current.job?.id).toBe('retry-job'));
+  expect(getActiveJob.mock.calls.length).toBeGreaterThanOrEqual(2);
+  expect(restoreDelay).toHaveBeenCalledWith(5000);
+});
+
+test('탭이 visible로 복귀하면 작업이 없을 때 활성 작업을 다시 조회한다', async () => {
+  const { result } = renderHook(() => useServerGenerationJob(createProps()));
+  await waitFor(() => expect(result.current.restoring).toBe(false));
+  getActiveJob.mockClear();
+  getActiveJob.mockResolvedValue(activeJob({ id: 'visible-job', status: 'paused_quota' }));
+  Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+
+  act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+
+  await waitFor(() => expect(result.current.job?.id).toBe('visible-job'));
+  expect(getActiveJob).toHaveBeenCalledWith('p1');
 });

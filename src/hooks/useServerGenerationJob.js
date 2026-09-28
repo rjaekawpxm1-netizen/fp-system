@@ -2,6 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { confirmJob, getActiveJob, getJob, resumeJob, startJob } from '../utils/jobApi';
 
 const ACTIVE = new Set(['queued', 'running', 'awaiting_confirmation', 'paused_quota']);
+const RESTORE_RETRY_MS = 5000;
+const RESTORE_RETRIES = 3;
+const POLL_INTERVALS = { queued: 3000, running: 3000, paused_quota: 30000, failed: 30000 };
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 export const useServerGenerationJob = ({
   project,
@@ -17,6 +21,7 @@ export const useServerGenerationJob = ({
   setDomainStep,
   setTab,
   reloadProjects,
+  restoreDelay = wait,
 }) => {
   const [job, setJob] = useState(null);
   const [restoring, setRestoring] = useState(true);
@@ -57,29 +62,52 @@ export const useServerGenerationJob = ({
 
   useEffect(() => {
     let cancelled = false;
-    setRestoring(true);
-    getActiveJob(project.id)
-      .then(async active => {
-        if (cancelled) return;
-        await applyJob(active);
-        const stale = active.status === 'running' && Date.now() - new Date(active.updated_at).getTime() >= 120000;
-        if (stale) {
-          setResuming(true);
-          await resumeJob(active.id);
+    const restore = async () => {
+      setRestoring(true);
+      for (let attempt = 0; attempt <= RESTORE_RETRIES && !cancelled; attempt += 1) {
+        try {
+          const active = await getActiveJob(project.id);
+          if (cancelled) return;
+          await applyJob(active);
+          const stale = active.status === 'running' && Date.now() - new Date(active.updated_at).getTime() >= 120000;
+          if (stale) {
+            setResuming(true);
+            await resumeJob(active.id);
+          }
+          return;
+        } catch (error) {
+          if (error.status === 404 || attempt === RESTORE_RETRIES) {
+            if (error.status !== 404) console.warn('작업 상태 복원 실패:', error.message);
+            return;
+          }
+          await restoreDelay(RESTORE_RETRY_MS);
         }
-      })
-      .catch(error => { if (error.status !== 404) console.warn('작업 상태 복원 실패:', error.message); })
-      .finally(() => { if (!cancelled) { setRestoring(false); setResuming(false); } });
+      }
+    };
+    restore().finally(() => { if (!cancelled) { setRestoring(false); setResuming(false); } });
     return () => { cancelled = true; };
-  }, [project.id, applyJob]);
+  }, [project.id, applyJob, restoreDelay]);
 
   useEffect(() => {
-    if (!job?.id || !ACTIVE.has(job.status) || job.status === 'awaiting_confirmation' || job.status === 'paused_quota') return undefined;
+    const interval = job?.id ? POLL_INTERVALS[job.status] : null;
+    if (!interval) return undefined;
     const timer = setInterval(() => {
       getJob(job.id).then(applyJob).catch(error => console.warn('작업 상태 조회 실패:', error.message));
-    }, 3000);
+    }, interval);
     return () => clearInterval(timer);
   }, [job?.id, job?.status, applyJob]);
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState !== 'visible') return;
+      const request = job?.id ? getJob(job.id) : getActiveJob(project.id);
+      request.then(applyJob).catch(error => {
+        if (error.status !== 404) console.warn('탭 복귀 작업 조회 실패:', error.message);
+      });
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [job?.id, project.id, applyJob]);
 
   const handleGenerate = async () => {
     if (!rfpText && !userInput.trim()) return alert('파일을 업로드하거나 시스템 설명을 입력해주세요.');
