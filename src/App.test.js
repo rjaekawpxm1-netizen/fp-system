@@ -8,7 +8,7 @@ const mockFetchProject = jest.fn();
 const mockFetchLatestCompletedJobs = jest.fn();
 const mockUpdateProject = jest.fn();
 
-jest.mock('./pages/ProjectDetail', () => ({ projects, onUpdateProject, onRefreshProject, onReloadProjects }) => {
+jest.mock('./pages/ProjectDetail', () => ({ projects, onUpdateProject, onRefreshProject, onReloadProjects, onServerJobActivityChange }) => {
   const projectItem = projects.find(item => item.id === 'p1');
   return (
     <div>
@@ -17,6 +17,8 @@ jest.mock('./pages/ProjectDetail', () => ({ projects, onUpdateProject, onRefresh
       <span>기능 {projectItem?.functions.length || 0}개</span>
       <button onClick={() => onUpdateProject('p1', { name: '로컬 수정' })}>프로젝트 수정</button>
       <button onClick={() => onUpdateProject('p1', { functions: [] })}>빈 기능 대기</button>
+      <button onClick={() => onServerJobActivityChange('p1', true)}>서버 작업 시작</button>
+      <button onClick={() => onUpdateProject('p1', { name: '서버 작업 중 수정', functions: [{ id: 1 }], fpList: [{ id: 1 }] })}>서버 작업 중 수정</button>
       <button onClick={() => onRefreshProject('p1', 'functions')}>서버 결과 반영</button>
       <button onClick={onReloadProjects}>프로젝트 다시 읽기</button>
     </div>
@@ -162,4 +164,19 @@ test('a completed job newer than the cache keeps DB functions ahead of a pending
   fireEvent.click(screen.getByText('프로젝트 다시 읽기'));
 
   await waitFor(() => expect(screen.getByText('기능 89개')).toBeInTheDocument());
+});
+
+test('active server job strips functions and fpList before pending updates are saved', async () => {
+  jest.useFakeTimers();
+  window.history.pushState({}, '', '/project/p1');
+  mockFetchProjects.mockResolvedValueOnce([project('서버 프로젝트')]);
+  render(<App />);
+  await screen.findByText('프로젝트 작업 화면');
+
+  fireEvent.click(screen.getByText('서버 작업 시작'));
+  fireEvent.click(screen.getByText('서버 작업 중 수정'));
+  await act(async () => { jest.advanceTimersByTime(500); });
+
+  expect(mockUpdateProject).toHaveBeenCalledWith('p1', { name: '서버 작업 중 수정' });
+  jest.useRealTimers();
 });

@@ -181,7 +181,12 @@ const App = () => {
     projectsRef.current = nextProjects;
     setProjects(nextProjects);
     setSaveError(null);
-    pendingUpdatesRef.current[id] = mergeProjectPatches(pendingUpdatesRef.current[id], normalizedUpdates);
+    const updatesForPending = activeServerJobProjectsRef.current.has(id)
+      ? withoutProjectFields(normalizedUpdates, SERVER_JOB_FIELDS)
+      : normalizedUpdates;
+    const mergedPending = mergeProjectPatches(pendingUpdatesRef.current[id], updatesForPending);
+    if (!Object.keys(mergedPending).length) return;
+    pendingUpdatesRef.current[id] = mergedPending;
     if (updateTimersRef.current[id]) clearTimeout(updateTimersRef.current[id]);
     updateTimersRef.current[id] = setTimeout(async () => {
       const mergedUpdates = pendingUpdatesRef.current[id];
