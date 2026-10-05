@@ -60,31 +60,31 @@ const mergeSimilarLv1s = functions => {
   };
 };
 
-const addRequiredAiAreas = (functions, info) => {
+const isAiIsmpProject = info => {
   const sourceText = [info?.rfpText, info?.overview, info?.projectType, ...(info?.allReqs || [])].join('\n');
-  if (!CONSULTING_ISMP.test(sourceText) || !AI_SIGNAL.test(sourceText)) return functions;
-  const result = functions.map(func => (
+  return CONSULTING_ISMP.test(sourceText) && AI_SIGNAL.test(sourceText);
+};
+
+const renameInfraForAi = (functions, info) => {
+  if (!isAiIsmpProject(info)) return functions;
+  return functions.map(func => (
     /시스템\s*인프라/.test(func.lv1) ? { ...func, lv1: 'AI 운영관리', mergedFrom: func.lv1 } : func
   ));
-  const required = [
-    ['AI 공통 플랫폼', '지식베이스', '지식베이스 등록'],
-    ['AI 공통 플랫폼', '프롬프트관리', '프롬프트 설정'],
-    ['AI 공통 플랫폼', '에이전트관리', '에이전트 등록'],
-    ['AI 운영관리', '모델관리', 'AI 모델 등록'],
-    ['AI 운영관리', '모델관리', 'AI 모델 배포'],
-    ['AI 운영관리', '성능관리', 'AI 성능 모니터링'],
-    ['AI 운영관리', '거버넌스', 'AI 거버넌스 설정'],
-    ['직원 업무지원 AI', '법령검색', '법령 검색'],
-    ['직원 업무지원 AI', '문서초안', '문서 초안 작성'],
-  ];
-  const lv1s = new Set(result.map(func => normalize(func.lv1)));
-  for (const [lv1, lv2, lv3] of required) {
-    if (!lv1s.has(normalize(lv1))) {
-      result.push({ lv1, lv2, lv3, definition: `${lv3} 기능`, requiredAiArea: true });
-      lv1s.add(normalize(lv1));
-    }
-  }
-  return result;
+};
+
+// 필수 AI 영역은 기능을 직접 추가하지 않고, 체크 해제 상태의 제안 도메인으로만 노출한다.
+const REQUIRED_AI_DOMAINS = [
+  { lv1: 'AI 공통 플랫폼', description: 'AI/LLM/RAG 공통 플랫폼 (지식베이스·프롬프트·에이전트 관리)', expectedLv2: ['지식베이스', '프롬프트관리', '에이전트관리'] },
+  { lv1: 'AI 운영관리', description: 'AI 모델 운영 (모델·성능·거버넌스 관리)', expectedLv2: ['모델관리', '성능관리', '거버넌스'] },
+  { lv1: '직원 업무지원 AI', description: '직원 업무지원 AI (법령검색·문서초안)', expectedLv2: ['법령검색', '문서초안'] },
+];
+
+const buildRequiredAiDomains = (info, existingLv1s = []) => {
+  if (!isAiIsmpProject(info)) return [];
+  const present = new Set((existingLv1s || []).map(normalize));
+  return REQUIRED_AI_DOMAINS
+    .filter(domain => !present.has(normalize(domain.lv1)))
+    .map(domain => ({ ...domain, requirements: [], enabled: false, suggested: true }));
 };
 
 const applyToBeFunctionRules = (functions, info = {}) => {
@@ -105,7 +105,7 @@ const applyToBeFunctionRules = (functions, info = {}) => {
     return func;
   });
   const merged = mergeSimilarLv1s(reviewed);
-  const required = addRequiredAiAreas(merged.functions, info);
+  const required = renameInfraForAi(merged.functions, info);
   const seen = new Set();
   const deduped = required.filter(func => {
     const key = `${normalize(func.lv1)}|${normalize(func.lv2)}|${normalize(func.lv3)}`;
@@ -116,4 +116,4 @@ const applyToBeFunctionRules = (functions, info = {}) => {
   return { functions: deduped, excluded, mergedLv1Count: merged.mergedLv1Count };
 };
 
-module.exports = { applyToBeFunctionRules, hasActionVerb };
+module.exports = { applyToBeFunctionRules, buildRequiredAiDomains, hasActionVerb };

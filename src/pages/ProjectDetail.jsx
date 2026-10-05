@@ -872,6 +872,7 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject, onReloadProje
                             }} onClick={e=>e.stopPropagation()}
                             style={{fontWeight:700,fontSize:13,color:d.enabled?'#1d4ed8':'#9ca3af',
                               border:'none',outline:'none',background:'transparent',width:'auto',minWidth:100}}/>
+                            {d.suggested && <span style={{...S.tag('#fef3c7','#92400e'),marginLeft:6}}>제안</span>}
                             <div style={{fontSize:11,color:'#6b7280',marginTop:2}}>{d.description}</div>
                             {d.expectedLv2?.length>0 && (
                               <div style={{display:'flex',gap:4,flexWrap:'wrap',marginTop:4}}>

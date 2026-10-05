@@ -5,6 +5,7 @@ const { deriveFPRow } = require('../src/utils/fpDerivation.cjs');
 const { deriveDataFunctionMetrics } = require('../src/utils/dataFunctionDerivation.cjs');
 const { REUSE_TYPE } = require('../src/utils/fpConstants.cjs');
 const { isDataFunction, mergeRecalculatedFPRows } = require('../src/utils/fpList.cjs');
+const { buildRequiredAiDomains } = require('../src/utils/toBeFunctionRules.cjs');
 
 const ACTIVE_STATUSES = ['queued', 'running', 'awaiting_confirmation', 'paused_quota'];
 const AI_STEPS = new Set(['project_info', 'requirements', 'domain_classify', 'domain_expand', 'data_groups', 'fp_classify']);
@@ -152,7 +153,15 @@ const defaultExecuteStep = async (job, step, callModel) => {
   } else if (step.kind === 'domain_classify') {
     if (state.userInput?.trim()) state.allReqs = [...new Set([...(state.allReqs || []), ...state.userInput.split(/[\n,。、]/).map(item => item.trim()).filter(item => item.length > 4)])].slice(0, 400);
     value = pipelineCore.parseModelJSON(extractText(await callModel(prompts.domains(state), 2000)));
-    state.domains = value.domains || [];
+    const classified = value.domains || [];
+    // 필수 AI 영역은 기능이 아니라 체크 해제된 제안 도메인으로만 노출한다.
+    const suggested = buildRequiredAiDomains({
+      rfpText: state.input?.rfpText,
+      overview: state.info?.overview,
+      projectType: state.info?.projectType,
+      allReqs: state.allReqs,
+    }, classified.map(domain => domain.lv1));
+    state.domains = [...classified, ...suggested];
   } else if (step.kind === 'domain_expand') {
     value = pipelineCore.parseModelJSON(extractText(await callModel(prompts.expand(step.domain, state), 6000)));
     const funcs = (value.functions || []).filter(func => func.lv2 && func.lv3).map(func => ({

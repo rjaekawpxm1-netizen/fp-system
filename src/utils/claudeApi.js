@@ -19,6 +19,9 @@ import { REUSE_TYPE } from './fpConstants';
 import { deriveDataFunctionMetrics } from './dataFunctionDerivation';
 import { getAuthHeaders } from './supabase';
 import pipelineCore from './pipelineCore.cjs';
+import toBeFunctionRules from './toBeFunctionRules.cjs';
+
+const { buildRequiredAiDomains } = toBeFunctionRules;
 
 const TEMPERATURE = 0;
 const MODEL = 'claude-sonnet-4-5';
@@ -300,6 +303,12 @@ export const extractDomainsOnly = async (text, userInput, onProgress, targetFunc
   if (existingLv1s && existingLv1s.length > 0) {
     domains = snapDomainsToExisting(domains, existingLv1s);
   }
+
+  // 필수 AI 영역은 기능 직접 추가 대신 체크 해제된 제안 도메인으로만 노출
+  domains = [...domains, ...buildRequiredAiDomains(
+    { rfpText: text, overview: description, projectType, allReqs },
+    domains.map(domain => domain.lv1)
+  )];
 
   report(3, `LV1 ${domains.length}개 확인 필요`, 100);
 

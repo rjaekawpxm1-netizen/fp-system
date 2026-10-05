@@ -1,4 +1,4 @@
-const { applyToBeFunctionRules, hasActionVerb } = require('../toBeFunctionRules.cjs');
+const { applyToBeFunctionRules, buildRequiredAiDomains, hasActionVerb } = require('../toBeFunctionRules.cjs');
 const { diceSimilarity } = require('../textSimilarity.cjs');
 
 describe('To-Be 기능 단위화 규칙', () => {
@@ -50,20 +50,24 @@ describe('To-Be 기능 단위화 규칙', () => {
     ]));
   });
 
-  test('AI ISMP 컨설팅에는 필수 제안 도메인 세 개를 추가한다', () => {
+  test('AI ISMP 컨설팅은 기능을 직접 추가하지 않고 시스템 인프라 LV1만 AI 운영관리로 정리한다', () => {
+    const info = { projectType: 'AI ISMP 컨설팅', rfpText: '생성형 AI, LLM, RAG 및 에이전트 플랫폼을 구축한다.' };
     const result = applyToBeFunctionRules([
       { lv1: '시스템 인프라', lv2: '운영', lv3: '운영 현황 조회' },
-    ], {
-      projectType: 'AI ISMP 컨설팅',
-      rfpText: '생성형 AI, LLM, RAG 및 에이전트 플랫폼을 구축한다.',
-    });
+    ], info);
 
-    expect(result.functions.map(item => item.lv1)).toEqual(expect.arrayContaining([
-      'AI 공통 플랫폼', 'AI 운영관리', '직원 업무지원 AI',
-    ]));
-    expect(result.functions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ lv1: 'AI 운영관리', mergedFrom: '시스템 인프라' }),
-    ]));
+    expect(result.functions).toHaveLength(1);
+    expect(result.functions[0]).toMatchObject({ lv1: 'AI 운영관리', mergedFrom: '시스템 인프라' });
+    expect(result.functions.some(item => item.requiredAiArea)).toBe(false);
+  });
+
+  test('AI ISMP 컨설팅에는 체크 해제된 제안 도메인을 만들고 기존 LV1은 제외한다', () => {
+    const info = { projectType: 'AI ISMP 컨설팅', rfpText: '생성형 AI, LLM, RAG 및 에이전트 플랫폼을 구축한다.' };
+    const domains = buildRequiredAiDomains(info, ['AI 운영관리']);
+
+    expect(domains.map(item => item.lv1)).toEqual(['AI 공통 플랫폼', '직원 업무지원 AI']);
+    domains.forEach(item => expect(item).toMatchObject({ enabled: false, suggested: true }));
+    expect(buildRequiredAiDomains(info)).toHaveLength(3);
   });
 
   test('일반 사업에는 AI 제안 도메인을 추가하지 않는다', () => {

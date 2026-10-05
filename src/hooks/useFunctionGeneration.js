@@ -133,7 +133,7 @@ export const useFunctionGeneration = ({
       const requiresReview = result.analysisStatus?.infoFailed
         || result.analysisStatus?.domainFallback
         || result.analysisStatus?.requirementChunks?.failures?.length > 0;
-      setPendingDomains(result.domains.map(d => ({...d, enabled: !requiresReview})));
+      setPendingDomains(result.domains.map(d => ({...d, enabled: d.suggested ? false : !requiresReview})));
       setPendingInfo(result);
       setDomainStep(true);
     } catch (err) {
