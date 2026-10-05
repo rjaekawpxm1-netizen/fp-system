@@ -27,3 +27,6 @@ yarn-error.log*
 /eval/fixtures/
 
 eval/fixtures/*.pdf
+
+# live eval outputs
+/eval/out
