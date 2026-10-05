@@ -5,11 +5,13 @@ const { deriveFPRow } = require('../src/utils/shared/fpDerivation');
 const { deriveDataFunctionMetrics } = require('../src/utils/shared/dataFunctionDerivation');
 const { REUSE_TYPE } = require('../src/utils/shared/fpConstants');
 const { isDataFunction, mergeRecalculatedFPRows } = require('../src/utils/shared/fpList');
+const { dbToProject, projectToDb } = require('../src/utils/shared/projectMapping');
 const { buildRequiredAiDomains } = require('../src/utils/shared/toBeFunctionRules');
 
 const ACTIVE_STATUSES = ['queued', 'running', 'awaiting_confirmation', 'paused_quota'];
 const AI_STEPS = new Set(['project_info', 'requirements', 'domain_classify', 'domain_expand', 'data_groups', 'fp_classify']);
 const MAX_STEP_ATTEMPTS = 3;
+const PERSIST_TYPES = new Set(['functions', 'fp']);
 const TRANSIENT_ERROR = /(?:529|503|502|504|overloaded|시간\s*초과|타임아웃|timeout)/i;
 
 const send = (res, status, body) => res.status(status).json(body);
@@ -82,7 +84,9 @@ const prompts = {
   fpClassify: (chunk, state) => promptCore.getFPClassifyPrompt(chunk, state.dataGroupNames || []),
 };
 
-const buildInitialState = (type, input = {}, project = {}) => {
+// project 인자는 DB 원본 행(snake_case)이다. 읽기는 공유 매핑을 거친다.
+const buildInitialState = (type, input = {}, projectRow = {}) => {
+  const project = dbToProject(projectRow || {});
   if (type === 'domains') {
     const chunks = splitChunks(input.rfpText || input.text || '');
     return {
@@ -120,7 +124,8 @@ const buildInitialState = (type, input = {}, project = {}) => {
   throw Object.assign(new Error('지원하지 않는 작업 유형입니다.'), { status: 400 });
 };
 
-const buildFunctionsState = (domainJob, input = {}, project = {}) => {
+const buildFunctionsState = (domainJob, input = {}, projectRow = {}) => {
+  const project = dbToProject(projectRow || {});
   const domains = input.domains || domainJob.state?.domains || [];
   const info = { ...(domainJob.state?.info || {}), allReqs: domainJob.state?.allReqs || [], userInput: domainJob.state?.userInput || '', rfpText: domainJob.state?.input?.rfpText || '' };
   return {
@@ -221,6 +226,24 @@ const defaultExecuteStep = async (job, step, callModel) => {
 const createJobsHandler = options => {
   const { repository, authenticate, callModel, triggerNext = () => Promise.resolve(), now = () => new Date(), executeStep = defaultExecuteStep } = options;
 
+  const persistResult = async (res, job, state) => {
+    const isFunctions = job.type === 'functions';
+    const changes = isFunctions ? { functions: state.finalFunctions || [] } : { fpList: state.finalFpList || [] };
+    try {
+      await repository.updateProject(job.project_id, projectToDb(changes));
+    } catch (error) {
+      const message = `결과 저장 실패: ${error.message}`;
+      const failed = await repository.updateIfNotCancelled(job.id, { status: 'failed', error: message, lease_until: null, updated_at: now().toISOString() });
+      if (!failed) return send(res, 200, { status: 'cancelled' });
+      return send(res, 500, { error: message, retryable: true, status: 'failed' });
+    }
+    const count = isFunctions ? state.finalFunctions?.length : state.finalFpList?.length;
+    const result = isFunctions ? { functionCount: count || 0 } : { fpCount: count || 0 };
+    const done = await repository.updateIfNotCancelled(job.id, { status: 'completed', result, error: null, lease_until: null, updated_at: now().toISOString() });
+    if (!done) return send(res, 200, { status: 'cancelled' });
+    return send(res, 200, { status: 'completed', step: state.steps.length, totalSteps: state.steps.length });
+  };
+
   return async (req, res) => {
     const action = String(req.query?.action || req.body?.action || 'status');
     try {
@@ -232,7 +255,11 @@ const createJobsHandler = options => {
         if (!job) return send(res, 202, { skipped: true });
         if (job.status === 'cancelled') return send(res, 200, { status: 'cancelled' });
         const step = job.state?.steps?.[job.step];
-        if (!step) return send(res, 200, { status: job.status });
+        if (!step) {
+          // 모든 스텝이 끝났는데 결과 저장만 남은 작업(persist_retry)
+          if (PERSIST_TYPES.has(job.type) && job.state?.steps && job.step >= job.state.steps.length) return persistResult(res, job, job.state);
+          return send(res, 200, { status: job.status });
+        }
 
         if (AI_STEPS.has(step.kind)) {
           const allowed = await repository.consumeQuota(job.owner_id, Number(options.dailyQuota) || 200);
@@ -302,13 +329,14 @@ const createJobsHandler = options => {
             result = { fpCount: nextState.finalFpList?.length || 0 };
           }
         }
-        const updated = await repository.updateIfNotCancelled(job.id, { state: nextState, step: nextStep, status, result, error: null, lease_until: null, updated_at: now().toISOString() });
+        const persistsProject = complete && PERSIST_TYPES.has(job.type);
+        // 프로젝트 저장 전에는 completed로 기록하지 않는다(저장 실패 시 결과 유실 방지).
+        const updated = await repository.updateIfNotCancelled(job.id, {
+          state: nextState, step: nextStep, status: persistsProject ? 'running' : status, result: persistsProject ? null : result,
+          error: null, lease_until: null, updated_at: now().toISOString(),
+        });
         if (!updated) return send(res, 200, { status: 'cancelled' });
-        if (complete && job.type === 'functions') {
-          await repository.updateProject(job.project_id, { functions: nextState.finalFunctions || [] });
-        } else if (complete && job.type === 'fp') {
-          await repository.updateProject(job.project_id, { fpList: nextState.finalFpList || [] });
-        }
+        if (persistsProject) return persistResult(res, job, nextState);
         if (status === 'running') await triggerNext(job.id);
         return send(res, 200, { status, step: nextStep, totalSteps: nextState.steps.length });
       }
