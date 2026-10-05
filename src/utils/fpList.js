@@ -1,8 +1,3 @@
-const DATA_FUNCTION_TYPES = new Set(['ILF', 'EIF']);
+import fpList from './fpList.cjs';
 
-export const isDataFunction = (row) => DATA_FUNCTION_TYPES.has(row?.fpType);
-
-export const mergeRecalculatedFPRows = (transactionRows, previousRows) => [
-  ...(transactionRows || []),
-  ...(previousRows || []).filter(isDataFunction),
-];
+export const { isDataFunction, mergeRecalculatedFPRows } = fpList;

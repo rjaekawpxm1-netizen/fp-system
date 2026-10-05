@@ -1,5 +1,9 @@
 const crypto = require('crypto');
 const pipelineCore = require('../src/utils/pipelineCore.cjs');
+const { deriveFPRow } = require('../src/utils/fpDerivation.cjs');
+const { deriveDataFunctionMetrics } = require('../src/utils/dataFunctionDerivation.cjs');
+const { REUSE_TYPE } = require('../src/utils/fpConstants.cjs');
+const { isDataFunction, mergeRecalculatedFPRows } = require('../src/utils/fpList.cjs');
 
 const ACTIVE_STATUSES = ['queued', 'running', 'awaiting_confirmation', 'paused_quota'];
 const AI_STEPS = new Set(['project_info', 'requirements', 'domain_classify', 'domain_expand', 'data_groups', 'fp_classify']);
@@ -74,6 +78,7 @@ const buildInitialState = (type, input = {}, project = {}) => {
       input,
       functions,
       existingRows,
+      systemName: input.systemName || project.systemName || project.name || '',
       steps: [
         ...(!keepDataRows ? [{ kind: 'data_groups' }] : []),
         ...chunks.map((chunk, index) => ({ kind: 'fp_classify', chunk, offset: index * 25 })),
@@ -133,7 +138,7 @@ const defaultExecuteStep = async (job, step, callModel) => {
   } else if (step.kind === 'data_groups') {
     value = pipelineCore.parseModelJSON(extractText(await callModel(prompts.dataGroups(state), 3000)));
     state.dataGroups = value;
-    state.dataGroupNames = (value.ilf || []).map(group => group.name).filter(Boolean);
+    state.dataGroupNames = pipelineCore.normalizeDataGroups(value, deriveDataFunctionMetrics).ilf.map(group => group.name);
   } else if (step.kind === 'fp_classify') {
     value = pipelineCore.parseModelJSON(extractText(await callModel(prompts.fpClassify(step.chunk, state), 4000)));
     state.classified = { ...(state.classified || {}) };
@@ -150,19 +155,24 @@ const defaultExecuteStep = async (job, step, callModel) => {
     };
     value = state.finalFunctions;
   } else if (step.kind === 'fp_finalize') {
-    value = (state.functions || []).map((func, index) => {
-      const classified = state.classified?.[index];
-      const name = String(func.lv3 || '');
-      const fpType = ['EI', 'EO', 'EQ'].includes(classified?.fpType)
-        ? classified.fpType
-        : (/통계|출력|보고서|현황|분석/.test(name) ? 'EO' : (/조회|검색|목록|상세|이력/.test(name) ? 'EQ' : 'EI'));
-      const groups = [...new Set(classified?.refGroups || [])];
-      const ftr = Math.max(1, Math.min(5, groups.length || (/통계|현황|승인|이력|연동/.test(name) ? 2 : 1)));
-      const det = /상세조회/.test(name) ? 13 : (/통계|현황|분석/.test(name) ? 16 : (/등록|수정|설정/.test(name) ? 9 : 8));
-      return { ...func, id: Date.now() + index, fpType, ftr, det, reuseType: func.reuseType || '신규개발', ftrChange: 0, detChange: 0, bigo: groups.length ? `참조: ${groups.join(', ')}` : '동사규칙(폴백)', classified: Boolean(classified?.fpType) };
+    const functions = state.functions || [];
+    const existingRows = state.existingRows || [];
+    const keepDataRows = existingRows.some(isDataFunction);
+    const transactionRows = pipelineCore.applyFPClassifications(functions, state.classified, deriveFPRow, REUSE_TYPE.NEW);
+    const { fpList } = pipelineCore.assembleFPList({
+      transactionRows,
+      previousRows: keepDataRows ? existingRows : [],
+      dataGroups: keepDataRows ? undefined : pipelineCore.normalizeDataGroups(state.dataGroups, deriveDataFunctionMetrics),
+      functions,
+      fpMethod: state.input?.fpMethod,
+      upgradeMode: Boolean(state.input?.upgradeMode),
+      rfpText: state.input?.rfpText || '',
+      autoCalcRow: row => row,
+      isDataFunction,
+      mergeRecalculatedFPRows,
+      reuseTypes: REUSE_TYPE,
     });
-    const dataRows = (state.existingRows || []).filter(row => ['ILF', 'EIF'].includes(row.fpType));
-    state.finalFpList = [...value, ...dataRows];
+    state.finalFpList = fpList;
     value = state.finalFpList;
   } else {
     throw new Error(`알 수 없는 작업 스텝: ${step.kind}`);
