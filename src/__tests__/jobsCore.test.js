@@ -4,9 +4,11 @@ const {
   createJobsHandler,
 } = require('../../api/jobsCore.cjs');
 
+const PROJECT_COLUMNS = new Set(['id', 'owner_id', 'name', 'system_name', 'rfp_text', 'functions', 'fp_list', 'fp_summary']);
+
 const createRepository = () => {
   const jobs = new Map();
-  const projects = new Map([['p1', { id: 'p1', owner_id: 'u1', functions: [], fpList: [] }]]);
+  const projects = new Map([['p1', { id: 'p1', owner_id: 'u1', functions: [], fp_list: [] }]]);
   let sequence = 1;
   const repository = {
     jobs,
@@ -33,6 +35,9 @@ const createRepository = () => {
       return job;
     },
     updateProject: jest.fn(async (id, changes) => {
+      // 실제 projects 컬럼명만 허용 (PostgREST처럼 알 수 없는 키는 400)
+      const unknown = Object.keys(changes).filter(key => !PROJECT_COLUMNS.has(key));
+      if (unknown.length) throw Object.assign(new Error(`Could not find the '${unknown[0]}' column of 'projects'`), { status: 400 });
       Object.assign(projects.get(id), changes);
       return projects.get(id);
     }),
@@ -342,10 +347,60 @@ describe('서버 생성 작업 실행기', () => {
     const { handler, repository } = createHarness();
     const projectRow = repository.projects.get('p1');
     projectRow.functions = [{ lv1: '회원', lv2: '회원정보', lv3: '회원 목록조회', definition: '회원을 조회한다' }];
-    projectRow.fpList = [{ id: 9, lv1: '데이터기능', lv2: '회원', lv3: '회원 (ILF)', fpType: 'ILF' }];
+    projectRow.fp_list = [{ id: 9, lv1: '데이터기능', lv2: '회원', lv3: '회원 (ILF)', fpType: 'ILF' }];
     const state = buildInitialState('fp', {}, projectRow);
     const job = await insertJob(repository, { type: 'fp', state, total_steps: state.steps.length });
     for (let index = 0; index < state.steps.length; index++) await invoke(handler, 'tick', { headers: workerHeaders, body: { jobId: job.id } });
-    expect(repository.projects.get('p1').fpList.map(row => row.fpType)).toEqual(['EQ', 'ILF']);
+    expect(repository.projects.get('p1').fp_list.map(row => row.fpType)).toEqual(['EQ', 'ILF']);
+  });
+  test('functions/fp 완료 시 DB 컬럼명(functions, fp_list)으로 저장', async () => {
+    const { handler, repository } = createHarness();
+    const projectRow = repository.projects.get('p1');
+    projectRow.functions = [{ lv1: '회원', lv2: '회원정보', lv3: '회원 목록조회', definition: '회원을 조회한다' }];
+    const state = buildInitialState('fp', {}, projectRow);
+    const job = await insertJob(repository, { type: 'fp', state, total_steps: state.steps.length });
+    for (let index = 0; index < state.steps.length; index++) await invoke(handler, 'tick', { headers: workerHeaders, body: { jobId: job.id } });
+    expect(repository.updateProject.mock.calls.map(call => Object.keys(call[1]))).toEqual([['fp_list']]);
+    expect(repository.jobs.get(job.id).status).toBe('completed');
+    expect(repository.projects.get('p1').fp_list.length).toBeGreaterThan(0);
+
+    repository.updateProject.mockClear();
+    const domainJob = { state: { info: { systemName: '테스트' }, allReqs: [], userInput: '' } };
+    const fstate = buildFunctionsState(domainJob, { domains: [{ lv1: 'A', requirements: ['A 요구'] }] }, projectRow);
+    const fjob = await insertJob(repository, { type: 'functions', state: fstate, total_steps: fstate.steps.length });
+    for (let index = 0; index < fstate.steps.length; index++) await invoke(handler, 'tick', { headers: workerHeaders, body: { jobId: fjob.id } });
+    expect(repository.updateProject.mock.calls.map(call => Object.keys(call[1]))).toEqual([['functions']]);
+  });
+
+  test('updateProject 실패 시 job은 failed로 남고 결과를 보존하며 resume 후 저장만 재시도', async () => {
+    const { handler, repository } = createHarness();
+    const projectRow = repository.projects.get('p1');
+    projectRow.functions = [{ lv1: '회원', lv2: '회원정보', lv3: '회원 목록조회', definition: '회원을 조회한다' }];
+    const state = buildInitialState('fp', {}, projectRow);
+    const job = await insertJob(repository, { type: 'fp', state, total_steps: state.steps.length });
+    repository.updateProject.mockRejectedValueOnce(new Error('column rejected'));
+    let last;
+    for (let index = 0; index < state.steps.length; index++) last = await invoke(handler, 'tick', { headers: workerHeaders, body: { jobId: job.id } });
+    const failed = repository.jobs.get(job.id);
+    expect(last.status).toBe(500);
+    expect(failed.status).toBe('failed');
+    expect(failed.error).toBe('결과 저장 실패: column rejected');
+    expect(failed.state.finalFpList.length).toBeGreaterThan(0);
+    expect(repository.projects.get('p1').fp_list).toEqual([]);
+
+    expect((await invoke(handler, 'resume', { headers: userHeaders, body: { jobId: job.id } })).status).toBe(200);
+    const retry = await invoke(handler, 'tick', { headers: workerHeaders, body: { jobId: job.id } });
+    expect(retry.body.status).toBe('completed');
+    expect(repository.jobs.get(job.id).status).toBe('completed');
+    expect(repository.jobs.get(job.id).result.fpCount).toBe(failed.state.finalFpList.length);
+    expect(repository.projects.get('p1').fp_list).toHaveLength(failed.state.finalFpList.length);
+  });
+
+  test('buildInitialState는 DB 행(fp_list, system_name)에서 기존 행과 시스템명을 읽는다', () => {
+    const ilf = { id: 1, fpType: 'ILF', lv3: '회원 (ILF)' };
+    const state = buildInitialState('fp', {}, { functions: [], fp_list: [ilf], system_name: 'X', name: '프로젝트' });
+    expect(state.existingRows).toEqual([ilf]);
+    expect(state.systemName).toBe('X');
+    expect(state.steps.some(step => step.kind === 'data_groups')).toBe(false);
   });
 });
