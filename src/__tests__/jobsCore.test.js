@@ -68,12 +68,12 @@ const createHarness = overrides => {
     if (prompt.includes('시스템 정보를')) return JSON.stringify({ systemName: '테스트', mainUsers: ['사용자'] });
     if (prompt.includes('기능 요구사항')) return JSON.stringify({ requirements: ['회원 정보를 등록하고 조회한다'] });
     if (prompt.includes('업무 도메인')) return JSON.stringify({ domains: [{ lv1: '회원관리', requirements: ['회원 정보를 등록하고 조회한다'] }] });
-    if (prompt.includes('기능을 JSON')) {
-      const domain = prompt.match(/의 ([^ ]+) 기능을 JSON/)?.[1] || '회원관리';
+    if (prompt.includes('업무영역의 기능목록을 생성')) {
+      const domain = prompt.match(/> "([^"]+)" 업무영역/)?.[1] || '회원관리';
       return JSON.stringify({ functions: [{ lv2: `${domain}정보`, lv3: `${domain} 목록조회`, definition: `${domain}을 조회한다` }] });
     }
     if (prompt.includes('ILF/EIF')) return JSON.stringify({ ilf: [], eif: [] });
-    if (prompt.includes('EI/EO/EQ')) return JSON.stringify({ fpList: [{ idx: 0, fpType: 'EQ', refGroups: ['회원'] }] });
+    if (prompt.includes('fpType 분류 기준')) return JSON.stringify({ fpList: [{ idx: 0, fpType: 'EQ', refGroups: ['회원'] }] });
     return '{}';
   });
   const triggerNext = jest.fn(async () => {});

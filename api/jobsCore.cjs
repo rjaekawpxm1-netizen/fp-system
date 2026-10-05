@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const pipelineCore = require('../src/utils/pipelineCore.cjs');
+const promptCore = require('../src/utils/promptCore.cjs');
 const { deriveFPRow } = require('../src/utils/fpDerivation.cjs');
 const { deriveDataFunctionMetrics } = require('../src/utils/dataFunctionDerivation.cjs');
 const { REUSE_TYPE } = require('../src/utils/fpConstants.cjs');
@@ -44,13 +45,40 @@ const resetSplitAttempts = (attempts = {}, splitIndex) => Object.fromEntries(
   })
 );
 
+const DEFAULT_USERS = ['사용자', '관리자'];
+const rfpSnippetFor = (domain, rfpText) => {
+  const lines = String(rfpText || '').split('\n').map(line => line.trim()).filter(line => line.length > 8);
+  const tokens = [domain.lv1, ...(domain.expectedLv2 || [])]
+    .join(' ').split(/[\s/·,()>]+/).map(token => token.replace(/관리$|조회$|현황$/, '')).filter(token => token.length >= 2);
+  return lines.filter(line => tokens.some(token => line.includes(token))).slice(0, 40).join('\n');
+};
+
+// 클라이언트(systemPrompt.js)와 동일한 공유 프롬프트 함수로 생성한다.
 const prompts = {
-  projectInfo: input => `다음 문서에서 시스템 정보를 JSON으로 추출하세요. {"systemName":"","systemOverview":"","mainUsers":[],"projectType":""}\n${input}`,
-  requirements: (chunk, label, systemName) => `시스템 ${systemName}의 기능 요구사항을 수집하세요. JSON {"requirements":[]} 청크 ${label}\n${chunk}`,
-  domains: state => `다음 요구사항을 업무 도메인으로 분류하세요. JSON {"domains":[{"lv1":"","description":"","requirements":[],"expectedLv2":[]}]}\n시스템:${state.info?.systemName || '정보시스템'}\n${state.allReqs.join('\n')}`,
-  expand: (domain, state) => `"${state.info?.systemName || '정보시스템'}"의 ${domain.lv1} 기능을 JSON {"functions":[{"lv2":"","lv3":"","definition":""}]}으로 생성하세요.\nLV3는 화면에서 사용자가 수행하는 단위 프로세스를 동사로 끝내세요. AI 서비스 LV2는 다음처럼 분해합니다: <서비스> 분석 요청(실행), 결과 목록조회, 결과 상세조회, 결과 확정 또는 반려, 기준·임계값 설정, 현황·통계조회 또는 보고서 출력. 예: 이상거래 탐지 → 탐지 실행 / 탐지 결과 목록조회 / 탐지 결과 상세조회 / 탐지 결과 확정 / 탐지 기준 설정 / 탐지 현황 통계조회. 대용량·병렬·분산처리·실시간연동·백업복구·인프라·성능·보안 같은 비기능 요구는 기능으로 만들지 마세요.\n요구사항:${(domain.requirements || []).join('\n')}`,
-  dataGroups: state => `기능 목록에서 ILF/EIF 데이터그룹을 JSON {"ilf":[],"eif":[]}으로 도출하세요.\n${JSON.stringify(state.functions)}`,
-  fpClassify: (chunk, state) => `기능을 EI/EO/EQ로 분류하세요. 입력 순서 idx를 유지하고 JSON {"fpList":[{"idx":0,"fpType":"EI","refGroups":[]}]}만 출력하세요.\n데이터그룹:${(state.dataGroupNames || []).join(',')}\n${JSON.stringify(chunk)}`,
+  projectInfo: input => promptCore.getProjectInfoPrompt(String(input || '')),
+  requirements: (chunk, label, systemName) => promptCore.getRequirementCollectPrompt(chunk, label, systemName || '정보시스템'),
+  domains: state => promptCore.getDomainClassifyPrompt(
+    state.allReqs || [],
+    state.info?.systemName || '정보시스템',
+    state.info?.overview || '',
+    state.info?.mainUsers || DEFAULT_USERS,
+    state.info?.projectType || 'SW개발',
+    state.userInput || '',
+    Number(state.input?.targetFuncCount) || 0,
+    state.input?.existingLv1s || []
+  ),
+  expand: (domain, state) => {
+    const existingInDomain = (state.existingFunctions || [])
+      .filter(func => func.lv1 === domain.lv1)
+      .map(func => `${func.lv2} > ${func.lv3}`);
+    return promptCore.getDomainExpandPrompt(domain, state.info?.systemName || '정보시스템', state.info?.mainUsers || DEFAULT_USERS, {
+      userInput: state.info?.userInput || '',
+      rfpSnippet: rfpSnippetFor(domain, state.info?.rfpText),
+      existingInDomain,
+    });
+  },
+  dataGroups: state => promptCore.getDataGroupPrompt(state.functions || [], state.systemName || '정보시스템', state.input?.rfpText || ''),
+  fpClassify: (chunk, state) => promptCore.getFPClassifyPrompt(chunk, state.dataGroupNames || []),
 };
 
 const buildInitialState = (type, input = {}, project = {}) => {
