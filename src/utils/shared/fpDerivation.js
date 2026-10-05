@@ -38,28 +38,33 @@ const deriveDET = (lv3) => {
 };
 
 // ── FTR 도출 ────────────────────────────────────────────────
-// 1순위: AI가 분류 단계에서 식별한 참조 데이터그룹 수 (근거 = 그룹명 나열)
-// 2순위(폴백): 동사 기반 규칙
+// max(참조 데이터그룹 수, 동사 폴백 규칙값): AI가 그룹을 1개만 식별해도
+// 통계·현황·분석·보고서는 ≥3, 승인·반려·처리·이력·연동은 ≥2 를 보장한다.
 const FTR_FALLBACK_RULES = [
   { pattern: /(통계|현황|집계|보고서|분석|대시보드)/, ftr: 3 },
   { pattern: /(승인|반려|처리|이력|배정|연동)/,       ftr: 2 },
 ];
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 
+const verbFtr = (lv3) => {
+  const name = (lv3 || '').trim();
+  for (const r of FTR_FALLBACK_RULES) {
+    if (r.pattern.test(name)) return r.ftr;
+  }
+  return 0;
+};
+
 const deriveFTR = (lv3, refGroups) => {
   const normalizedGroups = [...new Set((Array.isArray(refGroups) ? refGroups : [])
     .map(group => String(group || '').trim())
     .filter(Boolean))];
+  const byVerb = verbFtr(lv3);
   if (normalizedGroups.length > 0) {
-    return {
-      ftr: clamp(normalizedGroups.length, 1, 5),
-      basis: `참조: ${normalizedGroups.slice(0, 5).join(', ')}`,
-    };
+    const ftr = clamp(Math.max(normalizedGroups.length, byVerb), 1, 5);
+    const listed = `참조: ${normalizedGroups.slice(0, 5).join(', ')}`;
+    return { ftr, basis: ftr > normalizedGroups.length ? `${listed} (동사규칙 보정 ${ftr})` : listed };
   }
-  const name = (lv3 || '').trim();
-  for (const r of FTR_FALLBACK_RULES) {
-    if (r.pattern.test(name)) return { ftr: r.ftr, basis: '동사규칙(폴백)' };
-  }
+  if (byVerb > 0) return { ftr: byVerb, basis: '동사규칙(폴백)' };
   return { ftr: 1, basis: '단일참조(폴백)' };
 };
 

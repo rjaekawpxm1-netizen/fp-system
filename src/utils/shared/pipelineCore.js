@@ -113,6 +113,26 @@ const applyFPClassifications = (functions, classifiedMap, deriveFPRow, reuseNew)
     };
   });
 
+// AI 분류 행 → { fpType, refGroups }. writes/reads/refGroups를 합쳐 복수 데이터그룹을 보존한다.
+// knownNames가 있으면 공백·대소문자 차이를 기존 데이터그룹 명칭으로 정규화한다.
+const parseClassifiedRow = (row, knownNames = []) => {
+  const key = value => String(value || '').replace(/\s+/g, '').toLowerCase();
+  const canonical = new Map((knownNames || []).map(name => [key(name), String(name).trim()]));
+  const names = [row?.writes, row?.reads, row?.refGroups]
+    .flatMap(list => (Array.isArray(list) ? list : []))
+    .map(value => String(value?.name || value || '').trim())
+    .filter(Boolean)
+    // 목록(ILF+EIF)이 주어지면 목록 밖 이름은 버린다.
+    .map(value => canonical.get(key(value)) || (canonical.size ? null : value))
+    .filter(Boolean);
+  const unique = [];
+  const seen = new Set();
+  names.forEach(name => {
+    if (!seen.has(key(name))) { seen.add(key(name)); unique.push(name); }
+  });
+  return { fpType: row?.fpType, refGroups: unique.slice(0, 5) };
+};
+
 const normalizeDataGroups = (parsed, deriveDataFunctionMetrics) => ({
   ilf: (parsed?.ilf || []).filter(group => group.name).map(group => ({
     name: String(group.name).trim(),
@@ -206,5 +226,6 @@ module.exports = {
   finalizeDomainFunctions,
   mergeGeneratedFunctions,
   normalizeDataGroups,
+  parseClassifiedRow,
   parseModelJSON,
 };

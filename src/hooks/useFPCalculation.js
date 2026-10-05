@@ -62,7 +62,7 @@ export const useFPCalculation = ({
       const result = await generateFPList(
         functions,
         (cur, total) => { setLoadingMsg(`FP 산정 중... (${cur}/${total})`); },
-        dataGroups.ilf.map(g => g.name)
+        [...dataGroups.ilf, ...dataGroups.eif].map(g => g.name)
       );
       const withId = result.map((f,i) => {
         // 고도화 모드: 기존 기능의 reuseType 유지

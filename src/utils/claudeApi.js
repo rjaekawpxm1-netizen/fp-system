@@ -522,10 +522,7 @@ export const generateFPList = async (functions, onProgress, dataGroupNames = [])
         (parsed.fpList || []).forEach(fp => {
           const globalIdx = chunkOffset + (fp.idx ?? 0);
           if (functions[globalIdx]) {
-            classifiedMap[globalIdx] = {
-              fpType: fp.fpType,
-              refGroups: Array.isArray(fp.refGroups) ? fp.refGroups : [],
-            };
+            classifiedMap[globalIdx] = pipelineCore.parseClassifiedRow(fp, dataGroupNames);
           }
         });
         break;

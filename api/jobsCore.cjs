@@ -5,6 +5,7 @@ const { deriveFPRow } = require('../src/utils/shared/fpDerivation');
 const { deriveDataFunctionMetrics } = require('../src/utils/shared/dataFunctionDerivation');
 const { REUSE_TYPE } = require('../src/utils/shared/fpConstants');
 const { isDataFunction, mergeRecalculatedFPRows } = require('../src/utils/shared/fpList');
+const { buildFtrReport } = require('../src/utils/shared/ftrReport');
 const { dbToProject, projectToDb } = require('../src/utils/shared/projectMapping');
 const { buildRequiredAiDomains } = require('../src/utils/shared/toBeFunctionRules');
 
@@ -180,12 +181,13 @@ const defaultExecuteStep = async (job, step, callModel) => {
   } else if (step.kind === 'data_groups') {
     value = pipelineCore.parseModelJSON(extractText(await callModel(prompts.dataGroups(state), 3000)));
     state.dataGroups = value;
-    state.dataGroupNames = pipelineCore.normalizeDataGroups(value, deriveDataFunctionMetrics).ilf.map(group => group.name);
+    const groups = pipelineCore.normalizeDataGroups(value, deriveDataFunctionMetrics);
+    state.dataGroupNames = [...groups.ilf, ...groups.eif].map(group => group.name);
   } else if (step.kind === 'fp_classify') {
     value = pipelineCore.parseModelJSON(extractText(await callModel(prompts.fpClassify(step.chunk, state), 4000)));
     state.classified = { ...(state.classified || {}) };
     (value.fpList || []).forEach(row => {
-      state.classified[step.offset + (row.idx || 0)] = { fpType: row.fpType, refGroups: row.refGroups || [] };
+      state.classified[step.offset + (row.idx || 0)] = pipelineCore.parseClassifiedRow(row, state.dataGroupNames);
     });
   } else if (step.kind === 'functions_finalize') {
     const raw = Object.values(state.completed || {}).flat();
@@ -215,6 +217,7 @@ const defaultExecuteStep = async (job, step, callModel) => {
       reuseTypes: REUSE_TYPE,
     });
     state.finalFpList = fpList;
+    state.ftrReport = buildFtrReport(fpList);
     value = state.finalFpList;
   } else {
     throw new Error(`알 수 없는 작업 스텝: ${step.kind}`);
@@ -238,7 +241,7 @@ const createJobsHandler = options => {
       return send(res, 500, { error: message, retryable: true, status: 'failed' });
     }
     const count = isFunctions ? state.finalFunctions?.length : state.finalFpList?.length;
-    const result = isFunctions ? { functionCount: count || 0 } : { fpCount: count || 0 };
+    const result = isFunctions ? { functionCount: count || 0 } : { fpCount: count || 0, ftrReport: state.ftrReport };
     const done = await repository.updateIfNotCancelled(job.id, { status: 'completed', result, error: null, lease_until: null, updated_at: now().toISOString() });
     if (!done) return send(res, 200, { status: 'cancelled' });
     return send(res, 200, { status: 'completed', step: state.steps.length, totalSteps: state.steps.length });
