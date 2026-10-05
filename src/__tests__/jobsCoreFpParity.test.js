@@ -2,7 +2,7 @@ import { deriveFPRow, deriveDET, deriveFTR } from '../utils/fpDerivation';
 import { deriveDataFunctionMetrics } from '../utils/dataFunctionDerivation';
 import { REUSE_TYPE } from '../utils/fpConstants';
 import { getDomainClassifyPrompt } from '../utils/systemPrompt';
-import pipelineCore from '../utils/pipelineCore.cjs';
+import pipelineCore from '../utils/shared/pipelineCore';
 
 const { buildInitialState, defaultExecuteStep } = require('../../api/jobsCore.cjs');
 

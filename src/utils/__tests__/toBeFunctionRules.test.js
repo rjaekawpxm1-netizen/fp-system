@@ -1,5 +1,5 @@
-const { applyToBeFunctionRules, buildRequiredAiDomains, hasActionVerb } = require('../toBeFunctionRules.cjs');
-const { diceSimilarity } = require('../textSimilarity.cjs');
+const { applyToBeFunctionRules, buildRequiredAiDomains, hasActionVerb } = require('../shared/toBeFunctionRules');
+const { diceSimilarity } = require('../shared/textSimilarity');
 
 describe('To-Be 기능 단위화 규칙', () => {
   test('관리로 끝나는 LV3를 CRUD 단위로 확장한다', () => {

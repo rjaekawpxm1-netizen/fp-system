@@ -18,8 +18,8 @@ import { classifyReuse, summarizeReuse, snapDomainsToExisting } from './upgradeM
 import { REUSE_TYPE } from './fpConstants';
 import { deriveDataFunctionMetrics } from './dataFunctionDerivation';
 import { getAuthHeaders } from './supabase';
-import pipelineCore from './pipelineCore.cjs';
-import toBeFunctionRules from './toBeFunctionRules.cjs';
+import pipelineCore from './shared/pipelineCore';
+import toBeFunctionRules from './shared/toBeFunctionRules';
 
 const { buildRequiredAiDomains } = toBeFunctionRules;
 

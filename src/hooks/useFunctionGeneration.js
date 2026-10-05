@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { extractDomainsOnly, expandDomainsToFunctions, finalizeDomainFunctions, suggestAreas, expandArea } from '../utils/claudeApi';
 import { REUSE_TYPE } from '../utils/fpConstants';
-import pipelineCore from '../utils/pipelineCore.cjs';
+import pipelineCore from '../utils/shared/pipelineCore';
 
 export const useFunctionGeneration = ({
   rfpText,

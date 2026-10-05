@@ -1,11 +1,11 @@
 const crypto = require('crypto');
-const pipelineCore = require('../src/utils/pipelineCore.cjs');
-const promptCore = require('../src/utils/promptCore.cjs');
-const { deriveFPRow } = require('../src/utils/fpDerivation.cjs');
-const { deriveDataFunctionMetrics } = require('../src/utils/dataFunctionDerivation.cjs');
-const { REUSE_TYPE } = require('../src/utils/fpConstants.cjs');
-const { isDataFunction, mergeRecalculatedFPRows } = require('../src/utils/fpList.cjs');
-const { buildRequiredAiDomains } = require('../src/utils/toBeFunctionRules.cjs');
+const pipelineCore = require('../src/utils/shared/pipelineCore');
+const promptCore = require('../src/utils/shared/promptCore');
+const { deriveFPRow } = require('../src/utils/shared/fpDerivation');
+const { deriveDataFunctionMetrics } = require('../src/utils/shared/dataFunctionDerivation');
+const { REUSE_TYPE } = require('../src/utils/shared/fpConstants');
+const { isDataFunction, mergeRecalculatedFPRows } = require('../src/utils/shared/fpList');
+const { buildRequiredAiDomains } = require('../src/utils/shared/toBeFunctionRules');
 
 const ACTIVE_STATUSES = ['queued', 'running', 'awaiting_confirmation', 'paused_quota'];
 const AI_STEPS = new Set(['project_info', 'requirements', 'domain_classify', 'domain_expand', 'data_groups', 'fp_classify']);

@@ -1,4 +1,4 @@
-const { diceSimilarity } = require('./textSimilarity.cjs');
+const { diceSimilarity } = require('./textSimilarity');
 
 const ACTION_VERB = /(등록|수정|삭제|목록\s*조회|상세\s*조회|조회|검색|처리|실행|요청|확정|반려|설정|승인|출력|발급|배포|모니터링|진단|검증|분석|탐지|추천|작성|전송|접수|변환|분류|관리)$/;
 const NON_FUNCTIONAL = /(대용량|병렬|분산\s*처리|실시간\s*연동|백업|복구|시스템\s*인프라|보안\s*관리|암호화|성능|가용성|생체\s*인증|접근\s*제어|인터페이스)/;

@@ -1,4 +1,4 @@
-import pipelineCore from '../pipelineCore.cjs';
+import pipelineCore from '../shared/pipelineCore';
 import { deriveFPRow } from '../fpDerivation';
 import { deriveDataFunctionMetrics } from '../dataFunctionDerivation';
 import { isDataFunction, mergeRecalculatedFPRows } from '../fpList';

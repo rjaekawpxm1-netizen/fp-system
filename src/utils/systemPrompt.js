@@ -2,7 +2,7 @@
 // fp-system systemPrompt.js - 개정판
 import { prioritizeRfpText } from './textExtract';
 import { REUSE_TYPE } from './fpConstants';
-import promptCore from './promptCore.cjs';
+import promptCore from './shared/promptCore';
 // 핵심 변경:
 //  ① getDomainClassifyPrompt: 목표기능수 블록 이스케이프 버그 수정
 //     (기존엔 \${...}로 이스케이프되어 평가되지 않은 리터럴 문자열이

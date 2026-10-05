@@ -1,4 +1,4 @@
-const { applyToBeFunctionRules } = require('./toBeFunctionRules.cjs');
+const { applyToBeFunctionRules } = require('./toBeFunctionRules');
 
 const parseModelJSON = text => {
   let clean = String(text || '').replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();

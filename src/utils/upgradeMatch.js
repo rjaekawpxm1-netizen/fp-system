@@ -13,7 +13,7 @@
 //
 // 의존성 0. 기존 fpValidation의 norm과 동일 철학이되 독립 구현(순환참조 방지).
 import { REUSE_TYPE } from './fpConstants';
-import textSimilarity from './textSimilarity.cjs';
+import textSimilarity from './shared/textSimilarity';
 
 const sharedDiceSimilarity = textSimilarity.diceSimilarity;
 
