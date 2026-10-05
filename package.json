@@ -26,6 +26,7 @@
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
+    "postbuild": "node scripts/check-build-assets.cjs",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
   },
