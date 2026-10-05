@@ -12,6 +12,7 @@ import { REUSE_TYPE, REUSE_TYPES } from '../utils/fpConstants';
 import { validateFPRowValues } from '../utils/fpRowValidation';
 import { useFileIngestion } from '../hooks/useFileIngestion';
 import { useFunctionGeneration } from '../hooks/useFunctionGeneration';
+import { summarizeDistribution } from '../utils/fpValidation';
 import { useFPCalculation } from '../hooks/useFPCalculation';
 import { useDerivedTotals } from '../hooks/useDerivedTotals';
 import { getStartButtonState, useServerGenerationJob } from '../hooks/useServerGenerationJob';
@@ -1327,6 +1328,18 @@ const ProjectDetail = ({ projects, onUpdateProject, onCopyProject, onReloadProje
                   }} style={S.btnOutline()}>+ 행 추가</button>
                 </div>
               </div>
+
+              {/* 분포 검증 요약 (산정 직후에도 항상 노출) */}
+              {(() => {
+                const notes = summarizeDistribution(fpList);
+                if (!notes.length) return null;
+                return (
+                  <div data-testid="fp-distribution-banner" style={{background:'#fffbeb',border:'1px solid #fcd34d',borderRadius:8,padding:'10px 14px',marginBottom:12,fontSize:12,color:'#92400e',display:'flex',flexDirection:'column',gap:4}}>
+                    <strong>분포 검증</strong>
+                    {notes.map((note,i)=><div key={i}>{note}</div>)}
+                  </div>
+                );
+              })()}
 
               {/* FP 검증 */}
               {showValidation && (() => {

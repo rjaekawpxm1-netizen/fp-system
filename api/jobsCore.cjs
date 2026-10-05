@@ -81,7 +81,7 @@ const prompts = {
       existingInDomain,
     });
   },
-  dataGroups: state => promptCore.getDataGroupPrompt(state.functions || [], state.systemName || '정보시스템', state.input?.rfpText || ''),
+  dataGroups: state => promptCore.getDataGroupPrompt(state.functions || [], state.systemName || '정보시스템', pipelineCore.extractInterfaceText(state.input?.rfpText || '', 8000)),
   fpClassify: (chunk, state) => promptCore.getFPClassifyPrompt(chunk, state.dataGroupNames || []),
 };
 

@@ -257,7 +257,7 @@ const getDataGroupPrompt = (functions, systemName, rfpSnippet = '') => {
 
 ## 기능 구조 (LV1 > LV2)
 ${lv1lv2.slice(0, 80).join('\n')}
-${rfpSnippet ? `\n## RFP 발췌 (외부 연동체계 식별용)\n${rfpSnippet.slice(0, 5000)}` : ''}
+${rfpSnippet ? `\n## RFP 발췌 (외부 연계·연동 체계 식별용 — 연계/연동/인터페이스 관련 문단 우선)\n${rfpSnippet.slice(0, 8000)}` : ''}
 
 ## ILF (내부논리파일) 도출 원칙
 - ILF = 이 시스템이 직접 생성/수정하는 "논리적 데이터그룹" (엔터티 군)

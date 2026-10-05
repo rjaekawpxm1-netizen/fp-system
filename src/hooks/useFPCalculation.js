@@ -1,6 +1,6 @@
 import { generateFPList, deriveDataGroups } from '../utils/claudeApi';
 import { calcTotalFP } from '../utils/fpCalculator';
-import { validateAll } from '../utils/fpValidation';
+import { validateAll, summarizeDistribution } from '../utils/fpValidation';
 import { REUSE_TYPE } from '../utils/fpConstants';
 import { isDataFunction, mergeRecalculatedFPRows } from '../utils/fpList';
 

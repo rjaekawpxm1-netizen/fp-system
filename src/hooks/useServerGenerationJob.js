@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { summarizeDistribution } from '../utils/fpValidation';
 import { cancelJob, confirmJob, getActiveJob, getJob, resumeJob, startJob } from '../utils/jobApi';
 
 const ACTIVE = new Set(['queued', 'running', 'awaiting_confirmation', 'paused_quota']);
@@ -99,7 +100,11 @@ export const useServerGenerationJob = ({
         ? (refreshed.fpList || []).length
         : (refreshed.functions || []).length;
       const label = completedJob.type === 'fp' ? 'FP 항목' : '기능';
-      setCompletionSync({ status: 'success', message: `✅ 완료: ${label} ${count}개로 반영했습니다.` });
+      const notes = completedJob.type === 'fp' ? summarizeDistribution(refreshed.fpList || []) : [];
+      setCompletionSync({
+        status: 'success',
+        message: `✅ 완료: ${label} ${count}개로 반영했습니다.${notes.length ? ` [분포 검증] ${notes.join(' / ')}` : ''}`,
+      });
       dismissCompletedJob(completedJob.id);
       return refreshed;
     } catch (error) {

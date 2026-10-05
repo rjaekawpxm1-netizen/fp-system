@@ -545,7 +545,7 @@ export const generateFPList = async (functions, onProgress, dataGroupNames = [])
 // 변경: AI가 기능 구조에서 논리 데이터그룹을 도출 (근거 LV2 목록 포함),
 //   EIF는 RFP 근거 문장이 있는 것만.
 export const deriveDataGroups = async (functions, systemName, rfpText = '') => {
-  const raw = await callAPI(getDataGroupPrompt(functions, systemName, rfpText), 3000);
+  const raw = await callAPI(getDataGroupPrompt(functions, systemName, pipelineCore.extractInterfaceText(rfpText, 8000)), 3000);
   const parsed = parseJSON(raw);
   return pipelineCore.normalizeDataGroups(parsed, deriveDataFunctionMetrics);
 };

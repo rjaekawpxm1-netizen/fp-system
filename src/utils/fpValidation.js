@@ -27,6 +27,14 @@ export const validateDistribution = (fpList) => {
     });
   }
 
+  // EIF 0건: 정부 시스템은 외부 연계가 거의 항상 존재 — RFP 근거 누락 의심
+  if (tx.length > 0 && !fpList.some(f => f.fpType === 'EIF')) {
+    issues.push({
+      severity: 'warning', type: 'EIF없음',
+      message: 'EIF 0건 — RFP 연계 요구 확인',
+    });
+  }
+
   // 복잡도 분포: 실측 통상치 L 50~65% / M 25~40% / H 5~15%
   if (tx.length >= 20) {
     const dist = { low: 0, medium: 0, high: 0 };
@@ -156,3 +164,7 @@ export const validateAll = (functions, fpList, targetCount) => {
   issues.push(...validateDistribution(fpList));
   return issues;
 };
+
+// 산정 완료 직후 사용자에게 보여줄 분포 검증 요약 (오류·경고 메시지 목록)
+export const summarizeDistribution = (fpList) =>
+  validateDistribution(fpList).map(issue => `${issue.severity === 'error' ? '⛔' : '⚠'} ${issue.message}`);

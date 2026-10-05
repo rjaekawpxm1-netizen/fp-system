@@ -133,6 +133,27 @@ const parseClassifiedRow = (row, knownNames = []) => {
   return { fpType: row?.fpType, refGroups: unique.slice(0, 5) };
 };
 
+// EIF 식별용 RFP 발췌: 연계·연동·인터페이스 관련 문단을 문서 순서대로 우선 추출한다.
+const INTERFACE_KEYWORDS = /연계|연동|인터페이스|외부\s*기관|타\s*시스템|API/i;
+const extractInterfaceText = (text, budget = 8000) => {
+  const source = String(text || '');
+  if (!source) return '';
+  const paragraphs = source.split(/\n{2,}/).flatMap(block => {
+    if (block.length <= 1500) return [block];
+    return block.split('\n');
+  }).map(block => block.trim()).filter(Boolean);
+  const picked = [];
+  let used = 0;
+  for (const paragraph of paragraphs) {
+    if (!INTERFACE_KEYWORDS.test(paragraph)) continue;
+    const piece = paragraph.slice(0, budget);
+    if (used + piece.length + 2 > budget) continue;
+    picked.push(piece);
+    used += piece.length + 2;
+  }
+  return picked.length ? picked.join('\n\n') : source.slice(0, budget);
+};
+
 const normalizeDataGroups = (parsed, deriveDataFunctionMetrics) => ({
   ilf: (parsed?.ilf || []).filter(group => group.name).map(group => ({
     name: String(group.name).trim(),
@@ -222,6 +243,7 @@ const assembleFPList = ({
 module.exports = {
   applyFPClassifications,
   assembleFPList,
+  extractInterfaceText,
   crossLv1Dedup,
   finalizeDomainFunctions,
   mergeGeneratedFunctions,
